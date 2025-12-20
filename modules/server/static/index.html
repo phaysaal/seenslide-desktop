@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>SeenSlide Viewer</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>SeenSlide Viewer</h1>
+            <div class="session-info">
+                <select id="sessionSelect" class="session-select">
+                    <option value="">Select a session...</option>
+                </select>
+                <span id="connectionStatus" class="status disconnected">●</span>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Slide Viewer -->
+            <div class="slide-viewer">
+                <div id="slideContainer" class="slide-container">
+                    <div class="no-slide">
+                        <p>Select a session to view slides</p>
+                    </div>
+                </div>
+
+                <!-- Navigation Controls -->
+                <div class="controls">
+                    <!-- First Row: Main navigation -->
+                    <div class="controls-row">
+                        <button id="firstBtn" class="nav-btn" title="First Slide">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M11 19l-7-7 7-7m0 14l7-7-7-7"/>
+                                <path d="M6 5v14"/>
+                            </svg>
+                        </button>
+
+                        <button id="prevBtn" class="nav-btn" title="Previous Slide">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M15 19l-7-7 7-7"/>
+                            </svg>
+                        </button>
+
+                        <div class="slide-counter">
+                            <input type="number" id="slideInput" class="slide-input" min="1" value="1">
+                            <span> / </span>
+                            <span id="totalSlides">0</span>
+                        </div>
+
+                        <button id="nextBtn" class="nav-btn" title="Next Slide">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M9 5l7 7-7 7"/>
+                            </svg>
+                        </button>
+
+                        <button id="lastBtn" class="nav-btn" title="Last Slide">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M13 5l7 7-7 7m0-14l-7 7 7 7"/>
+                                <path d="M18 5v14"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- Second Row: View controls -->
+                    <div class="controls-row">
+                        <button id="liveBtn" class="live-btn" title="Go to latest slide">LIVE</button>
+
+                        <button id="fullscreenBtn" class="nav-btn" title="Fullscreen (F)">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" stroke-width="2"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Slide Info -->
+                <div class="slide-info">
+                    <div class="info-item">
+                        <span class="label">Timestamp:</span>
+                        <span id="slideTimestamp">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">Dimensions:</span>
+                        <span id="slideDimensions">--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">Session:</span>
+                        <span id="sessionName">--</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar (Thumbnail View) -->
+            <aside class="sidebar">
+                <h3>Thumbnails</h3>
+                <div id="thumbnailGrid" class="thumbnail-grid">
+                    <!-- Thumbnails will be loaded here -->
+                </div>
+            </aside>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>SeenSlide v1.0 | Real-time Presentation Capture</p>
+        </footer>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+        <div class="spinner"></div>
+        <p>Loading...</p>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

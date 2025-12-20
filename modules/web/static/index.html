@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SeenSlide - Slide Viewer</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>SeenSlide</h1>
+            <p class="subtitle">Real-time Slide Navigation System</p>
+            <div class="status">
+                <span id="connection-status" class="status-indicator disconnected">Disconnected</span>
+            </div>
+        </header>
+
+        <main>
+            <div class="session-selector">
+                <label for="session-select">Session:</label>
+                <select id="session-select">
+                    <option value="">Select a session...</option>
+                </select>
+                <button id="refresh-sessions">Refresh</button>
+            </div>
+
+            <div id="session-info" class="session-info" style="display: none;">
+                <h2 id="session-name"></h2>
+                <p id="session-description"></p>
+                <p>Presenter: <span id="session-presenter"></span></p>
+                <p>Total Slides: <span id="session-slide-count">0</span></p>
+                <p>Status: <span id="session-status"></span></p>
+            </div>
+
+            <div class="slides-container">
+                <div class="current-slide">
+                    <h3>Current Slide (<span id="current-slide-number">0</span> / <span id="total-slides">0</span>)</h3>
+                    <div id="current-slide-display" class="slide-display">
+                        <p class="no-slide-message">No slide selected</p>
+                    </div>
+                    <div class="slide-controls">
+                        <button id="prev-slide" disabled>Previous</button>
+                        <button id="next-slide" disabled>Next</button>
+                    </div>
+                </div>
+
+                <div class="thumbnail-grid">
+                    <h3>All Slides</h3>
+                    <div id="thumbnail-container" class="thumbnails">
+                        <p class="no-slides-message">No slides available</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>SeenSlide v1.0.0 | <a href="/api/docs">API Docs</a></p>
+        </footer>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>
