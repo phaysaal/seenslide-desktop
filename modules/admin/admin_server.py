@@ -10,6 +10,7 @@ Provides:
 
 import logging
 import io
+import yaml
 from typing import Optional, Dict
 from pathlib import Path
 from datetime import datetime
@@ -21,9 +22,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from core.models.user import User
+from core.models.capture_mode import CaptureMode
 from core.auth.auth_utils import AuthUtils, SessionManager
+from core.session.persistent_session_manager import PersistentSessionManager
 from modules.storage.user_storage import UserStorage
 from modules.storage.providers.sqlite_provider import SQLiteStorageProvider
+from modules.storage.providers.cloud_provider import CloudStorageProvider
 from seenslide.orchestrator import SeenSlideOrchestrator
 
 logger = logging.getLogger(__name__)
@@ -78,6 +82,9 @@ class AdminServer:
         self.port = port
         self.viewer_port = viewer_port
 
+        # Load configuration file
+        self.config = self._load_config()
+
         # Initialize FastAPI app
         self.app = FastAPI(
             title="SeenSlide Admin",
@@ -108,9 +115,26 @@ class AdminServer:
         # Session manager
         self.session_manager = SessionManager()
 
-        # Active capture orchestrator (if any)
-        self.active_orchestrator: Optional[SeenSlideOrchestrator] = None
+        # Persistent session manager
+        self.persistent_session_manager = PersistentSessionManager()
+        self.persistent_session = self.persistent_session_manager.load_or_create_session(
+            default_name="SeenSlide Session"
+        )
+        logger.info(f"Persistent session loaded: {self.persistent_session['session_id']}")
+
+        # Cloud storage provider (for persistent session)
+        self.cloud_provider = CloudStorageProvider()
+        if self.config.get('cloud'):
+            self.cloud_provider.initialize(self.config['cloud'])
+            # Create cloud session immediately
+            self._create_persistent_cloud_session()
+
+        # Persistent idle capture orchestrator
+        self.idle_orchestrator: Optional[SeenSlideOrchestrator] = None
+
+        # Active talk session info
         self.active_session_id: Optional[str] = None
+        self.active_talk_name: Optional[str] = None
 
         # Viewer server process
         self.viewer_process = None
@@ -119,7 +143,120 @@ class AdminServer:
         # Setup routes
         self._setup_routes()
 
+        # Start idle capture to keep portal session alive
+        self._start_idle_capture()
+
         logger.info(f"Admin server initialized at {host}:{port}")
+
+    def _load_config(self) -> Dict:
+        """Load configuration from file.
+
+        Returns:
+            Configuration dictionary
+        """
+        # Try user config first, then dev config, then defaults
+        config_path = Path.home() / ".config" / "seenslide" / "config.yaml"
+        if not config_path.exists():
+            config_path = Path(__file__).parent.parent.parent / "dev" / "config_wayland.yaml"
+            if not config_path.exists():
+                config_path = None
+
+        if config_path and config_path.exists():
+            try:
+                with open(config_path, 'r') as f:
+                    config = yaml.safe_load(f)
+                    logger.info(f"Loaded config from: {config_path}")
+                    return config
+            except Exception as e:
+                logger.error(f"Failed to load config: {e}")
+
+        # Return defaults
+        return {}
+
+    def _create_persistent_cloud_session(self) -> None:
+        """Create cloud session for persistent session on startup."""
+        if not self.cloud_provider.enabled:
+            logger.info("Cloud sync disabled, skipping cloud session creation")
+            return
+
+        # Check if cloud session already exists
+        if self.persistent_session.get('cloud_session_id'):
+            logger.info(f"Cloud session already exists: {self.persistent_session['cloud_session_id']}")
+            # Verify it's still valid or create new one
+            # For now, we'll keep the existing one
+            self.cloud_provider.cloud_session_id = self.persistent_session['cloud_session_id']
+            return
+
+        # Create new cloud session
+        try:
+            session_name = self.persistent_session.get('session_name', 'SeenSlide Session')
+            cloud_session_id = self.cloud_provider.start_session(
+                session_id=self.persistent_session['session_id'],
+                session_name=session_name,
+                description="Persistent session for multiple talks",
+                presenter_name="Admin"
+            )
+
+            if cloud_session_id:
+                # Update persistent session with cloud ID
+                self.persistent_session_manager.update_cloud_session_id(cloud_session_id)
+                self.persistent_session['cloud_session_id'] = cloud_session_id
+                logger.info(f"✅ Cloud session created on startup: {cloud_session_id}")
+                logger.info(f"📺 Viewer URL: {self.cloud_provider.api_url}/{cloud_session_id}")
+            else:
+                logger.warning("Failed to create cloud session on startup")
+        except Exception as e:
+            logger.error(f"Error creating cloud session on startup: {e}", exc_info=True)
+
+    def _start_idle_capture(self) -> None:
+        """Start idle mode capture to keep portal session alive."""
+        try:
+            logger.info("Starting idle mode capture...")
+
+            # Create orchestrator in IDLE mode
+            config_path = Path.home() / ".config" / "seenslide" / "config.yaml"
+            if not config_path.exists():
+                config_path = Path(__file__).parent.parent.parent / "dev" / "config_wayland.yaml"
+                if not config_path.exists():
+                    config_path = None
+
+            self.idle_orchestrator = SeenSlideOrchestrator(
+                config_path=str(config_path) if config_path else None
+            )
+
+            # Inject FULL cloud config with persistent session ID
+            if self.cloud_provider.enabled and self.cloud_provider.cloud_session_id:
+                # Copy entire cloud config from self.config, then add existing_session_id
+                if 'cloud' not in self.idle_orchestrator.config:
+                    self.idle_orchestrator.config['cloud'] = {}
+
+                # Copy cloud settings from loaded config
+                cloud_config = self.config.get('cloud', {})
+                self.idle_orchestrator.config['cloud'].update(cloud_config)
+
+                # Inject persistent cloud session ID
+                self.idle_orchestrator.config['cloud']['existing_session_id'] = self.cloud_provider.cloud_session_id
+
+                logger.info(f"Injected full cloud config with session ID: {self.cloud_provider.cloud_session_id}")
+
+            # Start in IDLE mode
+            success = self.idle_orchestrator.start_session(
+                session_name="Idle Capture",
+                description="Keeping portal session alive",
+                presenter_name="System",
+                monitor_id=1,
+                mode=CaptureMode.IDLE
+            )
+
+            if success:
+                logger.info("✅ Idle mode capture started - portal permission will be requested once")
+            else:
+                logger.warning("Failed to start idle capture - permission dialogs may appear for each talk")
+                self.idle_orchestrator = None
+
+        except Exception as e:
+            logger.error(f"Error starting idle capture: {e}", exc_info=True)
+            self.idle_orchestrator = None
 
     def _get_current_user(self, session_token: Optional[str] = Cookie(None)) -> User:
         """Get current authenticated user.
@@ -210,6 +347,62 @@ class AdminServer:
             """Get current user information."""
             return current_user.to_dict()
 
+        # Persistent Session Endpoints
+        @self.app.get("/api/persistent-session")
+        async def get_persistent_session(
+            current_user: User = Depends(self._get_current_user)
+        ):
+            """Get persistent session information."""
+            cloud_url = None
+            if self.cloud_provider.cloud_session_id:
+                cloud_url = f"{self.cloud_provider.api_url}/{self.cloud_provider.cloud_session_id}"
+
+            return {
+                "session_id": self.persistent_session['session_id'],
+                "session_name": self.persistent_session['session_name'],
+                "created_at": self.persistent_session['created_at'],
+                "last_reset": self.persistent_session.get('last_reset'),
+                "cloud_session_id": self.cloud_provider.cloud_session_id,
+                "cloud_api_url": self.cloud_provider.api_url,
+                "cloud_viewer_url": cloud_url,
+                "cloud_enabled": self.cloud_provider.enabled
+            }
+
+        @self.app.post("/api/persistent-session/reset")
+        async def reset_persistent_session(
+            current_user: User = Depends(self._get_current_user)
+        ):
+            """Reset persistent session with new ID."""
+            try:
+                # Reset persistent session
+                self.persistent_session = self.persistent_session_manager.reset_session()
+                logger.info(f"Persistent session reset to: {self.persistent_session['session_id']}")
+
+                # Create new cloud session if enabled
+                if self.cloud_provider.enabled:
+                    session_name = self.persistent_session.get('session_name', 'SeenSlide Session')
+                    cloud_session_id = self.cloud_provider.start_session(
+                        session_id=self.persistent_session['session_id'],
+                        session_name=session_name,
+                        description="Persistent session for multiple talks",
+                        presenter_name="Admin"
+                    )
+
+                    if cloud_session_id:
+                        self.persistent_session_manager.update_cloud_session_id(cloud_session_id)
+                        self.persistent_session['cloud_session_id'] = cloud_session_id
+                        logger.info(f"✅ New cloud session created: {cloud_session_id}")
+
+                return {
+                    "success": True,
+                    "message": "Persistent session reset successfully",
+                    "session_id": self.persistent_session['session_id'],
+                    "cloud_session_id": self.cloud_provider.cloud_session_id
+                }
+            except Exception as e:
+                logger.error(f"Failed to reset persistent session: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
         @self.app.get("/api/sessions")
         async def list_sessions(
             current_user: User = Depends(self._get_current_user)
@@ -240,12 +433,20 @@ class AdminServer:
             request: SessionStartRequest,
             current_user: User = Depends(self._get_current_user)
         ):
-            """Start a new capture session and viewer server."""
+            """Start a talk (switch from IDLE to ACTIVE mode)."""
             try:
-                if self.active_orchestrator:
+                # Check if already in active talk
+                if self.active_session_id:
                     return SessionControlResponse(
                         success=False,
-                        message="A capture session is already running"
+                        message="A talk is already in progress. Please stop the current talk first."
+                    )
+
+                # Check if idle orchestrator exists
+                if not self.idle_orchestrator or not self.idle_orchestrator.is_running():
+                    return SessionControlResponse(
+                        success=False,
+                        message="Idle capture not running. Please restart admin server."
                     )
 
                 # Start viewer server if not running
@@ -268,105 +469,173 @@ class AdminServer:
                     self.viewer_running = True
                     logger.info(f"Auto-started viewer server on port {self.viewer_port}")
 
-                # Create orchestrator with config
-                config_path = Path(__file__).parent.parent.parent / "dev" / "config_wayland.yaml"
-                if not config_path.exists():
-                    config_path = None  # Use defaults
-
-                self.active_orchestrator = SeenSlideOrchestrator(
-                    config_path=str(config_path) if config_path else None
+                # Create a new session for this talk
+                from core.models.session import Session
+                new_session = Session(
+                    name=request.name,
+                    description=request.description or "",
+                    presenter_name=request.presenter_name or "Unknown",
+                    capture_interval_seconds=self.idle_orchestrator.config.get("capture", {}).get("interval_seconds", 2.0),
+                    dedup_strategy=self.idle_orchestrator.config.get("deduplication", {}).get("strategy", "hash")
                 )
 
+                logger.info(f"Created new session for talk: {request.name} ({new_session.session_id})")
+
+                # Store the new session in the database
+                self.db_provider.create_session(new_session)
+                logger.info(f"Stored new session in database: {new_session.session_id}")
+
+                # Create filesystem directories for the new session
+                if self.idle_orchestrator.storage_manager:
+                    if self.idle_orchestrator.storage_manager._filesystem:
+                        self.idle_orchestrator.storage_manager._filesystem.create_session(new_session)
+                        logger.info(f"Created filesystem directories for session: {new_session.session_id}")
+
+                # Update the orchestrator to use this new session
+                success = self.idle_orchestrator.update_session(new_session)
+                if not success:
+                    return SessionControlResponse(
+                        success=False,
+                        message="Failed to update session in orchestrator"
+                    )
+
                 # Update deduplication tolerance in config
-                if 'deduplication' not in self.active_orchestrator.config:
-                    self.active_orchestrator.config['deduplication'] = {}
-                self.active_orchestrator.config['deduplication']['perceptual_threshold'] = request.dedup_tolerance
+                if 'deduplication' not in self.idle_orchestrator.config:
+                    self.idle_orchestrator.config['deduplication'] = {}
+                self.idle_orchestrator.config['deduplication']['perceptual_threshold'] = request.dedup_tolerance
 
                 logger.info(f"Using deduplication perceptual threshold: {request.dedup_tolerance} "
                            f"(tolerance level: {int((1.0 - request.dedup_tolerance) * 100)}%)")
 
-                # Start session
-                success = self.active_orchestrator.start_session(
-                    session_name=request.name,
-                    description=request.description,
-                    presenter_name=request.presenter_name,
-                    monitor_id=request.monitor_id
-                )
-
+                # Switch to ACTIVE mode
+                success = self.idle_orchestrator.set_capture_mode(CaptureMode.ACTIVE)
                 if not success:
-                    self.active_orchestrator = None
                     return SessionControlResponse(
                         success=False,
-                        message="Failed to start capture session"
+                        message="Failed to switch to active mode"
                     )
 
-                # Get session ID
-                stats = self.active_orchestrator.get_statistics()
-                session_id = stats.get("session", {}).get("session_id")
-                self.active_session_id = session_id
+                # Store active talk info
+                self.active_session_id = new_session.session_id
+                self.active_talk_name = request.name
 
-                logger.info(f"Started capture session: {session_id}")
+                logger.info(f"✅ Started talk '{request.name}' (switched to ACTIVE mode)")
+
+                # Get cloud viewer URL
+                viewer_url = None
+                if self.cloud_provider.cloud_session_id:
+                    viewer_url = f"{self.cloud_provider.api_url}/{self.cloud_provider.cloud_session_id}"
+                    logger.info(f"📺 Cloud Viewer URL: {viewer_url}")
+
+                message = f"Talk '{request.name}' started successfully"
+                if viewer_url:
+                    message += f"\n📺 Cloud Viewer: {viewer_url}"
 
                 return SessionControlResponse(
                     success=True,
-                    message="Capture session and viewer server started successfully",
-                    session_id=session_id
+                    message=message,
+                    session_id=self.active_session_id
                 )
 
             except Exception as e:
-                logger.error(f"Error starting session: {e}")
-                self.active_orchestrator = None
+                logger.error(f"Error starting talk: {e}", exc_info=True)
+                # Try to switch back to idle on error
+                if self.idle_orchestrator:
+                    try:
+                        self.idle_orchestrator.set_capture_mode(CaptureMode.IDLE)
+                    except:
+                        pass
                 self.active_session_id = None
+                self.active_talk_name = None
                 raise HTTPException(status_code=500, detail=str(e))
 
         @self.app.post("/api/sessions/stop")
         async def stop_session(
             current_user: User = Depends(self._get_current_user)
         ):
-            """Stop the active capture session."""
+            """Stop current talk (switch from ACTIVE to IDLE mode)."""
             try:
-                if not self.active_orchestrator:
+                if not self.active_session_id:
                     return SessionControlResponse(
                         success=False,
-                        message="No active capture session"
+                        message="No active talk to stop"
                     )
 
+                talk_name = self.active_talk_name
                 session_id = self.active_session_id
 
-                # Stop session
-                self.active_orchestrator.stop_session()
-                self.active_orchestrator = None
-                self.active_session_id = None
+                # Switch back to IDLE mode
+                if self.idle_orchestrator and self.idle_orchestrator.is_running():
+                    success = self.idle_orchestrator.set_capture_mode(CaptureMode.IDLE)
+                    if success:
+                        logger.info(f"✅ Stopped talk '{talk_name}' (switched back to IDLE mode)")
+                    else:
+                        logger.warning("Failed to switch to idle mode")
+                else:
+                    logger.warning("Idle orchestrator not running")
 
-                logger.info(f"Stopped capture session: {session_id}")
+                # Clear active talk info
+                self.active_session_id = None
+                self.active_talk_name = None
 
                 return SessionControlResponse(
                     success=True,
-                    message="Capture session stopped successfully",
+                    message=f"Talk '{talk_name}' stopped successfully",
                     session_id=session_id
                 )
 
             except Exception as e:
-                logger.error(f"Error stopping session: {e}")
+                logger.error(f"Error stopping talk: {e}", exc_info=True)
+                # Still clear the active session info
+                self.active_session_id = None
+                self.active_talk_name = None
                 raise HTTPException(status_code=500, detail=str(e))
 
         @self.app.get("/api/sessions/status")
         async def get_session_status(
             current_user: User = Depends(self._get_current_user)
         ):
-            """Get status of active capture session."""
-            if not self.active_orchestrator:
+            """Get status of current talk."""
+            # Get cloud session info (always available with persistent session)
+            cloud_session_id = self.cloud_provider.cloud_session_id
+            cloud_viewer_url = None
+            if cloud_session_id:
+                cloud_viewer_url = f"{self.cloud_provider.api_url}/{cloud_session_id}"
+
+            # Check if idle orchestrator is running
+            if not self.idle_orchestrator or not self.idle_orchestrator.is_running():
                 return {
                     "active": False,
-                    "session_id": None
+                    "session_id": None,
+                    "idle_running": False,
+                    "cloud_session_id": cloud_session_id,
+                    "cloud_viewer_url": cloud_viewer_url
                 }
 
-            stats = self.active_orchestrator.get_statistics()
-            return {
-                "active": True,
-                "session_id": self.active_session_id,
-                "stats": stats
-            }
+            # Check if in active talk mode
+            mode = self.idle_orchestrator.get_capture_mode()
+            is_active = (mode == CaptureMode.ACTIVE and self.active_session_id is not None)
+
+            if is_active:
+                # Get statistics from idle orchestrator
+                stats = self.idle_orchestrator.get_statistics()
+                return {
+                    "active": True,
+                    "session_id": self.active_session_id,
+                    "talk_name": self.active_talk_name,
+                    "stats": stats,
+                    "cloud_session_id": cloud_session_id,
+                    "cloud_viewer_url": cloud_viewer_url
+                }
+            else:
+                # In idle mode
+                return {
+                    "active": False,
+                    "session_id": None,
+                    "idle_running": True,
+                    "cloud_session_id": cloud_session_id,
+                    "cloud_viewer_url": cloud_viewer_url
+                }
 
         @self.app.delete("/api/sessions/{session_id}")
         async def delete_session(
@@ -532,25 +801,29 @@ class AdminServer:
         async def get_qr_code(
             current_user: User = Depends(self._get_current_user)
         ):
-            """Generate QR code for viewer URL."""
+            """Generate QR code for viewer URL (persistent cloud session if available, otherwise local)."""
             try:
                 import qrcode
 
-                # Get actual LAN IP address
-                import socket
-                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                try:
-                    # Connect to an external address (doesn't actually send data)
-                    s.connect(('8.8.8.8', 80))
-                    ip_address = s.getsockname()[0]
-                except Exception:
-                    # Fallback to hostname method
-                    ip_address = socket.gethostbyname(socket.gethostname())
-                finally:
-                    s.close()
+                # Try to get persistent cloud URL first
+                viewer_url = None
+                if self.cloud_provider.cloud_session_id:
+                    viewer_url = f"{self.cloud_provider.api_url}/{self.cloud_provider.cloud_session_id}"
+                    logger.info(f"QR code for persistent cloud URL: {viewer_url}")
 
-                # Generate viewer URL
-                viewer_url = f"http://{ip_address}:{self.viewer_port}"
+                # Fallback to local LAN URL if no cloud URL
+                if not viewer_url:
+                    import socket
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    try:
+                        s.connect(('8.8.8.8', 80))
+                        ip_address = s.getsockname()[0]
+                    except Exception:
+                        ip_address = socket.gethostbyname(socket.gethostname())
+                    finally:
+                        s.close()
+                    viewer_url = f"http://{ip_address}:{self.viewer_port}"
+                    logger.info(f"QR code for local URL: {viewer_url}")
 
                 # Generate QR code
                 qr = qrcode.QRCode(
@@ -585,7 +858,7 @@ class AdminServer:
         async def get_viewer_url(
             current_user: User = Depends(self._get_current_user)
         ):
-            """Get viewer URL."""
+            """Get viewer URL (persistent cloud session if available, otherwise local LAN)."""
             import socket
             # Get actual LAN IP address
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -597,10 +870,21 @@ class AdminServer:
             finally:
                 s.close()
 
+            local_url = f"http://{ip_address}:{self.viewer_port}"
+
+            # Get persistent cloud viewer URL if available
+            cloud_url = None
+            cloud_session_id = self.cloud_provider.cloud_session_id
+            if cloud_session_id:
+                cloud_url = f"{self.cloud_provider.api_url}/{cloud_session_id}"
+
             return {
-                "url": f"http://{ip_address}:{self.viewer_port}",
+                "url": cloud_url if cloud_url else local_url,  # Prefer cloud URL
+                "local_url": local_url,
+                "cloud_url": cloud_url,
                 "port": self.viewer_port,
-                "ip": ip_address
+                "ip": ip_address,
+                "cloud_session_id": cloud_session_id
             }
 
         @self.app.get("/")
