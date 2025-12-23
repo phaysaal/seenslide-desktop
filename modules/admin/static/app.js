@@ -352,7 +352,11 @@ class AdminApp {
                     try {
                         const cloudResponse = await fetch(`${this.cloudApiUrl}/api/cloud/session/${this.cloudSessionId}/start-talk`, {
                             method: 'POST',
-                            headers: {'Content-Type': 'application/json'}
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({
+                                title: name,
+                                description: description
+                            })
                         });
 
                         if (cloudResponse.ok) {
