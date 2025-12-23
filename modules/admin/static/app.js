@@ -9,6 +9,9 @@ class AdminApp {
         this.currentUser = null;
         this.sessions = [];
         this.statusInterval = null;
+        this.cloudEnabled = false;
+        this.cloudSessionId = null;
+        this.cloudApiUrl = null;
 
         this.init();
     }
@@ -49,6 +52,7 @@ class AdminApp {
         this.setupEventListeners();
 
         // Load initial data
+        this.loadPersistentSession();
         this.loadSessions();
         this.updateStatus();
 
@@ -58,6 +62,7 @@ class AdminApp {
 
     setupEventListeners() {
         document.getElementById('logoutBtn').addEventListener('click', () => this.handleLogout());
+        document.getElementById('resetSessionBtn').addEventListener('click', () => this.resetPersistentSession());
         document.getElementById('startViewerBtn').addEventListener('click', () => this.startViewer());
         document.getElementById('stopViewerBtn').addEventListener('click', () => this.stopViewer());
         document.getElementById('startCaptureBtn').addEventListener('click', () => this.startCapture());
@@ -117,6 +122,62 @@ class AdminApp {
         }
     }
 
+    async loadPersistentSession() {
+        try {
+            const response = await fetch('/api/persistent-session');
+            const data = await response.json();
+
+            document.getElementById('persistentSessionId').textContent = data.session_id;
+            document.getElementById('persistentSessionName').textContent = data.session_name;
+
+            // Store cloud session info
+            this.cloudEnabled = data.cloud_enabled || false;
+            this.cloudSessionId = data.cloud_session_id || null;
+            this.cloudApiUrl = data.cloud_api_url || null;
+
+            if (data.cloud_enabled) {
+                if (data.cloud_session_id) {
+                    document.getElementById('cloudStatus').innerHTML =
+                        `<span style="color: #10b981;">✅ Connected</span> - <a href="${data.cloud_viewer_url}" target="_blank">${data.cloud_session_id}</a>`;
+                } else {
+                    document.getElementById('cloudStatus').innerHTML = '<span style="color: #f59e0b;">⏳ Initializing...</span>';
+                }
+            } else {
+                document.getElementById('cloudStatus').innerHTML = '<span style="color: #6b7280;">Disabled</span>';
+            }
+
+            // Load QR code and viewer URL (always available now)
+            this.loadViewerInfo();
+        } catch (error) {
+            console.error('Error loading persistent session:', error);
+            document.getElementById('cloudStatus').innerHTML = '<span style="color: #ef4444;">❌ Error</span>';
+        }
+    }
+
+    async resetPersistentSession() {
+        if (!confirm('Are you sure you want to reset the session ID? This will generate a new QR code and viewers will need the new link.')) {
+            return;
+        }
+
+        this.showLoading();
+        try {
+            const response = await fetch('/api/persistent-session/reset', {method: 'POST'});
+            const data = await response.json();
+
+            if (data.success) {
+                this.showNotification('Session ID reset successfully! New QR code generated.', 'success');
+                await this.loadPersistentSession();
+            } else {
+                this.showNotification(data.message || 'Failed to reset session ID', 'error');
+            }
+        } catch (error) {
+            console.error('Reset session error:', error);
+            this.showNotification('Failed to reset session ID', 'error');
+        } finally {
+            this.hideLoading();
+        }
+    }
+
     async updateStatus() {
         try {
             // Get capture status
@@ -157,18 +218,16 @@ class AdminApp {
                 viewerInfoEl.textContent = `Port: ${viewerData.port}`;
                 document.getElementById('startViewerBtn').disabled = true;
                 document.getElementById('stopViewerBtn').disabled = false;
-
-                // Load viewer URL and QR code
-                this.loadViewerInfo();
             } else {
                 viewerStatusEl.textContent = 'Stopped';
                 viewerStatusEl.className = 'status-badge inactive';
                 viewerInfoEl.textContent = 'Viewer server is not running';
                 document.getElementById('startViewerBtn').disabled = false;
                 document.getElementById('stopViewerBtn').disabled = true;
-                document.getElementById('qrCode').style.display = 'none';
-                document.getElementById('viewerUrl').textContent = '';
             }
+
+            // Note: QR code and viewer URL are now shown in the persistent session section
+            // and loaded once on page load, not in the status update loop
 
         } catch (error) {
             console.error('Status update error:', error);
@@ -180,12 +239,23 @@ class AdminApp {
             const urlResp = await fetch('/api/viewer-url');
             const urlData = await urlResp.json();
 
-            document.getElementById('viewerUrl').textContent = urlData.url;
+            // Show cloud URL if available, otherwise local URL
+            const viewerUrlEl = document.getElementById('viewerUrl');
+            if (urlData.cloud_url) {
+                viewerUrlEl.innerHTML = `<strong>🌐 Cloud Viewer:</strong> <a href="${urlData.cloud_url}" target="_blank">${urlData.cloud_url}</a><br>` +
+                    `<small style="color: #6b7280;">Session ID: ${urlData.cloud_session_id}</small>`;
+            } else {
+                viewerUrlEl.innerHTML = `<strong>📡 Local Viewer:</strong> ${urlData.local_url}`;
+            }
 
-            // Load QR code
+            // Load QR code (points to cloud URL if available, otherwise local)
             const qrImg = document.getElementById('qrCode');
             qrImg.src = '/api/qr?' + new Date().getTime();
             qrImg.style.display = 'block';
+            qrImg.onerror = function() {
+                console.error('Failed to load QR code');
+                this.style.display = 'none';
+            };
         } catch (error) {
             console.error('Error loading viewer info:', error);
         }
@@ -276,7 +346,30 @@ class AdminApp {
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 await this.updateStatus();
                 await this.loadSessions();
-                this.showNotification('Capture session started successfully', 'success');
+
+                // Start cloud talk if cloud enabled
+                if (this.cloudEnabled && this.cloudSessionId && this.cloudApiUrl) {
+                    try {
+                        const cloudResponse = await fetch(`${this.cloudApiUrl}/api/cloud/session/${this.cloudSessionId}/start-talk`, {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'}
+                        });
+
+                        if (cloudResponse.ok) {
+                            const cloudData = await cloudResponse.json();
+                            console.log('Cloud talk started:', cloudData.talk.talk_id);
+                            this.showNotification('Capture and cloud talk started successfully', 'success');
+                        } else {
+                            console.error('Failed to start cloud talk:', await cloudResponse.text());
+                            this.showNotification('Capture started (cloud talk failed)', 'warning');
+                        }
+                    } catch (cloudError) {
+                        console.error('Cloud talk start error:', cloudError);
+                        this.showNotification('Capture started (cloud talk error)', 'warning');
+                    }
+                } else {
+                    this.showNotification('Capture session started successfully', 'success');
+                }
 
                 // Clear form
                 document.getElementById('sessionName').value = '';
@@ -312,11 +405,33 @@ class AdminApp {
             const data = await response.json();
 
             if (data.success) {
+                // End cloud talk if cloud enabled
+                if (this.cloudEnabled && this.cloudSessionId && this.cloudApiUrl) {
+                    try {
+                        const cloudResponse = await fetch(`${this.cloudApiUrl}/api/cloud/session/${this.cloudSessionId}/end-talk`, {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'}
+                        });
+
+                        if (cloudResponse.ok) {
+                            console.log('Cloud talk ended successfully');
+                            this.showNotification('Capture and cloud talk stopped successfully', 'success');
+                        } else {
+                            console.error('Failed to end cloud talk:', await cloudResponse.text());
+                            this.showNotification('Capture stopped (cloud talk end failed)', 'warning');
+                        }
+                    } catch (cloudError) {
+                        console.error('Cloud talk end error:', cloudError);
+                        this.showNotification('Capture stopped (cloud talk error)', 'warning');
+                    }
+                } else {
+                    this.showNotification('Capture session stopped successfully', 'success');
+                }
+
                 // Wait a moment for cleanup
                 await new Promise(resolve => setTimeout(resolve, 500));
                 await this.updateStatus();
                 await this.loadSessions();
-                this.showNotification('Capture session stopped successfully', 'success');
             } else {
                 this.showNotification(data.message || 'Failed to stop capture', 'error');
             }
@@ -363,7 +478,10 @@ class AdminApp {
                 </div>
                 ${session.description ? `<p style="color: #6b7280; margin-bottom: 12px;">${session.description}</p>` : ''}
                 <div class="session-actions">
-                    ${!session.is_active ? `<button class="btn btn-danger btn-small" onclick="app.deleteSession('${session.session_id}')">Delete</button>` : ''}
+                    ${!session.is_active ? `
+                        <button class="btn btn-danger btn-small" onclick="app.deleteSession('${session.session_id}')">Delete Local</button>
+                        <button class="btn btn-danger btn-small" onclick="app.deleteCloudSession('${session.session_id}')" style="background: #dc2626;">Delete from Cloud</button>
+                    ` : ''}
                 </div>
             </div>
         `).join('');
@@ -385,6 +503,31 @@ class AdminApp {
             }
         } catch (error) {
             this.showNotification('Failed to delete session', 'error');
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    async deleteCloudSession(sessionId) {
+        if (!confirm('Are you sure you want to delete this session from the cloud? All slides will be permanently deleted from cloud storage.')) return;
+
+        this.showLoading();
+        try {
+            // Get cloud URL from viewer info
+            const cloudApiUrl = 'https://web-production-2b06f.up.railway.app';
+            const response = await fetch(`${cloudApiUrl}/api/cloud/session/${sessionId}`, {
+                method: 'DELETE'
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                this.showNotification('Cloud session deleted successfully', 'success');
+            } else {
+                this.showNotification(data.message || 'Failed to delete cloud session', 'error');
+            }
+        } catch (error) {
+            console.error('Cloud deletion error:', error);
+            this.showNotification('Failed to delete cloud session: ' + error.message, 'error');
         } finally {
             this.hideLoading();
         }
