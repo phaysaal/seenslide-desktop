@@ -217,20 +217,13 @@ class AdminServer:
             logger.error(f"Error creating fresh local session: {e}", exc_info=True)
 
     def _create_persistent_cloud_session(self) -> None:
-        """Create cloud session for persistent session on startup."""
+        """Create fresh cloud session for persistent session on startup."""
         if not self.cloud_provider.enabled:
             logger.info("Cloud sync disabled, skipping cloud session creation")
             return
 
-        # Check if cloud session already exists
-        if self.persistent_session.get('cloud_session_id'):
-            logger.info(f"Cloud session already exists: {self.persistent_session['cloud_session_id']}")
-            # Verify it's still valid or create new one
-            # For now, we'll keep the existing one
-            self.cloud_provider.cloud_session_id = self.persistent_session['cloud_session_id']
-            return
-
-        # Create new cloud session
+        # Always create a fresh cloud session on startup to match fresh local session
+        # This ensures cloud and local are in sync
         try:
             session_name = self.persistent_session.get('session_name', 'SeenSlide Session')
             cloud_session_id = self.cloud_provider.start_session(
@@ -241,10 +234,10 @@ class AdminServer:
             )
 
             if cloud_session_id:
-                # Update persistent session with cloud ID
+                # Update persistent session with new cloud ID
                 self.persistent_session_manager.update_cloud_session_id(cloud_session_id)
                 self.persistent_session['cloud_session_id'] = cloud_session_id
-                logger.info(f"✅ Cloud session created on startup: {cloud_session_id}")
+                logger.info(f"✅ Fresh cloud session created on startup: {cloud_session_id}")
                 logger.info(f"📺 Viewer URL: {self.cloud_provider.api_url}/{cloud_session_id}")
             else:
                 logger.warning("Failed to create cloud session on startup")

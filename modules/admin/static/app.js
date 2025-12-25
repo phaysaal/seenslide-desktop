@@ -584,16 +584,29 @@ class AdminApp {
             this.populateSessionSwitcher();
         } catch (error) {
             console.error('Error loading sessions:', error);
+            this.populateSessionSwitcher();  // Still update switcher even on error
         }
     }
 
     populateSessionSwitcher() {
         const switcher = document.getElementById('sessionSwitcher');
+        const displayEl = document.getElementById('currentSessionDisplay');
 
         // Update current session display
+        // Note: currentSessionId is the persistent session ID, which may not be in the local sessions list
         const currentSession = this.sessions.find(s => s.session_id === this.currentSessionId);
         if (currentSession) {
-            document.getElementById('currentSessionDisplay').textContent = `Currently viewing: ${currentSession.name}`;
+            displayEl.textContent = `Currently viewing: ${currentSession.name}`;
+        } else if (this.currentSessionId) {
+            // Show persistent session name if available (when no local sessions match)
+            const persistentName = document.getElementById('persistentSessionName').textContent;
+            if (persistentName && persistentName !== 'Loading...') {
+                displayEl.textContent = `Currently viewing: ${persistentName}`;
+            } else {
+                displayEl.textContent = 'Current session loaded';
+            }
+        } else {
+            displayEl.textContent = 'No session loaded';
         }
 
         // Filter out current session - only show other sessions
