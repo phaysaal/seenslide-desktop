@@ -469,19 +469,41 @@ class AdminApp {
 
     populateSessionSwitcher() {
         const switcher = document.getElementById('sessionSwitcher');
-        if (this.sessions.length === 0) {
-            switcher.innerHTML = '<option value="">No local sessions found</option>';
+
+        // Load current session from API or use first session as current
+        this.loadCurrentSession();
+
+        // Filter out current session - only show other sessions
+        const otherSessions = this.sessions.filter(s => s.session_id !== this.currentSessionId);
+
+        if (otherSessions.length === 0) {
+            switcher.innerHTML = '<option value="">No other sessions</option>';
             return;
         }
 
-        switcher.innerHTML = this.sessions.map(session => `
+        switcher.innerHTML = otherSessions.map(session => `
             <option value="${session.session_id}">${session.name} (${session.session_id})</option>
         `).join('');
 
-        // Select first session by default
-        if (this.sessions.length > 0) {
-            switcher.value = this.sessions[0].session_id;
-            this.switchSession(this.sessions[0].session_id);
+        switcher.value = '';  // Reset to default
+    }
+
+    async loadCurrentSession() {
+        // Get the current session from the server
+        try {
+            const response = await fetch('/api/persistent-session');
+            if (response.ok) {
+                const data = await response.json();
+                // The current session is the one created on startup
+                // For now, we'll use the first session if currentSessionId is not set
+                if (!this.currentSessionId && this.sessions.length > 0) {
+                    this.currentSessionId = this.sessions[0].session_id;
+                    const sessionName = this.sessions[0].name;
+                    document.getElementById('currentSessionDisplay').textContent = `Currently viewing: ${sessionName}`;
+                }
+            }
+        } catch (error) {
+            console.error('Error loading current session:', error);
         }
     }
 

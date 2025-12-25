@@ -129,6 +129,10 @@ class AdminServer:
             # Create cloud session immediately
             self._create_persistent_cloud_session()
 
+        # Current local session (auto-created on startup)
+        self.current_session_id: Optional[str] = None
+        self._create_fresh_local_session()
+
         # Persistent idle capture orchestrator
         self.idle_orchestrator: Optional[SeenSlideOrchestrator] = None
 
@@ -172,6 +176,26 @@ class AdminServer:
 
         # Return defaults
         return {}
+
+    def _create_fresh_local_session(self) -> None:
+        """Create a fresh local session on startup."""
+        try:
+            from core.models.session import Session
+
+            # Create new session
+            new_session = Session(
+                name="Fresh Session",
+                description="Created on startup",
+                presenter_name="Admin",
+                status="created"
+            )
+
+            session_id = self.db_provider.create_session(new_session)
+            self.current_session_id = session_id
+
+            logger.info(f"✅ Created fresh local session on startup: {session_id}")
+        except Exception as e:
+            logger.error(f"Error creating fresh local session: {e}", exc_info=True)
 
     def _create_persistent_cloud_session(self) -> None:
         """Create cloud session for persistent session on startup."""
