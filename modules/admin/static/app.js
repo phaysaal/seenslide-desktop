@@ -8,7 +8,8 @@ class AdminApp {
         this.authenticated = false;
         this.currentUser = null;
         this.sessions = [];
-        this.currentSessionId = null;
+        this.currentSessionId = null;  // Current LOCAL session being viewed
+        this.persistentSessionId = null;  // Persistent session container ID
         this.talks = [];
         this.statusInterval = null;
         this.cloudEnabled = false;
@@ -167,8 +168,8 @@ class AdminApp {
             document.getElementById('persistentSessionId').textContent = data.session_id;
             document.getElementById('persistentSessionName').textContent = data.session_name;
 
-            // Store current session ID for API operations
-            this.currentSessionId = data.session_id;
+            // Store persistent session ID separately - this is NOT the same as local session ID
+            this.persistentSessionId = data.session_id;
 
             // Store cloud session info
             this.cloudEnabled = data.cloud_enabled || false;
@@ -581,6 +582,13 @@ class AdminApp {
             });
             this.sessions = await response.json();
 
+            // Set currentSessionId to the latest local session (first in list)
+            if (this.sessions.length > 0) {
+                this.currentSessionId = this.sessions[0].session_id;
+            } else {
+                this.currentSessionId = null;
+            }
+
             this.populateSessionSwitcher();
         } catch (error) {
             console.error('Error loading sessions:', error);
@@ -593,20 +601,14 @@ class AdminApp {
         const displayEl = document.getElementById('currentSessionDisplay');
 
         // Update current session display
-        // Note: currentSessionId is the persistent session ID, which may not be in the local sessions list
+        // currentSessionId is the LATEST local session
         const currentSession = this.sessions.find(s => s.session_id === this.currentSessionId);
         if (currentSession) {
             displayEl.textContent = `Currently viewing: ${currentSession.name}`;
-        } else if (this.currentSessionId) {
-            // Show persistent session name if available (when no local sessions match)
-            const persistentName = document.getElementById('persistentSessionName').textContent;
-            if (persistentName && persistentName !== 'Loading...') {
-                displayEl.textContent = `Currently viewing: ${persistentName}`;
-            } else {
-                displayEl.textContent = 'Current session loaded';
-            }
+        } else if (this.sessions.length === 0) {
+            displayEl.textContent = 'No sessions yet';
         } else {
-            displayEl.textContent = 'No session loaded';
+            displayEl.textContent = 'No session selected';
         }
 
         // Filter out current session - only show other sessions
