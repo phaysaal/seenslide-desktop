@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from core.models.user import User
 from core.models.capture_mode import CaptureMode
 from core.auth.auth_utils import AuthUtils, SessionManager
+from core.session.local_session_manager import LocalSessionManager
 from modules.storage.user_storage import UserStorage
 from modules.storage.providers.sqlite_provider import SQLiteStorageProvider
 from modules.storage.providers.cloud_provider import CloudStorageProvider
@@ -66,7 +67,9 @@ class AdminServer:
         storage_path: str = "/tmp/seenslide",
         host: str = "0.0.0.0",
         port: int = 8081,
-        viewer_port: int = 8080
+        viewer_port: int = 8080,
+        admin_username: str = None,
+        admin_password_hash: str = None
     ):
         """Initialize admin server.
 
@@ -75,11 +78,15 @@ class AdminServer:
             host: Host to bind to
             port: Port for admin server
             viewer_port: Port where viewer server is running
+            admin_username: Admin username for cloud session registration
+            admin_password_hash: Admin password hash for cloud session verification
         """
         self.storage_path = Path(storage_path)
         self.host = host
         self.port = port
         self.viewer_port = viewer_port
+        self.admin_username = admin_username
+        self.admin_password_hash = admin_password_hash
 
         # Load configuration file
         self.config = self._load_config()
@@ -120,6 +127,9 @@ class AdminServer:
         # Session manager (for user authentication)
         self.session_manager = SessionManager()
 
+        # Local session manager (for persistent session ID)
+        self.local_session_manager = LocalSessionManager(config_dir=self.storage_path)
+
         # Cloud storage provider - REQUIRED, single source of truth
         self.cloud_provider = CloudStorageProvider()
         if not self.config.get('cloud'):
@@ -130,12 +140,12 @@ class AdminServer:
             logger.error("Failed to initialize cloud provider")
             raise RuntimeError("Cloud initialization failed - check your config")
 
-        # Cloud session info (ephemeral - stored in memory only)
+        # Cloud session info (persistent across restarts)
         self.cloud_session_id: Optional[str] = None
         self.cloud_session_name: str = "SeenSlide Session"
 
-        # Create cloud session on startup
-        self._create_cloud_session()
+        # Load or create cloud session with persistence
+        self._load_or_create_cloud_session()
 
         # Current local session (created when user starts a talk, not on startup)
         self.current_session_id: Optional[str] = None
@@ -186,26 +196,60 @@ class AdminServer:
         # Return defaults
         return {}
 
-    def _create_cloud_session(self) -> None:
-        """Create cloud session on startup - cloud is single source of truth."""
+    def _load_or_create_cloud_session(self) -> None:
+        """Load existing cloud session or create new one - with local persistence."""
         try:
-            cloud_session_id = self.cloud_provider.start_session(
-                session_id="",  # Let cloud generate ID
-                session_name=self.cloud_session_name,
-                description="Cloud session for SeenSlide talks",
-                presenter_name="Admin"
-            )
+            # Try to load from local storage first
+            local_session_id = self.local_session_manager.load_session_id()
 
-            if cloud_session_id:
-                self.cloud_session_id = cloud_session_id
-                logger.info(f"✅ Cloud session created: {cloud_session_id}")
-                logger.info(f"📺 Viewer URL: {self.cloud_provider.api_url}/{cloud_session_id}")
-            else:
-                logger.error("Failed to create cloud session")
-                raise RuntimeError("Cloud session creation failed")
+            if local_session_id:
+                # Local session ID found - verify with cloud (supports cross-device usage)
+                if self.admin_username and self.admin_password_hash:
+                    logger.info(f"Verifying session {local_session_id} with cloud...")
+                    verified = self.cloud_provider.verify_session(
+                        session_id=local_session_id,
+                        admin_username=self.admin_username,
+                        admin_password_hash=self.admin_password_hash
+                    )
+
+                    if verified:
+                        self.cloud_session_id = local_session_id
+                        logger.info(f"📺 Viewer URL: {self.cloud_provider.api_url}/{local_session_id}")
+                    else:
+                        logger.warning("Session verification failed. Creating new session...")
+                        self.local_session_manager.clear_session()
+                        local_session_id = None  # Fall through to create new session
+                else:
+                    # No credentials provided - assume same machine, trust local session ID
+                    self.cloud_session_id = local_session_id
+                    self.cloud_provider.cloud_session_id = local_session_id
+                    logger.info(f"✅ Loaded existing cloud session: {local_session_id}")
+                    logger.info(f"📺 Viewer URL: {self.cloud_provider.api_url}/{local_session_id}")
+
+            if not local_session_id:
+                # No local session or verification failed - create new one
+                cloud_session_id = self.cloud_provider.start_session(
+                    session_id="",  # Let cloud generate ID
+                    session_name=self.cloud_session_name,
+                    description="Cloud session for SeenSlide talks",
+                    presenter_name="Admin",
+                    admin_username=self.admin_username,
+                    admin_password_hash=self.admin_password_hash
+                )
+
+                if cloud_session_id:
+                    self.cloud_session_id = cloud_session_id
+                    # Save to local storage for persistence
+                    self.local_session_manager.save_session_id(cloud_session_id)
+                    logger.info(f"✅ Created new cloud session: {cloud_session_id}")
+                    logger.info(f"📺 Viewer URL: {self.cloud_provider.api_url}/{cloud_session_id}")
+                else:
+                    logger.error("Failed to create cloud session")
+                    raise RuntimeError("Cloud session creation failed")
+
         except Exception as e:
-            logger.error(f"Error creating cloud session: {e}", exc_info=True)
-            raise RuntimeError(f"Failed to create cloud session: {e}")
+            logger.error(f"Error loading/creating cloud session: {e}", exc_info=True)
+            raise RuntimeError(f"Failed to initialize cloud session: {e}")
 
     def _start_idle_capture(self) -> None:
         """Start idle mode capture to keep portal session alive."""
@@ -371,7 +415,7 @@ class AdminServer:
         async def reset_persistent_session(
             current_user: User = Depends(self._get_current_user)
         ):
-            """Create new cloud session (reset in cloud-only system)."""
+            """Create new cloud session (reset) and update local storage."""
             try:
                 # Create new cloud session
                 cloud_session_id = self.cloud_provider.start_session(
@@ -383,7 +427,9 @@ class AdminServer:
 
                 if cloud_session_id:
                     self.cloud_session_id = cloud_session_id
-                    logger.info(f"✅ New cloud session created: {cloud_session_id}")
+                    # Update local storage with new session ID
+                    self.local_session_manager.save_session_id(cloud_session_id)
+                    logger.info(f"✅ New cloud session created and saved: {cloud_session_id}")
 
                     return {
                         "success": True,
@@ -404,9 +450,15 @@ class AdminServer:
         async def list_sessions(
             current_user: User = Depends(self._get_current_user)
         ):
-            """List all capture sessions (excluding idle capture sessions)."""
+            """List all capture sessions for the current user and cloud session (excluding idle capture sessions)."""
             try:
-                sessions = self.db_provider.get_all_sessions()
+                # Get only sessions belonging to current user AND current cloud session
+                # This ensures users only see talks from their current cloud session
+                if self.cloud_session_id:
+                    sessions = self.db_provider.get_sessions_by_cloud_session(self.cloud_session_id)
+                else:
+                    # Fallback to user-based filtering if no cloud session
+                    sessions = self.db_provider.get_sessions_by_user(current_user.user_id)
                 return [
                     {
                         "session_id": s.session_id,
@@ -430,10 +482,13 @@ class AdminServer:
         async def clear_all_sessions(
             current_user: User = Depends(self._get_current_user)
         ):
-            """Delete all capture sessions (talks) and their data."""
+            """Delete all capture sessions (talks) for the current cloud session and their data."""
             try:
-                # Get all sessions except Idle Capture
-                sessions = self.db_provider.get_all_sessions()
+                # Get all sessions for current cloud session except Idle Capture
+                if self.cloud_session_id:
+                    sessions = self.db_provider.get_sessions_by_cloud_session(self.cloud_session_id)
+                else:
+                    sessions = self.db_provider.get_sessions_by_user(current_user.user_id)
                 sessions_to_delete = [s for s in sessions if s.name != "Idle Capture"]
 
                 deleted_count = 0
@@ -499,6 +554,8 @@ class AdminServer:
                 # Create a new session for this talk
                 from core.models.session import Session
                 new_session = Session(
+                    user_id=current_user.user_id,
+                    cloud_session_id=self.cloud_session_id,  # Associate with persistent cloud session
                     name=request.name,
                     description=request.description or "",
                     presenter_name=request.presenter_name or "Unknown",

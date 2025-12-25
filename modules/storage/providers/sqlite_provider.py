@@ -77,6 +77,8 @@ class SQLiteStorageProvider(IStorageProvider):
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id TEXT PRIMARY KEY,
+                user_id TEXT,
+                cloud_session_id TEXT,
                 name TEXT NOT NULL,
                 description TEXT,
                 presenter_name TEXT,
@@ -133,6 +135,20 @@ class SQLiteStorageProvider(IStorageProvider):
             cursor.execute("ALTER TABLE slides ADD COLUMN talk_id TEXT")
             logger.info("Added talk_id column to slides table")
 
+        # Add user_id column to sessions if it doesn't exist (for backwards compatibility)
+        cursor.execute("PRAGMA table_info(sessions)")
+        session_columns = [row[1] for row in cursor.fetchall()]
+        if 'user_id' not in session_columns:
+            cursor.execute("ALTER TABLE sessions ADD COLUMN user_id TEXT")
+            logger.info("Added user_id column to sessions table")
+
+        # Add cloud_session_id column to sessions if it doesn't exist (for backwards compatibility)
+        cursor.execute("PRAGMA table_info(sessions)")
+        session_columns = [row[1] for row in cursor.fetchall()]
+        if 'cloud_session_id' not in session_columns:
+            cursor.execute("ALTER TABLE sessions ADD COLUMN cloud_session_id TEXT")
+            logger.info("Added cloud_session_id column to sessions table")
+
         # Create indexes
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_slides_session
@@ -147,6 +163,16 @@ class SQLiteStorageProvider(IStorageProvider):
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_slides_talk
             ON slides(talk_id)
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sessions_user
+            ON sessions(user_id)
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sessions_cloud
+            ON sessions(cloud_session_id)
         """)
 
         self._conn.commit()
@@ -170,12 +196,14 @@ class SQLiteStorageProvider(IStorageProvider):
             cursor = self._conn.cursor()
             cursor.execute("""
                 INSERT INTO sessions (
-                    session_id, name, description, presenter_name,
+                    session_id, user_id, cloud_session_id, name, description, presenter_name,
                     start_time, end_time, status, total_slides,
                     capture_interval_seconds, dedup_strategy, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 session.session_id,
+                session.user_id,
+                session.cloud_session_id,
                 session.name,
                 session.description,
                 session.presenter_name,
@@ -222,6 +250,8 @@ class SQLiteStorageProvider(IStorageProvider):
             # Convert row to Session object
             return Session(
                 session_id=row['session_id'],
+                user_id=row['user_id'] if 'user_id' in row.keys() else None,
+                cloud_session_id=row['cloud_session_id'] if 'cloud_session_id' in row.keys() else None,
                 name=row['name'],
                 description=row['description'] or "",
                 presenter_name=row['presenter_name'] or "",
@@ -258,6 +288,8 @@ class SQLiteStorageProvider(IStorageProvider):
             for row in rows:
                 session = Session(
                     session_id=row['session_id'],
+                    user_id=row['user_id'] if 'user_id' in row.keys() else None,
+                    cloud_session_id=row['cloud_session_id'] if 'cloud_session_id' in row.keys() else None,
                     name=row['name'],
                     description=row['description'] or "",
                     presenter_name=row['presenter_name'] or "",
@@ -275,6 +307,96 @@ class SQLiteStorageProvider(IStorageProvider):
 
         except Exception as e:
             logger.error(f"Failed to get all sessions: {e}")
+            return []
+
+    def get_sessions_by_user(self, user_id: str) -> List[Session]:
+        """Retrieve all sessions for a specific user.
+
+        Args:
+            user_id: User ID to filter by
+
+        Returns:
+            List of Session objects belonging to the user
+        """
+        if not self._initialized:
+            return []
+
+        try:
+            cursor = self._conn.cursor()
+            cursor.execute(
+                "SELECT * FROM sessions WHERE user_id = ? ORDER BY start_time DESC",
+                (user_id,)
+            )
+            rows = cursor.fetchall()
+
+            sessions = []
+            for row in rows:
+                session = Session(
+                    session_id=row['session_id'],
+                    user_id=row['user_id'] if 'user_id' in row.keys() else None,
+                    cloud_session_id=row['cloud_session_id'] if 'cloud_session_id' in row.keys() else None,
+                    name=row['name'],
+                    description=row['description'] or "",
+                    presenter_name=row['presenter_name'] or "",
+                    start_time=row['start_time'],
+                    end_time=row['end_time'],
+                    status=row['status'],
+                    total_slides=row['total_slides'],
+                    capture_interval_seconds=row['capture_interval_seconds'],
+                    dedup_strategy=row['dedup_strategy'] or "hash",
+                    metadata=json.loads(row['metadata']) if row['metadata'] else {}
+                )
+                sessions.append(session)
+
+            return sessions
+
+        except Exception as e:
+            logger.error(f"Failed to get sessions for user {user_id}: {e}")
+            return []
+
+    def get_sessions_by_cloud_session(self, cloud_session_id: str) -> List[Session]:
+        """Retrieve all sessions (talks) belonging to a cloud session.
+
+        Args:
+            cloud_session_id: Cloud session ID to filter by
+
+        Returns:
+            List of Session objects belonging to the cloud session
+        """
+        if not self._initialized:
+            return []
+
+        try:
+            cursor = self._conn.cursor()
+            cursor.execute(
+                "SELECT * FROM sessions WHERE cloud_session_id = ? ORDER BY start_time DESC",
+                (cloud_session_id,)
+            )
+            rows = cursor.fetchall()
+
+            sessions = []
+            for row in rows:
+                session = Session(
+                    session_id=row['session_id'],
+                    user_id=row['user_id'] if 'user_id' in row.keys() else None,
+                    cloud_session_id=row['cloud_session_id'] if 'cloud_session_id' in row.keys() else None,
+                    name=row['name'],
+                    description=row['description'] or "",
+                    presenter_name=row['presenter_name'] or "",
+                    start_time=row['start_time'],
+                    end_time=row['end_time'],
+                    status=row['status'],
+                    total_slides=row['total_slides'],
+                    capture_interval_seconds=row['capture_interval_seconds'],
+                    dedup_strategy=row['dedup_strategy'] or "hash",
+                    metadata=json.loads(row['metadata']) if row['metadata'] else {}
+                )
+                sessions.append(session)
+
+            return sessions
+
+        except Exception as e:
+            logger.error(f"Failed to get sessions for cloud session {cloud_session_id}: {e}")
             return []
 
     def get_session_slides(self, session_id: str, limit: int = 100, offset: int = 0) -> List[ProcessedSlide]:
@@ -306,6 +428,8 @@ class SQLiteStorageProvider(IStorageProvider):
             cursor = self._conn.cursor()
             cursor.execute("""
                 UPDATE sessions SET
+                    user_id = ?,
+                    cloud_session_id = ?,
                     name = ?,
                     description = ?,
                     presenter_name = ?,
@@ -318,6 +442,8 @@ class SQLiteStorageProvider(IStorageProvider):
                     metadata = ?
                 WHERE session_id = ?
             """, (
+                session.user_id,
+                session.cloud_session_id,
                 session.name,
                 session.description,
                 session.presenter_name,

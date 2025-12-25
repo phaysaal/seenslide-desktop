@@ -14,6 +14,8 @@ class Session:
 
     Attributes:
         session_id: Unique identifier for this session
+        user_id: ID of the user who owns this session
+        cloud_session_id: ID of the cloud session this talk belongs to
         name: Human-readable name for the session
         description: Detailed description of the session
         presenter_name: Name of the presenter
@@ -26,6 +28,8 @@ class Session:
         metadata: Additional metadata
     """
     session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: Optional[str] = None
+    cloud_session_id: Optional[str] = None
     name: str = ""
     description: str = ""
     presenter_name: str = ""
@@ -71,6 +75,8 @@ class Session:
         """
         return {
             "session_id": self.session_id,
+            "user_id": self.user_id,
+            "cloud_session_id": self.cloud_session_id,
             "name": self.name,
             "description": self.description,
             "presenter_name": self.presenter_name,

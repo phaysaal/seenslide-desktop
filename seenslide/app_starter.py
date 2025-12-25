@@ -3,7 +3,8 @@
 This is the entry point for the presentation PC. It will:
 1. Check if admin user exists
 2. If not, prompt for initial admin password setup
-3. Start the admin server
+3. Prompt for session ID (existing or new)
+4. Start the admin server
 """
 
 import logging
@@ -11,9 +12,11 @@ import argparse
 import sys
 import getpass
 from pathlib import Path
+from typing import Optional, Tuple
 
 from core.models.user import User
 from core.auth.auth_utils import AuthUtils
+from core.session.local_session_manager import LocalSessionManager
 from modules.storage.user_storage import UserStorage
 from modules.admin.admin_server import AdminServer
 
@@ -25,14 +28,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def setup_initial_admin(storage_path: str) -> bool:
+def setup_initial_admin(storage_path: str) -> Tuple[bool, Optional[str], Optional[str]]:
     """Setup initial admin user if none exists.
 
     Args:
         storage_path: Path to storage directory
 
     Returns:
-        True if setup successful or admin exists, False otherwise
+        Tuple of (success, username, password_hash)
     """
     user_storage = UserStorage(
         db_path=str(Path(storage_path) / "db" / "seenslide.db")
@@ -42,7 +45,9 @@ def setup_initial_admin(storage_path: str) -> bool:
     users = user_storage.get_all_users()
     if len(users) > 0:
         logger.info("Admin user already exists")
-        return True
+        # Return first admin user's credentials
+        first_admin = users[0]
+        return True, first_admin.username, first_admin.password_hash
 
     # Prompt for initial admin setup
     print("\n" + "="*70)
@@ -86,10 +91,73 @@ def setup_initial_admin(storage_path: str) -> bool:
         print(f"\n✓ Admin user '{username}' created successfully!")
         print(f"  User ID: {admin_user.user_id}")
         print()
-        return True
+        return True, username, password_hash
     else:
         print(f"\n✗ Failed to create admin user")
-        return False
+        return False, None, None
+
+
+def setup_session_id(storage_path: str, admin_username: str, admin_password_hash: str) -> bool:
+    """Setup session ID for cloud registration.
+
+    Args:
+        storage_path: Path to storage directory
+        admin_username: Admin username
+        admin_password_hash: Admin password hash
+
+    Returns:
+        True if successful, False otherwise
+    """
+    local_session_manager = LocalSessionManager(config_dir=Path(storage_path))
+
+    # Check if session ID already exists locally
+    existing_session_id = local_session_manager.load_session_id()
+
+    if existing_session_id:
+        print(f"\n✓ Found existing session ID: {existing_session_id}")
+        print("  This session will be used for cloud registration.")
+        return True
+
+    # No local session ID found - prompt user
+    print("\n" + "="*70)
+    print("SESSION ID SETUP")
+    print("="*70)
+    print("\nNo local session ID found.")
+    print("\nOptions:")
+    print("  1. Create a NEW session (recommended for first-time setup)")
+    print("  2. Use an EXISTING session from another machine")
+    print()
+
+    while True:
+        choice = input("Enter choice (1 or 2): ").strip()
+        if choice in ["1", "2"]:
+            break
+        print("Invalid choice. Please enter 1 or 2.")
+
+    if choice == "1":
+        # New session - will be created by admin server and saved
+        print("\n✓ A new session will be created and registered in the cloud.")
+        print(f"  Admin credentials ({admin_username}) will be linked to this session.")
+        print()
+        return True
+    else:
+        # Existing session - prompt for session ID
+        print("\nTo use an existing session from another machine:")
+        print("  - Enter the session ID from your other machine")
+        print("  - Your admin credentials will be verified with the cloud")
+        print()
+
+        session_id = input("Enter session ID: ").strip().upper()
+
+        if not session_id:
+            print("✗ Session ID cannot be empty.")
+            return False
+
+        # Save session ID locally (will be verified by admin server on startup)
+        local_session_manager.save_session_id(session_id)
+        print(f"\n✓ Session ID '{session_id}' will be verified with cloud on startup.")
+        print()
+        return True
 
 
 def main():
@@ -124,8 +192,14 @@ def main():
     args = parser.parse_args()
 
     # Setup initial admin if needed
-    if not setup_initial_admin(args.storage):
+    success, admin_username, admin_password_hash = setup_initial_admin(args.storage)
+    if not success:
         logger.error("Failed to setup admin user")
+        sys.exit(1)
+
+    # Setup session ID
+    if not setup_session_id(args.storage, admin_username, admin_password_hash):
+        logger.error("Failed to setup session ID")
         sys.exit(1)
 
     # Start admin server
@@ -138,7 +212,9 @@ def main():
         storage_path=args.storage,
         host=args.host,
         port=args.admin_port,
-        viewer_port=args.viewer_port
+        viewer_port=args.viewer_port,
+        admin_username=admin_username,
+        admin_password_hash=admin_password_hash
     )
     server.run()
 

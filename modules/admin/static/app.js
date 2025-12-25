@@ -15,6 +15,8 @@ class AdminApp {
         this.cloudEnabled = false;
         this.cloudSessionId = null;
         this.cloudApiUrl = null;
+        this.activeTalk = null;  // Active talk info {active: bool, talk_name: string}
+        this.browsingHistory = false;  // True when browsing old session history
         this._loginListenerAdded = false;
         this._dashboardListenersAdded = false;
 
@@ -318,6 +320,12 @@ class AdminApp {
             });
             const captureData = await captureResp.json();
 
+            // Store active talk info
+            this.activeTalk = {
+                active: captureData.active,
+                talk_name: captureData.talk_name || null
+            };
+
             const captureStatusEl = document.getElementById('captureStatus');
             const captureInfoEl = document.getElementById('captureInfo');
 
@@ -338,6 +346,9 @@ class AdminApp {
                 document.getElementById('startCaptureBtn').disabled = false;
                 document.getElementById('stopCaptureBtn').disabled = true;
             }
+
+            // Update the "Currently viewing" display
+            this.updateCurrentTalkDisplay();
 
             // Get viewer status
             const viewerResp = await fetch('/api/viewer/status', {
@@ -625,33 +636,46 @@ class AdminApp {
                 this.currentSessionId = null;
             }
 
+            // Reset browsing mode when loading sessions
+            this.browsingHistory = false;
+
             this.populateSessionSwitcher();
         } catch (error) {
             console.error('Error loading sessions:', error);
+            this.browsingHistory = false;
             this.populateSessionSwitcher();  // Still update switcher even on error
+        }
+    }
+
+    updateCurrentTalkDisplay() {
+        // Don't override display when browsing history
+        if (this.browsingHistory) {
+            return;
+        }
+
+        const displayEl = document.getElementById('currentSessionDisplay');
+
+        // Show active talk if one is running
+        if (this.activeTalk && this.activeTalk.active && this.activeTalk.talk_name) {
+            displayEl.textContent = `Currently running: ${this.activeTalk.talk_name}`;
+            displayEl.style.color = '#10b981';  // Green color for active talk
+        } else {
+            displayEl.textContent = 'No talk is running';
+            displayEl.style.color = '#6b7280';  // Gray color for inactive
         }
     }
 
     populateSessionSwitcher() {
         const switcher = document.getElementById('sessionSwitcher');
-        const displayEl = document.getElementById('currentSessionDisplay');
 
         // Handle empty sessions list
         if (this.sessions.length === 0) {
-            displayEl.textContent = 'No talks yet - start a talk to begin';
             switcher.innerHTML = '<option value="">No talks available</option>';
             return;
         }
 
-        // Update current session display
-        const currentSession = this.sessions.find(s => s.session_id === this.currentSessionId);
-        if (currentSession) {
-            displayEl.textContent = `Currently viewing: ${currentSession.name}`;
-        } else {
-            // Default to first session if currentSessionId not set
-            this.currentSessionId = this.sessions[0].session_id;
-            displayEl.textContent = `Currently viewing: ${this.sessions[0].name}`;
-        }
+        // Update current session display (based on active talk)
+        this.updateCurrentTalkDisplay();
 
         // Filter out current session - only show other sessions in dropdown
         const otherSessions = this.sessions.filter(s => s.session_id !== this.currentSessionId);
@@ -662,6 +686,7 @@ class AdminApp {
         }
 
         // Populate dropdown with other sessions
+        const currentSession = this.sessions.find(s => s.session_id === this.currentSessionId);
         const currentName = currentSession ? currentSession.name : this.sessions[0].name;
         switcher.innerHTML = `<option value="${this.currentSessionId}">← Back to ${currentName}</option>` +
             otherSessions.map(session => `
@@ -676,10 +701,15 @@ class AdminApp {
             return;
         }
 
-        // Update display
+        // Set browsing mode
+        this.browsingHistory = true;
+
+        // Update display - show we're browsing history
         const session = this.sessions.find(s => s.session_id === sessionId);
         const sessionName = session?.name || sessionId;
-        document.getElementById('currentSessionDisplay').textContent = `Currently viewing: ${sessionName}`;
+        const displayEl = document.getElementById('currentSessionDisplay');
+        displayEl.textContent = `Browsing history: ${sessionName}`;
+        displayEl.style.color = '#f59e0b';  // Orange color for browsing mode
 
         // Load talks for this session (temporarily switch context)
         const previousSessionId = this.currentSessionId;
