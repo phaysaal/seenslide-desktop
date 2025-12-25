@@ -126,6 +126,13 @@ class SQLiteStorageProvider(IStorageProvider):
             )
         """)
 
+        # Add talk_id column to slides if it doesn't exist (for backwards compatibility)
+        cursor.execute("PRAGMA table_info(slides)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'talk_id' not in columns:
+            cursor.execute("ALTER TABLE slides ADD COLUMN talk_id TEXT")
+            logger.info("Added talk_id column to slides table")
+
         # Create indexes
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_slides_session
