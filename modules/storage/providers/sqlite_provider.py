@@ -90,11 +90,27 @@ class SQLiteStorageProvider(IStorageProvider):
             )
         """)
 
+        # Talks table (local hierarchy)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS talks (
+                talk_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                presenter_name TEXT,
+                description TEXT,
+                created_at REAL NOT NULL,
+                status TEXT DEFAULT 'active',
+                metadata TEXT,
+                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+            )
+        """)
+
         # Slides table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS slides (
                 slide_id TEXT PRIMARY KEY,
                 session_id TEXT NOT NULL,
+                talk_id TEXT,
                 sequence_number INTEGER NOT NULL,
                 timestamp REAL NOT NULL,
                 image_path TEXT,
@@ -105,7 +121,8 @@ class SQLiteStorageProvider(IStorageProvider):
                 image_hash TEXT,
                 similarity_score REAL,
                 metadata TEXT,
-                FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+                FOREIGN KEY (session_id) REFERENCES sessions(session_id),
+                FOREIGN KEY (talk_id) REFERENCES talks(talk_id)
             )
         """)
 
@@ -113,6 +130,16 @@ class SQLiteStorageProvider(IStorageProvider):
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_slides_session
             ON slides(session_id, sequence_number)
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_talks_session
+            ON talks(session_id)
+        """)
+
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_slides_talk
+            ON slides(talk_id)
         """)
 
         self._conn.commit()
@@ -442,6 +469,112 @@ class SQLiteStorageProvider(IStorageProvider):
         except Exception as e:
             logger.error(f"Failed to count slides: {e}")
             return 0
+
+    def create_talk(self, session_id: str, title: str, presenter_name: str = None, description: str = None, metadata: dict = None) -> str:
+        """Create a new talk in a session.
+
+        Args:
+            session_id: Session ID
+            title: Talk title
+            presenter_name: Presenter name
+            description: Talk description
+            metadata: Additional metadata
+
+        Returns:
+            Talk ID
+        """
+        if not self._initialized:
+            raise StorageError("Provider not initialized")
+
+        import uuid
+        import time
+
+        try:
+            talk_id = str(uuid.uuid4())
+            created_at = time.time()
+            metadata_json = json.dumps(metadata or {})
+
+            cursor = self._conn.cursor()
+            cursor.execute("""
+                INSERT INTO talks (talk_id, session_id, title, presenter_name, description, created_at, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (talk_id, session_id, title, presenter_name, description, created_at, metadata_json))
+            self._conn.commit()
+
+            logger.info(f"Created talk {talk_id} in session {session_id}: {title}")
+            return talk_id
+
+        except Exception as e:
+            logger.error(f"Failed to create talk: {e}")
+            raise StorageError(f"Failed to create talk: {e}")
+
+    def get_talks(self, session_id: str) -> List[dict]:
+        """Get all talks in a session.
+
+        Args:
+            session_id: Session ID
+
+        Returns:
+            List of talk dictionaries
+        """
+        if not self._initialized:
+            return []
+
+        try:
+            cursor = self._conn.cursor()
+            cursor.execute("""
+                SELECT talk_id, session_id, title, presenter_name, description, created_at, status, metadata
+                FROM talks
+                WHERE session_id = ?
+                ORDER BY created_at
+            """, (session_id,))
+
+            talks = []
+            for row in cursor.fetchall():
+                talks.append({
+                    'talk_id': row[0],
+                    'session_id': row[1],
+                    'title': row[2],
+                    'presenter_name': row[3],
+                    'description': row[4],
+                    'created_at': row[5],
+                    'status': row[6],
+                    'metadata': json.loads(row[7]) if row[7] else {}
+                })
+            return talks
+
+        except Exception as e:
+            logger.error(f"Failed to get talks: {e}")
+            return []
+
+    def delete_talk(self, talk_id: str) -> bool:
+        """Delete a talk and unassign slides from it.
+
+        Args:
+            talk_id: Talk ID to delete
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self._initialized:
+            return False
+
+        try:
+            cursor = self._conn.cursor()
+
+            # Unassign slides from this talk
+            cursor.execute("UPDATE slides SET talk_id = NULL WHERE talk_id = ?", (talk_id,))
+
+            # Delete the talk
+            cursor.execute("DELETE FROM talks WHERE talk_id = ?", (talk_id,))
+            self._conn.commit()
+
+            logger.info(f"Deleted talk {talk_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to delete talk: {e}")
+            return False
 
     def cleanup(self) -> None:
         """Clean up resources."""

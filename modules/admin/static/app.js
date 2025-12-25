@@ -535,22 +535,18 @@ class AdminApp {
     }
 
     async loadLocalTalks() {
-        try {
-            const response = await fetch('/api/sessions');
-            const allSessions = await response.json();
-            const currentSession = allSessions.find(s => s.session_id === this.currentSessionId);
+        if (!this.currentSessionId) {
+            return [];
+        }
 
-            if (currentSession) {
-                // Return a talk object for the local session
-                return [{
-                    talk_id: currentSession.session_id,
-                    title: currentSession.name,
-                    presenter_name: currentSession.presenter_name,
-                    description: currentSession.description,
-                    slide_count: currentSession.slide_count,
-                    status: currentSession.status,
+        try {
+            const response = await fetch(`/api/sessions/${this.currentSessionId}/talks`);
+            if (response.ok) {
+                const data = await response.json();
+                return (data.talks || []).map(talk => ({
+                    ...talk,
                     source: 'local'
-                }];
+                }));
             }
         } catch (error) {
             console.error('Error loading local talks:', error);
@@ -563,7 +559,8 @@ class AdminApp {
 
         // Add cloud talks
         cloudTalks.forEach(talk => {
-            talkMap.set(talk.talk_id || talk.title, {
+            const key = talk.title;  // Use title as key for matching
+            talkMap.set(key, {
                 ...talk,
                 source: 'cloud',
                 cloudTalkId: talk.talk_id
@@ -572,17 +569,19 @@ class AdminApp {
 
         // Add or merge local talks
         localTalks.forEach(talk => {
-            const key = talk.talk_id || talk.title;
+            const key = talk.title;
             if (talkMap.has(key)) {
-                // Exists in both
-                talkMap.get(key).source = 'both';
-                talkMap.get(key).localSessionId = talk.talk_id;
+                // Exists in both - merge them
+                const existing = talkMap.get(key);
+                existing.source = 'both';
+                existing.localTalkId = talk.talk_id;
+                // Keep cloud_talk_id from cloud version, add local_talk_id
             } else {
                 // Local only
                 talkMap.set(key, {
                     ...talk,
                     source: 'local',
-                    localSessionId: talk.talk_id
+                    localTalkId: talk.talk_id
                 });
             }
         });
@@ -626,9 +625,9 @@ class AdminApp {
     getDeleteButtons(talk) {
         if (talk.source === 'both') {
             return `
-                <button class="btn btn-danger btn-small" onclick="app.deleteTalk('local', '${talk.localSessionId}')">Delete from Local</button>
+                <button class="btn btn-danger btn-small" onclick="app.deleteTalk('local', '${talk.localTalkId}')">Delete from Local</button>
                 <button class="btn btn-danger btn-small" onclick="app.deleteTalk('cloud', '${talk.cloudTalkId}')" style="background: #dc2626;">Delete from Cloud</button>
-                <button class="btn btn-danger btn-small" onclick="app.deleteTalk('both', '${talk.localSessionId}', '${talk.cloudTalkId}')" style="background: #991b1b;">Delete from Both</button>
+                <button class="btn btn-danger btn-small" onclick="app.deleteTalk('both', '${talk.localTalkId}', '${talk.cloudTalkId}')" style="background: #991b1b;">Delete from Both</button>
             `;
         } else if (talk.source === 'cloud') {
             return `
@@ -636,13 +635,13 @@ class AdminApp {
             `;
         } else {
             return `
-                <button class="btn btn-danger btn-small" onclick="app.deleteTalk('local', '${talk.localSessionId}')">Delete from Local</button>
+                <button class="btn btn-danger btn-small" onclick="app.deleteTalk('local', '${talk.localTalkId}')">Delete from Local</button>
             `;
         }
     }
 
-    async deleteTalk(source, localId, cloudId) {
-        const talk = this.talks.find(t => (source === 'local' || source === 'both') ? t.localSessionId === localId : t.cloudTalkId === cloudId);
+    async deleteTalk(source, localTalkId, cloudTalkId) {
+        const talk = this.talks.find(t => (source === 'local' || source === 'both') ? t.localTalkId === localTalkId : t.cloudTalkId === cloudTalkId);
         if (!talk) return;
 
         if (!confirm(`Delete "${talk.title}" from ${source}?`)) return;
@@ -652,12 +651,12 @@ class AdminApp {
             const promises = [];
 
             if (source === 'local' || source === 'both') {
-                promises.push(fetch(`/api/sessions/${localId}`, {method: 'DELETE'}));
+                promises.push(fetch(`/api/sessions/${this.currentSessionId}/talks/${localTalkId}`, {method: 'DELETE'}));
             }
 
             if (source === 'cloud' || source === 'both') {
-                if (this.cloudApiUrl && cloudId) {
-                    promises.push(fetch(`${this.cloudApiUrl}/api/cloud/talk/${cloudId}`, {method: 'DELETE'}));
+                if (this.cloudApiUrl && cloudTalkId) {
+                    promises.push(fetch(`${this.cloudApiUrl}/api/cloud/talk/${cloudTalkId}`, {method: 'DELETE'}));
                 }
             }
 

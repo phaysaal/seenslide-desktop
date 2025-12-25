@@ -725,6 +725,75 @@ class AdminServer:
                 logger.error(f"Error deleting slide: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
+        # ==================== Talks Management ====================
+
+        @self.app.get("/api/sessions/{session_id}/talks")
+        async def get_talks(
+            session_id: str,
+            current_user: User = Depends(self._get_current_user)
+        ):
+            """Get all talks for a session."""
+            try:
+                talks = self.db_provider.get_talks(session_id)
+                return {"talks": talks, "total": len(talks)}
+            except Exception as e:
+                logger.error(f"Error getting talks: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.post("/api/sessions/{session_id}/talks")
+        async def create_talk(
+            session_id: str,
+            title: str,
+            presenter_name: str = None,
+            description: str = None,
+            current_user: User = Depends(self._get_current_user)
+        ):
+            """Create a new talk in a session."""
+            try:
+                # Verify session exists
+                session = self.db_provider.get_session(session_id)
+                if not session:
+                    raise HTTPException(status_code=404, detail="Session not found")
+
+                talk_id = self.db_provider.create_talk(
+                    session_id=session_id,
+                    title=title,
+                    presenter_name=presenter_name,
+                    description=description
+                )
+
+                return {
+                    "success": True,
+                    "talk_id": talk_id,
+                    "message": f"Talk '{title}' created successfully"
+                }
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error creating talk: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.delete("/api/sessions/{session_id}/talks/{talk_id}")
+        async def delete_talk(
+            session_id: str,
+            talk_id: str,
+            current_user: User = Depends(self._get_current_user)
+        ):
+            """Delete a talk from a session."""
+            try:
+                success = self.db_provider.delete_talk(talk_id)
+                if not success:
+                    raise HTTPException(status_code=404, detail="Talk not found")
+
+                logger.info(f"Deleted talk {talk_id} from session {session_id}")
+                return {"success": True, "message": "Talk deleted successfully"}
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error deleting talk: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
         @self.app.post("/api/viewer/start")
         async def start_viewer(
             current_user: User = Depends(self._get_current_user)
