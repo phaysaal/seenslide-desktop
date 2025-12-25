@@ -42,10 +42,43 @@
 
         <!-- Main Content -->
         <div class="container">
+            <!-- Session Switcher -->
+            <div class="status-cards">
+                <div class="status-card" style="grid-column: 1 / -1;">
+                    <h3>Session Switcher</h3>
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <label for="sessionSwitcher" style="margin: 0;"><strong>Select Session:</strong></label>
+                        <select id="sessionSwitcher" class="form-control" style="flex: 1; max-width: 300px;">
+                            <option value="">Loading sessions...</option>
+                        </select>
+                        <span id="currentSessionDisplay" style="color: #6b7280; font-size: 14px;"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Persistent Session Info -->
+            <div class="status-cards">
+                <div class="status-card" style="grid-column: 1 / -1;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h3>Persistent Session</h3>
+                        <button id="resetSessionBtn" class="btn btn-secondary btn-small">Reset Session ID</button>
+                    </div>
+                    <div id="persistentSessionInfo" class="status-info">
+                        <div><strong>Session ID:</strong> <span id="persistentSessionId">Loading...</span></div>
+                        <div><strong>Session Name:</strong> <span id="persistentSessionName">Loading...</span></div>
+                        <div><strong>Cloud Status:</strong> <span id="cloudStatus">Checking...</span></div>
+                    </div>
+                    <div id="qrCodeContainer" class="qr-container" style="margin-top: 16px;">
+                        <img id="qrCode" src="" alt="QR Code" style="display:none;">
+                        <p id="viewerUrl" class="viewer-url"></p>
+                    </div>
+                </div>
+            </div>
+
             <!-- Server Status Cards -->
             <div class="status-cards">
                 <div class="status-card">
-                    <h3>Capture Status</h3>
+                    <h3>Talk Status</h3>
                     <div class="status-indicator">
                         <span id="captureStatus" class="status-badge inactive">Inactive</span>
                     </div>
@@ -58,14 +91,6 @@
                         <span id="viewerStatus" class="status-badge inactive">Inactive</span>
                     </div>
                     <div id="viewerInfo" class="status-info"></div>
-                </div>
-
-                <div class="status-card qr-card">
-                    <h3>Viewer Access</h3>
-                    <div id="qrCodeContainer" class="qr-container">
-                        <img id="qrCode" src="" alt="QR Code" style="display:none;">
-                        <p id="viewerUrl" class="viewer-url"></p>
-                    </div>
                 </div>
             </div>
 
@@ -82,10 +107,10 @@
                     </div>
 
                     <div class="control-section">
-                        <h3>Capture Session</h3>
+                        <h3>Talk Recording</h3>
                         <div id="captureControlsForm">
                             <div class="form-inline">
-                                <input type="text" id="sessionName" placeholder="Session Name" required>
+                                <input type="text" id="sessionName" placeholder="Talk Title" required>
                                 <input type="text" id="presenterName" placeholder="Presenter Name">
                                 <select id="monitorId">
                                     <option value="1">Monitor 1</option>
@@ -111,21 +136,23 @@
                             </div>
 
                             <div class="button-group">
-                                <button id="startCaptureBtn" class="btn btn-success">Start Capture</button>
-                                <button id="stopCaptureBtn" class="btn btn-danger" disabled>Stop Capture</button>
+                                <button id="startCaptureBtn" class="btn btn-success">Start Talk</button>
+                                <button id="stopCaptureBtn" class="btn btn-danger" disabled>Stop Talk</button>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Sessions List -->
+            <!-- Talks List -->
             <div class="sessions-panel">
                 <div class="panel-header">
-                    <h2>Capture Sessions</h2>
-                    <button id="refreshSessionsBtn" class="btn btn-secondary">Refresh</button>
+                    <h2>Talks for Current Session</h2>
+                    <button id="refreshTalksBtn" class="btn btn-secondary">Refresh</button>
                 </div>
-                <div id="sessionsList" class="sessions-list"></div>
+                <div id="talksList" class="sessions-list">
+                    <p style="color: #9ca3af; padding: 16px;">Select a session to view talks</p>
+                </div>
             </div>
         </div>
     </div>

@@ -8,6 +8,8 @@ class AdminApp {
         this.authenticated = false;
         this.currentUser = null;
         this.sessions = [];
+        this.currentSessionId = null;
+        this.talks = [];
         this.statusInterval = null;
         this.cloudEnabled = false;
         this.cloudSessionId = null;
@@ -24,7 +26,7 @@ class AdminApp {
                 const user = await response.json();
                 this.authenticated = true;
                 this.currentUser = user;
-                this.showDashboard();
+                this.showDashboard();                
             } else {
                 this.showLogin();
             }
@@ -63,11 +65,16 @@ class AdminApp {
     setupEventListeners() {
         document.getElementById('logoutBtn').addEventListener('click', () => this.handleLogout());
         document.getElementById('resetSessionBtn').addEventListener('click', () => this.resetPersistentSession());
-        document.getElementById('startViewerBtn').addEventListener('click', () => this.startViewer());
-        document.getElementById('stopViewerBtn').addEventListener('click', () => this.stopViewer());
+        document.getElementById('startViewerBtn').addEventListener('click', () => this.startViewer()); // F@Claude: perhaps not needed
+        document.getElementById('stopViewerBtn').addEventListener('click', () => this.stopViewer()); // F@Claude: perhaps not needed
         document.getElementById('startCaptureBtn').addEventListener('click', () => this.startCapture());
         document.getElementById('stopCaptureBtn').addEventListener('click', () => this.stopCapture());
-        document.getElementById('refreshSessionsBtn').addEventListener('click', () => this.loadSessions());
+
+        // Session switcher
+        document.getElementById('sessionSwitcher').addEventListener('change', (e) => this.switchSession(e.target.value));
+
+        // Refresh talks
+        document.getElementById('refreshTalksBtn').addEventListener('click', () => this.loadTalks());
 
         // Tolerance slider
         const toleranceSlider = document.getElementById('dedupTolerance');
@@ -454,9 +461,214 @@ class AdminApp {
             const response = await fetch('/api/sessions');
             this.sessions = await response.json();
 
-            this.renderSessions();
+            this.populateSessionSwitcher();
         } catch (error) {
             console.error('Error loading sessions:', error);
+        }
+    }
+
+    populateSessionSwitcher() {
+        const switcher = document.getElementById('sessionSwitcher');
+        if (this.sessions.length === 0) {
+            switcher.innerHTML = '<option value="">No local sessions found</option>';
+            return;
+        }
+
+        switcher.innerHTML = this.sessions.map(session => `
+            <option value="${session.session_id}">${session.name} (${session.session_id})</option>
+        `).join('');
+
+        // Select first session by default
+        if (this.sessions.length > 0) {
+            switcher.value = this.sessions[0].session_id;
+            this.switchSession(this.sessions[0].session_id);
+        }
+    }
+
+    async switchSession(sessionId) {
+        if (!sessionId) {
+            document.getElementById('talksList').innerHTML = '<p style="color: #9ca3af; padding: 16px;">Select a session to view talks</p>';
+            return;
+        }
+
+        this.currentSessionId = sessionId;
+        const sessionName = this.sessions.find(s => s.session_id === sessionId)?.name || sessionId;
+        document.getElementById('currentSessionDisplay').textContent = `Currently viewing: ${sessionName}`;
+
+        await this.loadTalks();
+    }
+
+    async loadTalks() {
+        if (!this.currentSessionId) {
+            return;
+        }
+
+        try {
+            const cloudTalks = await this.loadCloudTalks();
+            const localTalks = await this.loadLocalTalks();
+
+            // Union cloud and local talks
+            this.talks = this.unionTalks(cloudTalks, localTalks);
+
+            this.renderTalks();
+        } catch (error) {
+            console.error('Error loading talks:', error);
+            this.showNotification('Error loading talks', 'error');
+        }
+    }
+
+    async loadCloudTalks() {
+        if (!this.cloudApiUrl || !this.currentSessionId) {
+            return [];
+        }
+
+        try {
+            const response = await fetch(`${this.cloudApiUrl}/api/cloud/session/${this.currentSessionId}/talks`);
+            if (response.ok) {
+                const data = await response.json();
+                return data.talks || [];
+            }
+        } catch (error) {
+            console.error('Error loading cloud talks:', error);
+        }
+        return [];
+    }
+
+    async loadLocalTalks() {
+        try {
+            const response = await fetch('/api/sessions');
+            const allSessions = await response.json();
+            const currentSession = allSessions.find(s => s.session_id === this.currentSessionId);
+
+            if (currentSession) {
+                // Return a talk object for the local session
+                return [{
+                    talk_id: currentSession.session_id,
+                    title: currentSession.name,
+                    presenter_name: currentSession.presenter_name,
+                    description: currentSession.description,
+                    slide_count: currentSession.slide_count,
+                    status: currentSession.status,
+                    source: 'local'
+                }];
+            }
+        } catch (error) {
+            console.error('Error loading local talks:', error);
+        }
+        return [];
+    }
+
+    unionTalks(cloudTalks, localTalks) {
+        const talkMap = new Map();
+
+        // Add cloud talks
+        cloudTalks.forEach(talk => {
+            talkMap.set(talk.talk_id || talk.title, {
+                ...talk,
+                source: 'cloud',
+                cloudTalkId: talk.talk_id
+            });
+        });
+
+        // Add or merge local talks
+        localTalks.forEach(talk => {
+            const key = talk.talk_id || talk.title;
+            if (talkMap.has(key)) {
+                // Exists in both
+                talkMap.get(key).source = 'both';
+                talkMap.get(key).localSessionId = talk.talk_id;
+            } else {
+                // Local only
+                talkMap.set(key, {
+                    ...talk,
+                    source: 'local',
+                    localSessionId: talk.talk_id
+                });
+            }
+        });
+
+        return Array.from(talkMap.values());
+    }
+
+    renderTalks() {
+        const container = document.getElementById('talksList');
+
+        if (this.talks.length === 0) {
+            container.innerHTML = '<p style="color: #6b7280; text-align: center;">No talks found for this session</p>';
+            return;
+        }
+
+        container.innerHTML = this.talks.map(talk => {
+            const deleteButtons = this.getDeleteButtons(talk);
+            return `
+                <div class="session-card">
+                    <div class="session-header">
+                        <div class="session-title">${talk.title}</div>
+                        <span class="status-badge" style="background: ${
+                            talk.source === 'both' ? '#10b981' :
+                            talk.source === 'cloud' ? '#3b82f6' :
+                            '#f59e0b'
+                        };">${talk.source === 'both' ? 'Both' : talk.source === 'cloud' ? 'Cloud' : 'Local'}</span>
+                    </div>
+                    <div class="session-meta">
+                        <div><strong>Presenter:</strong> ${talk.presenter_name || 'N/A'}</div>
+                        <div><strong>Slides:</strong> ${talk.slide_count || 0}</div>
+                        ${talk.description ? `<div><strong>Description:</strong> ${talk.description}</div>` : ''}
+                    </div>
+                    <div class="session-actions">
+                        ${deleteButtons}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    getDeleteButtons(talk) {
+        if (talk.source === 'both') {
+            return `
+                <button class="btn btn-danger btn-small" onclick="app.deleteTalk('local', '${talk.localSessionId}')">Delete from Local</button>
+                <button class="btn btn-danger btn-small" onclick="app.deleteTalk('cloud', '${talk.cloudTalkId}')" style="background: #dc2626;">Delete from Cloud</button>
+                <button class="btn btn-danger btn-small" onclick="app.deleteTalk('both', '${talk.localSessionId}', '${talk.cloudTalkId}')" style="background: #991b1b;">Delete from Both</button>
+            `;
+        } else if (talk.source === 'cloud') {
+            return `
+                <button class="btn btn-danger btn-small" onclick="app.deleteTalk('cloud', '${talk.cloudTalkId}')">Delete from Cloud</button>
+            `;
+        } else {
+            return `
+                <button class="btn btn-danger btn-small" onclick="app.deleteTalk('local', '${talk.localSessionId}')">Delete from Local</button>
+            `;
+        }
+    }
+
+    async deleteTalk(source, localId, cloudId) {
+        const talk = this.talks.find(t => (source === 'local' || source === 'both') ? t.localSessionId === localId : t.cloudTalkId === cloudId);
+        if (!talk) return;
+
+        if (!confirm(`Delete "${talk.title}" from ${source}?`)) return;
+
+        this.showLoading();
+        try {
+            const promises = [];
+
+            if (source === 'local' || source === 'both') {
+                promises.push(fetch(`/api/sessions/${localId}`, {method: 'DELETE'}));
+            }
+
+            if (source === 'cloud' || source === 'both') {
+                if (this.cloudApiUrl && cloudId) {
+                    promises.push(fetch(`${this.cloudApiUrl}/api/cloud/talk/${cloudId}`, {method: 'DELETE'}));
+                }
+            }
+
+            await Promise.all(promises);
+            await this.loadTalks();
+            this.showNotification(`Talk deleted from ${source} successfully`, 'success');
+        } catch (error) {
+            console.error('Error deleting talk:', error);
+            this.showNotification('Error deleting talk', 'error');
+        } finally {
+            this.hideLoading();
         }
     }
 
