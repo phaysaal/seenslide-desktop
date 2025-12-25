@@ -583,6 +583,39 @@ class SQLiteStorageProvider(IStorageProvider):
             logger.error(f"Failed to delete talk: {e}")
             return False
 
+    def delete_session(self, session_id: str) -> bool:
+        """Delete a session and all associated talks and slides.
+
+        Args:
+            session_id: Session ID to delete
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self._initialized:
+            return False
+
+        try:
+            cursor = self._conn.cursor()
+
+            # Delete all slides for this session
+            cursor.execute("DELETE FROM slides WHERE session_id = ?", (session_id,))
+
+            # Delete all talks for this session
+            cursor.execute("DELETE FROM talks WHERE session_id = ?", (session_id,))
+
+            # Delete the session
+            cursor.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+
+            self._conn.commit()
+
+            logger.info(f"Deleted session {session_id} and all associated data")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to delete session: {e}")
+            return False
+
     def cleanup(self) -> None:
         """Clean up resources."""
         if self._conn:
