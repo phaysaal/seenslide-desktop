@@ -169,23 +169,18 @@ class AdminApp {
             document.getElementById('persistentSessionId').textContent = data.session_id;
             document.getElementById('persistentSessionName').textContent = data.session_name;
 
-            // Store persistent session ID separately - this is NOT the same as local session ID
-            this.persistentSessionId = data.session_id;
+            // Store cloud session ID (cloud-only system)
+            this.persistentSessionId = data.session_id;  // Same as cloud session in cloud-only
+            this.cloudSessionId = data.cloud_session_id;
+            this.cloudApiUrl = data.cloud_api_url;
+            this.cloudEnabled = true;  // Always true in cloud-only system
 
-            // Store cloud session info
-            this.cloudEnabled = data.cloud_enabled || false;
-            this.cloudSessionId = data.cloud_session_id || null;
-            this.cloudApiUrl = data.cloud_api_url || null;
-
-            if (data.cloud_enabled) {
-                if (data.cloud_session_id) {
-                    document.getElementById('cloudStatus').innerHTML =
-                        `<span style="color: #10b981;">✅ Connected</span> - <a href="${data.cloud_viewer_url}" target="_blank">${data.cloud_session_id}</a>`;
-                } else {
-                    document.getElementById('cloudStatus').innerHTML = '<span style="color: #f59e0b;">⏳ Initializing...</span>';
-                }
+            // Cloud is always enabled in cloud-only system
+            if (data.cloud_session_id) {
+                document.getElementById('cloudStatus').innerHTML =
+                    `<span style="color: #10b981;">✅ Connected</span> - <a href="${data.cloud_viewer_url}" target="_blank">${data.cloud_session_id}</a>`;
             } else {
-                document.getElementById('cloudStatus').innerHTML = '<span style="color: #6b7280;">Disabled</span>';
+                document.getElementById('cloudStatus').innerHTML = '<span style="color: #ef4444;">❌ Cloud session not available</span>';
             }
 
             // Load QR code and viewer URL (always available now)

@@ -24,7 +24,6 @@ from pydantic import BaseModel
 from core.models.user import User
 from core.models.capture_mode import CaptureMode
 from core.auth.auth_utils import AuthUtils, SessionManager
-from core.session.persistent_session_manager import PersistentSessionManager
 from modules.storage.user_storage import UserStorage
 from modules.storage.providers.sqlite_provider import SQLiteStorageProvider
 from modules.storage.providers.cloud_provider import CloudStorageProvider
@@ -118,22 +117,25 @@ class AdminServer:
             "database_filename": "seenslide.db"
         })
 
-        # Session manager
+        # Session manager (for user authentication)
         self.session_manager = SessionManager()
 
-        # Persistent session manager
-        self.persistent_session_manager = PersistentSessionManager()
-        self.persistent_session = self.persistent_session_manager.load_or_create_session(
-            default_name="SeenSlide Session"
-        )
-        logger.info(f"Persistent session loaded: {self.persistent_session['session_id']}")
-
-        # Cloud storage provider (for persistent session)
+        # Cloud storage provider - REQUIRED, single source of truth
         self.cloud_provider = CloudStorageProvider()
-        if self.config.get('cloud'):
-            self.cloud_provider.initialize(self.config['cloud'])
-            # Create cloud session immediately
-            self._create_persistent_cloud_session()
+        if not self.config.get('cloud'):
+            logger.error("Cloud configuration is required but not found in config file")
+            raise RuntimeError("Cloud configuration missing - this is a cloud-only application")
+
+        if not self.cloud_provider.initialize(self.config['cloud']):
+            logger.error("Failed to initialize cloud provider")
+            raise RuntimeError("Cloud initialization failed - check your config")
+
+        # Cloud session info (ephemeral - stored in memory only)
+        self.cloud_session_id: Optional[str] = None
+        self.cloud_session_name: str = "SeenSlide Session"
+
+        # Create cloud session on startup
+        self._create_cloud_session()
 
         # Current local session (created when user starts a talk, not on startup)
         self.current_session_id: Optional[str] = None
@@ -184,66 +186,26 @@ class AdminServer:
         # Return defaults
         return {}
 
-    def _generate_session_name(self) -> str:
-        """Generate a recognizable session name like 'AUY-2481'."""
-        import random
-        import string
-
-        # 3 letters + 4 digits, e.g., 'AUY-2481'
-        letters = ''.join(random.choices(string.ascii_uppercase, k=3))
-        numbers = ''.join(random.choices(string.digits, k=4))
-        return f"{letters}-{numbers}"
-
-    def _create_fresh_local_session(self) -> None:
-        """Create a fresh local session on startup."""
+    def _create_cloud_session(self) -> None:
+        """Create cloud session on startup - cloud is single source of truth."""
         try:
-            from core.models.session import Session
-
-            # Generate recognizable session name
-            session_name = self._generate_session_name()
-
-            # Create new session
-            new_session = Session(
-                name=session_name,
-                description="Created on startup",
-                presenter_name="Admin",
-                status="created"
-            )
-
-            session_id = self.db_provider.create_session(new_session)
-            self.current_session_id = session_id
-
-            logger.info(f"✅ Created fresh local session on startup: {session_id} ({session_name})")
-        except Exception as e:
-            logger.error(f"Error creating fresh local session: {e}", exc_info=True)
-
-    def _create_persistent_cloud_session(self) -> None:
-        """Create fresh cloud session for persistent session on startup."""
-        if not self.cloud_provider.enabled:
-            logger.info("Cloud sync disabled, skipping cloud session creation")
-            return
-
-        # Always create a fresh cloud session on startup to match fresh local session
-        # This ensures cloud and local are in sync
-        try:
-            session_name = self.persistent_session.get('session_name', 'SeenSlide Session')
             cloud_session_id = self.cloud_provider.start_session(
-                session_id=self.persistent_session['session_id'],
-                session_name=session_name,
-                description="Persistent session for multiple talks",
+                session_id="",  # Let cloud generate ID
+                session_name=self.cloud_session_name,
+                description="Cloud session for SeenSlide talks",
                 presenter_name="Admin"
             )
 
             if cloud_session_id:
-                # Update persistent session with new cloud ID
-                self.persistent_session_manager.update_cloud_session_id(cloud_session_id)
-                self.persistent_session['cloud_session_id'] = cloud_session_id
-                logger.info(f"✅ Fresh cloud session created on startup: {cloud_session_id}")
+                self.cloud_session_id = cloud_session_id
+                logger.info(f"✅ Cloud session created: {cloud_session_id}")
                 logger.info(f"📺 Viewer URL: {self.cloud_provider.api_url}/{cloud_session_id}")
             else:
-                logger.warning("Failed to create cloud session on startup")
+                logger.error("Failed to create cloud session")
+                raise RuntimeError("Cloud session creation failed")
         except Exception as e:
-            logger.error(f"Error creating cloud session on startup: {e}", exc_info=True)
+            logger.error(f"Error creating cloud session: {e}", exc_info=True)
+            raise RuntimeError(f"Failed to create cloud session: {e}")
 
     def _start_idle_capture(self) -> None:
         """Start idle mode capture to keep portal session alive."""
@@ -261,8 +223,8 @@ class AdminServer:
                 config_path=str(config_path) if config_path else None
             )
 
-            # Inject FULL cloud config with persistent session ID
-            if self.cloud_provider.enabled and self.cloud_provider.cloud_session_id:
+            # Inject cloud config with cloud session ID
+            if self.cloud_provider.enabled and self.cloud_session_id:
                 # Copy entire cloud config from self.config, then add existing_session_id
                 if 'cloud' not in self.idle_orchestrator.config:
                     self.idle_orchestrator.config['cloud'] = {}
@@ -271,10 +233,10 @@ class AdminServer:
                 cloud_config = self.config.get('cloud', {})
                 self.idle_orchestrator.config['cloud'].update(cloud_config)
 
-                # Inject persistent cloud session ID
-                self.idle_orchestrator.config['cloud']['existing_session_id'] = self.cloud_provider.cloud_session_id
+                # Inject cloud session ID
+                self.idle_orchestrator.config['cloud']['existing_session_id'] = self.cloud_session_id
 
-                logger.info(f"Injected full cloud config with session ID: {self.cloud_provider.cloud_session_id}")
+                logger.info(f"Injected cloud config with session ID: {self.cloud_session_id}")
 
             # Start in IDLE mode
             success = self.idle_orchestrator.start_session(
@@ -389,68 +351,53 @@ class AdminServer:
         async def get_persistent_session(
             current_user: User = Depends(self._get_current_user)
         ):
-            """Get persistent session information."""
+            """Get cloud session information (cloud-only system)."""
             cloud_url = None
-            if self.cloud_provider.cloud_session_id:
-                cloud_url = f"{self.cloud_provider.api_url}/{self.cloud_provider.cloud_session_id}"
+            if self.cloud_session_id:
+                cloud_url = f"{self.cloud_provider.api_url}/{self.cloud_session_id}"
 
             return {
-                "session_id": self.persistent_session['session_id'],
-                "session_name": self.persistent_session['session_name'],
-                "created_at": self.persistent_session['created_at'],
-                "last_reset": self.persistent_session.get('last_reset'),
-                "cloud_session_id": self.cloud_provider.cloud_session_id,
+                "session_id": self.cloud_session_id,
+                "session_name": self.cloud_session_name,
+                "created_at": datetime.now().isoformat(),  # Ephemeral
+                "last_reset": None,
+                "cloud_session_id": self.cloud_session_id,
                 "cloud_api_url": self.cloud_provider.api_url,
                 "cloud_viewer_url": cloud_url,
-                "cloud_enabled": self.cloud_provider.enabled
+                "cloud_enabled": True  # Always true in cloud-only system
             }
 
         @self.app.post("/api/persistent-session/reset")
         async def reset_persistent_session(
             current_user: User = Depends(self._get_current_user)
         ):
-            """Reset persistent session with new ID."""
+            """Create new cloud session (reset in cloud-only system)."""
             try:
-                # Store old session ID for cleanup
-                old_session_id = self.persistent_session.get('session_id')
+                # Create new cloud session
+                cloud_session_id = self.cloud_provider.start_session(
+                    session_id="",  # Let cloud generate new ID
+                    session_name=self.cloud_session_name,
+                    description="Cloud session for SeenSlide talks",
+                    presenter_name="Admin"
+                )
 
-                # Reset persistent session
-                self.persistent_session = self.persistent_session_manager.reset_session()
-                logger.info(f"Persistent session reset to: {self.persistent_session['session_id']}")
+                if cloud_session_id:
+                    self.cloud_session_id = cloud_session_id
+                    logger.info(f"✅ New cloud session created: {cloud_session_id}")
 
-                # Auto-delete old session if it has no talks/slides
-                if old_session_id:
-                    try:
-                        slide_count = self.db_provider.get_slide_count(old_session_id)
-                        if slide_count == 0:
-                            self.db_provider.delete_session(old_session_id)
-                            logger.info(f"✅ Auto-deleted empty previous session: {old_session_id}")
-                    except Exception as e:
-                        logger.warning(f"Failed to auto-delete previous session {old_session_id}: {e}")
-
-                # Create new cloud session if enabled
-                if self.cloud_provider.enabled:
-                    session_name = self.persistent_session.get('session_name', 'SeenSlide Session')
-                    cloud_session_id = self.cloud_provider.start_session(
-                        session_id=self.persistent_session['session_id'],
-                        session_name=session_name,
-                        description="Persistent session for multiple talks",
-                        presenter_name="Admin"
-                    )
-
-                    if cloud_session_id:
-                        self.persistent_session_manager.update_cloud_session_id(cloud_session_id)
-                        self.persistent_session['cloud_session_id'] = cloud_session_id
-                        logger.info(f"✅ New cloud session created: {cloud_session_id}")
-
-                return {
-                    "success": True,
-                    "message": "Persistent session reset successfully",
-                    "session_id": self.persistent_session['session_id'],
-                    "cloud_session_id": self.cloud_provider.cloud_session_id
-                }
+                    return {
+                        "success": True,
+                        "message": "New cloud session created successfully",
+                        "session_id": self.cloud_session_id,
+                        "cloud_session_id": self.cloud_session_id
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "message": "Failed to create new cloud session"
+                    }
             except Exception as e:
-                logger.error(f"Failed to reset persistent session: {e}")
+                logger.error(f"Failed to create new cloud session: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
         @self.app.get("/api/sessions")
@@ -603,8 +550,8 @@ class AdminServer:
 
                 # Get cloud viewer URL
                 viewer_url = None
-                if self.cloud_provider.cloud_session_id:
-                    viewer_url = f"{self.cloud_provider.api_url}/{self.cloud_provider.cloud_session_id}"
+                if self.cloud_session_id:
+                    viewer_url = f"{self.cloud_provider.api_url}/{self.cloud_session_id}"
                     logger.info(f"📺 Cloud Viewer URL: {viewer_url}")
 
                 message = f"Talk '{request.name}' started successfully"
@@ -686,7 +633,7 @@ class AdminServer:
         ):
             """Get status of current talk."""
             # Get cloud session info (always available with persistent session)
-            cloud_session_id = self.cloud_provider.cloud_session_id
+            cloud_session_id = self.cloud_session_id
             cloud_viewer_url = None
             if cloud_session_id:
                 cloud_viewer_url = f"{self.cloud_provider.api_url}/{cloud_session_id}"
@@ -1022,8 +969,8 @@ class AdminServer:
 
                 # Try to get persistent cloud URL first
                 viewer_url = None
-                if self.cloud_provider.cloud_session_id:
-                    viewer_url = f"{self.cloud_provider.api_url}/{self.cloud_provider.cloud_session_id}"
+                if self.cloud_session_id:
+                    viewer_url = f"{self.cloud_provider.api_url}/{self.cloud_session_id}"
                     logger.info(f"QR code for persistent cloud URL: {viewer_url}")
 
                 # Fallback to local LAN URL if no cloud URL
@@ -1089,7 +1036,7 @@ class AdminServer:
 
             # Get persistent cloud viewer URL if available
             cloud_url = None
-            cloud_session_id = self.cloud_provider.cloud_session_id
+            cloud_session_id = self.cloud_session_id
             if cloud_session_id:
                 cloud_url = f"{self.cloud_provider.api_url}/{cloud_session_id}"
 
