@@ -92,13 +92,19 @@ class AdminServer:
             version="1.0.0"
         )
 
-        # Add CORS middleware
+        # Add CORS middleware - restrict to localhost and local network
+        # Note: Same-origin requests (from served frontend) don't need CORS
         self.app.add_middleware(
             CORSMiddleware,
-            allow_origins=["*"],
+            allow_origins=[
+                "http://localhost:8081",
+                "http://127.0.0.1:8081",
+                f"http://localhost:{port}",
+                f"http://127.0.0.1:{port}",
+            ],
             allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=["Content-Type", "Authorization", "Cookie"],
         )
 
         # Initialize storage
@@ -147,7 +153,7 @@ class AdminServer:
         # Setup routes
         self._setup_routes()
 
-        # Start idle capture to keep portal session alive
+        # Start idle capture to trigger screen permission dialog once on startup
         self._start_idle_capture()
 
         logger.info(f"Admin server initialized at {host}:{port}")
@@ -177,14 +183,27 @@ class AdminServer:
         # Return defaults
         return {}
 
+    def _generate_session_name(self) -> str:
+        """Generate a recognizable session name like 'AUY-2481'."""
+        import random
+        import string
+
+        # 3 letters + 4 digits, e.g., 'AUY-2481'
+        letters = ''.join(random.choices(string.ascii_uppercase, k=3))
+        numbers = ''.join(random.choices(string.digits, k=4))
+        return f"{letters}-{numbers}"
+
     def _create_fresh_local_session(self) -> None:
         """Create a fresh local session on startup."""
         try:
             from core.models.session import Session
 
+            # Generate recognizable session name
+            session_name = self._generate_session_name()
+
             # Create new session
             new_session = Session(
-                name="Fresh Session",
+                name=session_name,
                 description="Created on startup",
                 presenter_name="Admin",
                 status="created"
@@ -193,7 +212,7 @@ class AdminServer:
             session_id = self.db_provider.create_session(new_session)
             self.current_session_id = session_id
 
-            logger.info(f"✅ Created fresh local session on startup: {session_id}")
+            logger.info(f"✅ Created fresh local session on startup: {session_id} ({session_name})")
         except Exception as e:
             logger.error(f"Error creating fresh local session: {e}", exc_info=True)
 
@@ -431,7 +450,7 @@ class AdminServer:
         async def list_sessions(
             current_user: User = Depends(self._get_current_user)
         ):
-            """List all capture sessions."""
+            """List all capture sessions (excluding idle capture sessions)."""
             try:
                 sessions = self.db_provider.get_all_sessions()
                 return [
@@ -447,6 +466,7 @@ class AdminServer:
                         "is_active": s.session_id == self.active_session_id
                     }
                     for s in sessions
+                    if s.name != "Idle Capture"  # Filter out temporary idle capture sessions
                 ]
             except Exception as e:
                 logger.error(f"Error listing sessions: {e}")
@@ -816,6 +836,53 @@ class AdminServer:
                 raise
             except Exception as e:
                 logger.error(f"Error deleting talk: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        # ==================== Session Management ====================
+
+        @self.app.patch("/api/sessions/{session_id}")
+        async def update_session(
+            session_id: str,
+            name: Optional[str] = None,
+            description: Optional[str] = None,
+            presenter_name: Optional[str] = None,
+            current_user: User = Depends(self._get_current_user)
+        ):
+            """Update session properties (name, description, presenter_name)."""
+            try:
+                session = self.db_provider.get_session(session_id)
+                if not session:
+                    raise HTTPException(status_code=404, detail="Session not found")
+
+                # Update fields if provided
+                if name is not None:
+                    session.name = name
+                if description is not None:
+                    session.description = description
+                if presenter_name is not None:
+                    session.presenter_name = presenter_name
+
+                # Save updated session
+                success = self.db_provider.update_session(session)
+                if not success:
+                    raise HTTPException(status_code=500, detail="Failed to update session")
+
+                logger.info(f"Updated session {session_id}: name={session.name}")
+                return {
+                    "success": True,
+                    "message": "Session updated successfully",
+                    "session": {
+                        "session_id": session.session_id,
+                        "name": session.name,
+                        "description": session.description,
+                        "presenter_name": session.presenter_name
+                    }
+                }
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error updating session: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
         @self.app.post("/api/viewer/start")

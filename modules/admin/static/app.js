@@ -157,6 +157,11 @@ class AdminApp {
             const response = await fetch('/api/persistent-session', {
                 credentials: 'include'
             });
+
+            if (!response.ok) {
+                throw new Error(`Failed to load persistent session: ${response.status} ${response.statusText}`);
+            }
+
             const data = await response.json();
 
             document.getElementById('persistentSessionId').textContent = data.session_id;
@@ -185,7 +190,10 @@ class AdminApp {
             this.loadViewerInfo();
         } catch (error) {
             console.error('Error loading persistent session:', error);
-            document.getElementById('cloudStatus').innerHTML = '<span style="color: #ef4444;">❌ Error</span>';
+            document.getElementById('persistentSessionId').textContent = 'Error loading session';
+            document.getElementById('persistentSessionName').textContent = error.message || 'Unknown error';
+            document.getElementById('cloudStatus').innerHTML = '<span style="color: #ef4444;">❌ Error loading session</span>';
+            this.showNotification('Failed to load persistent session: ' + (error.message || 'Unknown error'), 'error');
         }
     }
 
