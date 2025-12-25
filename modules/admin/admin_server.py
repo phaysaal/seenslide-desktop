@@ -479,6 +479,35 @@ class AdminServer:
                 logger.error(f"Error listing sessions: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
+        @self.app.delete("/api/sessions/clear-all")
+        async def clear_all_sessions(
+            current_user: User = Depends(self._get_current_user)
+        ):
+            """Delete all capture sessions (talks) and their data."""
+            try:
+                # Get all sessions except Idle Capture
+                sessions = self.db_provider.get_all_sessions()
+                sessions_to_delete = [s for s in sessions if s.name != "Idle Capture"]
+
+                deleted_count = 0
+                for session in sessions_to_delete:
+                    try:
+                        self.db_provider.delete_session(session.session_id)
+                        deleted_count += 1
+                        logger.info(f"Deleted session: {session.session_id} ({session.name})")
+                    except Exception as e:
+                        logger.warning(f"Failed to delete session {session.session_id}: {e}")
+
+                logger.info(f"✅ Cleared {deleted_count} sessions")
+                return {
+                    "success": True,
+                    "message": f"Cleared {deleted_count} talk(s)",
+                    "deleted_count": deleted_count
+                }
+            except Exception as e:
+                logger.error(f"Error clearing sessions: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
         @self.app.post("/api/sessions/start")
         async def start_session(
             request: SessionStartRequest,

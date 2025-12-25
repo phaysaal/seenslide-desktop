@@ -81,6 +81,7 @@ class AdminApp {
         document.getElementById('logoutBtn').addEventListener('click', () => this.handleLogout());
         document.getElementById('resetSessionBtn').addEventListener('click', () => this.resetPersistentSession());
         document.getElementById('editSessionNameBtn').addEventListener('click', () => this.editSessionName());
+        document.getElementById('clearAllTalksBtn').addEventListener('click', () => this.clearAllTalks());
         document.getElementById('startViewerBtn').addEventListener('click', () => this.startViewer());
         document.getElementById('stopViewerBtn').addEventListener('click', () => this.stopViewer());
         document.getElementById('startCaptureBtn').addEventListener('click', () => this.startCapture());
@@ -227,6 +228,46 @@ class AdminApp {
         } catch (error) {
             console.error('Reset session error:', error);
             this.showNotification('Failed to create new session', 'error');
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    clearAllTalks() {
+        if (this.sessions.length === 0) {
+            this.showNotification('No talks to clear', 'info');
+            return;
+        }
+
+        this.showConfirm(
+            'Clear All Talks',
+            `Are you sure you want to delete ALL ${this.sessions.length} talk(s)? This will permanently delete all captured slides and cannot be undone.`,
+            () => this.doClearAllTalks(),
+            'Delete All',
+            'btn-danger'
+        );
+    }
+
+    async doClearAllTalks() {
+        this.showLoading();
+        try {
+            const response = await fetch('/api/sessions/clear-all', {
+                method: 'DELETE',
+                credentials: 'include'
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                this.showNotification(`Cleared ${data.deleted_count} talk(s) successfully`, 'success');
+                this.currentSessionId = null;
+                await this.loadSessions();
+                await this.loadTalks();
+            } else {
+                this.showNotification(data.message || 'Failed to clear talks', 'error');
+            }
+        } catch (error) {
+            console.error('Clear all talks error:', error);
+            this.showNotification('Failed to clear talks', 'error');
         } finally {
             this.hideLoading();
         }
