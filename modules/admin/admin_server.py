@@ -1119,16 +1119,34 @@ class AdminServer:
         if static_dir.exists():
             self.app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
+    def _get_local_ip(self) -> str:
+        """Get local IP address for LAN access."""
+        import socket
+        try:
+            # Create a socket to determine the local IP
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # Connect to a public DNS server (doesn't actually send data)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return "127.0.0.1"
+
     def run(self):
         """Run the admin server."""
         import uvicorn
+
+        # Get local IP for display
+        local_ip = self._get_local_ip()
+
         logger.info(f"Starting admin server on {self.host}:{self.port}")
         print(f"\n{'='*70}")
         print(f"SeenSlide Admin Server Starting")
         print(f"{'='*70}")
         print(f"\nAccess the admin panel at:")
-        print(f"  http://{self.host}:{self.port}")
-        print(f"  http://localhost:{self.port}")
+        print(f"  http://localhost:{self.port}  (this machine)")
+        print(f"  http://{local_ip}:{self.port}  (from other devices on LAN)")
         print(f"\nAPI Documentation:")
         print(f"  http://localhost:{self.port}/docs")
         print(f"\nPress Ctrl+C to stop\n")
