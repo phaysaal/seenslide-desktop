@@ -417,9 +417,22 @@ class AdminServer:
         ):
             """Reset persistent session with new ID."""
             try:
+                # Store old session ID for cleanup
+                old_session_id = self.persistent_session.get('session_id')
+
                 # Reset persistent session
                 self.persistent_session = self.persistent_session_manager.reset_session()
                 logger.info(f"Persistent session reset to: {self.persistent_session['session_id']}")
+
+                # Auto-delete old session if it has no talks/slides
+                if old_session_id:
+                    try:
+                        slide_count = self.db_provider.get_slide_count(old_session_id)
+                        if slide_count == 0:
+                            self.db_provider.delete_session(old_session_id)
+                            logger.info(f"✅ Auto-deleted empty previous session: {old_session_id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to auto-delete previous session {old_session_id}: {e}")
 
                 # Create new cloud session if enabled
                 if self.cloud_provider.enabled:
@@ -621,6 +634,15 @@ class AdminServer:
                 # Clear active talk info
                 self.active_session_id = None
                 self.active_talk_name = None
+
+                # Auto-delete session if it has no talks/slides
+                slide_count = self.db_provider.get_slide_count(session_id)
+                if slide_count == 0:
+                    try:
+                        self.db_provider.delete_session(session_id)
+                        logger.info(f"✅ Auto-deleted empty session: {session_id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to auto-delete empty session {session_id}: {e}")
 
                 return SessionControlResponse(
                     success=True,
@@ -830,6 +852,16 @@ class AdminServer:
                     raise HTTPException(status_code=404, detail="Talk not found")
 
                 logger.info(f"Deleted talk {talk_id} from session {session_id}")
+
+                # Auto-delete session if it has no talks/slides left
+                try:
+                    slide_count = self.db_provider.get_slide_count(session_id)
+                    if slide_count == 0:
+                        self.db_provider.delete_session(session_id)
+                        logger.info(f"✅ Auto-deleted empty session after deleting last talk: {session_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to auto-delete empty session {session_id}: {e}")
+
                 return {"success": True, "message": "Talk deleted successfully"}
 
             except HTTPException:
