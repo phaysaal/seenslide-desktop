@@ -59,7 +59,7 @@ class ConfigLoader:
         """
         self.config = {
             "capture": {
-                "provider": "mss",
+                "provider": "portal",  # Changed from "mss" to "portal" for Wayland
                 "interval_seconds": 2.0,
                 "save_raw": False
             },

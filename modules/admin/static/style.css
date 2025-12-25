@@ -29,6 +29,14 @@ body {
     max-width: 400px;
 }
 
+.login-logo {
+    display: block;
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 16px;
+    border-radius: 8px;
+}
+
 .login-box h1 {
     color: #1f2937;
     margin-bottom: 8px;
@@ -155,7 +163,13 @@ body {
 .header-left {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
+}
+
+.header-logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 6px;
 }
 
 /* Container */
@@ -291,7 +305,7 @@ body {
     border-color: #667eea;
 }
 
-#sessionDescription {
+#talkDescription {
     width: 100%;
     padding: 10px;
     border: 2px solid #e5e7eb;
@@ -302,7 +316,7 @@ body {
     margin-bottom: 12px;
 }
 
-#sessionDescription:focus {
+#talkDescription:focus {
     outline: none;
     border-color: #667eea;
 }
@@ -453,6 +467,203 @@ body {
     100% { transform: rotate(360deg); }
 }
 
+/* Toast Notifications */
+.toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 400px;
+}
+
+.toast {
+    padding: 16px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    animation: slideIn 0.3s ease-out;
+    color: white;
+    font-weight: 500;
+}
+
+.toast.success {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+}
+
+.toast.error {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+}
+
+.toast.warning {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+}
+
+.toast.info {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+}
+
+.toast-icon {
+    font-size: 20px;
+}
+
+.toast-message {
+    flex: 1;
+}
+
+.toast-close {
+    background: none;
+    border: none;
+    color: white;
+    cursor: pointer;
+    font-size: 18px;
+    opacity: 0.8;
+    padding: 0;
+    line-height: 1;
+}
+
+.toast-close:hover {
+    opacity: 1;
+}
+
+.toast.fade-out {
+    animation: slideOut 0.3s ease-in forwards;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideOut {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+}
+
+/* Status badge warning */
+.status-badge.warning {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+/* Modal Dialog */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 9998;
+}
+
+.modal-overlay.active {
+    display: flex;
+}
+
+.modal-box {
+    background: white;
+    padding: 32px;
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    width: 100%;
+    max-width: 450px;
+    animation: modalIn 0.2s ease-out;
+}
+
+@keyframes modalIn {
+    from {
+        transform: scale(0.9);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+.modal-box h3 {
+    color: #1f2937;
+    margin-bottom: 16px;
+    font-size: 20px;
+}
+
+.modal-box p {
+    color: #6b7280;
+    margin-bottom: 24px;
+    line-height: 1.6;
+}
+
+.modal-box input[type="text"] {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: 14px;
+    margin-bottom: 24px;
+    transition: border-color 0.3s;
+}
+
+.modal-box input[type="text"]:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+}
+
+.modal-actions .btn {
+    min-width: 100px;
+}
+
+/* Talks loading/error states */
+.talks-loading,
+.talks-error {
+    color: #6b7280;
+    text-align: center;
+    padding: 32px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+}
+
+.talks-error {
+    color: #ef4444;
+}
+
+.spinner-small {
+    width: 20px;
+    height: 20px;
+    border: 2px solid #e5e7eb;
+    border-top: 2px solid #667eea;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    display: inline-block;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .container {
@@ -474,5 +685,11 @@ body {
     .form-inline input,
     .form-inline select {
         width: 100%;
+    }
+
+    .toast-container {
+        left: 20px;
+        right: 20px;
+        max-width: none;
     }
 }

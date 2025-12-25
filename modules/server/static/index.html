@@ -2,123 +2,1172 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>SeenSlide Viewer</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>SeenSlide - LAN Viewer</title>
+    <link rel="icon" type="image/png" href="/static/logo.png">
+    <style>
+        /* ============================================================================
+           SEENSLIDE LAN VIEWER
+
+           Features:
+           - Darker greenish dark mode
+           - Session/Talks selector
+           - Community + AI chat tabs
+           - Chat synced with slides
+           - Translucent glassmorphism
+           - Touch & zoom controls
+           - Auto-refresh every 3 seconds
+        ============================================================================ */
+
+        :root {
+            /* Darker greenish theme */
+            --bg-base: #050a0e;
+            --bg-panel: rgba(12, 20, 18, 0.6);
+            --bg-panel-hover: rgba(18, 28, 24, 0.7);
+            --bg-glass: rgba(20, 32, 28, 0.4);
+            --accent-primary: #10b981;
+            --accent-secondary: #6366f1;
+            --accent-glow: rgba(16, 185, 129, 0.3);
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --text-tertiary: #64748b;
+            --border-color: rgba(16, 185, 129, 0.15);
+            --border-glow: rgba(16, 185, 129, 0.3);
+        }
+
+        [data-theme="light"] {
+            --bg-base: #f0f4f8;
+            --bg-panel: rgba(255, 255, 255, 0.7);
+            --bg-panel-hover: rgba(248, 250, 252, 0.85);
+            --bg-glass: rgba(255, 255, 255, 0.5);
+            --accent-primary: #10b981;
+            --accent-secondary: #6366f1;
+            --text-primary: #1e293b;
+            --text-secondary: #475569;
+            --text-tertiary: #94a3b8;
+            --border-color: rgba(148, 163, 184, 0.2);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg-base);
+            color: var(--text-primary);
+            overflow: hidden;
+            height: 100vh;
+            position: relative;
+        }
+
+        /* Animated greenish orbs */
+        .bg-orbs {
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            overflow: hidden;
+            pointer-events: none;
+        }
+
+        .orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(80px);
+            opacity: 0.3;
+            animation: float 20s ease-in-out infinite;
+        }
+
+        .orb-1 {
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(16, 185, 129, 0.4), transparent);
+            top: -200px;
+            left: -200px;
+        }
+
+        .orb-2 {
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(99, 102, 241, 0.3), transparent);
+            bottom: -150px;
+            right: -150px;
+            animation-delay: 5s;
+        }
+
+        .orb-3 {
+            width: 350px;
+            height: 350px;
+            background: radial-gradient(circle, rgba(16, 185, 129, 0.25), transparent);
+            top: 50%;
+            right: 10%;
+            animation-delay: 10s;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(30px, -30px) scale(1.1); }
+            66% { transform: translate(-20px, 20px) scale(0.9); }
+        }
+
+        /* Main Layout */
+        .viewer-app {
+            position: relative;
+            z-index: 1;
+            display: grid;
+            grid-template-columns: 320px 1fr 80px;
+            grid-template-rows: 70px 1fr 160px;
+            grid-template-areas:
+                "header header header"
+                "chat slide tools"
+                "timeline timeline timeline";
+            height: 100vh;
+            gap: 12px;
+            padding: 12px;
+        }
+
+        @media (max-width: 1024px) {
+            .viewer-app {
+                grid-template-columns: 1fr 80px;
+                grid-template-areas:
+                    "header header"
+                    "slide tools"
+                    "timeline timeline";
+            }
+            .chat-panel { display: none; }
+        }
+
+        .glass-panel {
+            background: var(--bg-panel);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        /* ==================== HEADER ==================== */
+        .header {
+            grid-area: header;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .logo {
+            font-size: 18px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .session-select {
+            padding: 8px 16px;
+            background: var(--bg-glass);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            color: var(--text-primary);
+            font-size: 13px;
+            cursor: pointer;
+            min-width: 200px;
+            outline: none;
+        }
+
+        .session-select:focus {
+            border-color: var(--accent-primary);
+        }
+
+        .session-select option {
+            background: var(--bg-base);
+            color: var(--text-primary);
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 12px;
+        }
+
+        .header-btn {
+            padding: 10px 18px;
+            background: var(--bg-glass);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            color: var(--text-primary);
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .header-btn:hover {
+            background: var(--bg-panel-hover);
+            border-color: var(--border-glow);
+            transform: translateY(-2px);
+        }
+
+        /* ==================== CHAT PANEL WITH TABS ==================== */
+        .chat-panel {
+            grid-area: chat;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border-color);
+            padding: 0 16px;
+        }
+
+        .chat-tab {
+            flex: 1;
+            padding: 16px;
+            text-align: center;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-tertiary);
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s;
+        }
+
+        .chat-tab:hover {
+            color: var(--text-secondary);
+        }
+
+        .chat-tab.active {
+            color: var(--accent-primary);
+            border-bottom-color: var(--accent-primary);
+        }
+
+        .chat-content {
+            flex: 1;
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-content.active {
+            display: flex;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .chat-message {
+            display: flex;
+            gap: 12px;
+            animation: messageSlideIn 0.3s ease;
+        }
+
+        @keyframes messageSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .chat-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 13px;
+            flex-shrink: 0;
+        }
+
+        .chat-bubble {
+            background: var(--bg-glass);
+            backdrop-filter: blur(10px);
+            padding: 12px 16px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            max-width: 85%;
+        }
+
+        .chat-bubble-header {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .slide-badge {
+            padding: 2px 8px;
+            background: var(--accent-primary);
+            color: white;
+            border-radius: 6px;
+            font-size: 10px;
+            font-weight: 700;
+        }
+
+        .chat-bubble-text {
+            font-size: 13px;
+            line-height: 1.5;
+            color: var(--text-secondary);
+        }
+
+        .chat-timestamp {
+            font-size: 10px;
+            color: var(--text-tertiary);
+            margin-top: 4px;
+        }
+
+        .chat-input-area {
+            padding: 16px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .chat-input {
+            width: 100%;
+            padding: 12px 16px;
+            background: var(--bg-glass);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            color: var(--text-primary);
+            font-size: 13px;
+            outline: none;
+            transition: all 0.3s;
+        }
+
+        .chat-input:focus {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        /* ==================== SLIDE AREA ==================== */
+        .slide-area {
+            grid-area: slide;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 16px;
+        }
+
+        .slide-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .slide-image {
+            max-width: 90%;
+            max-height: 90%;
+            object-fit: contain;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            user-select: none;
+        }
+
+        .nav-arrow {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 60px;
+            height: 100px;
+            background: var(--bg-panel);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 10;
+            font-size: 28px;
+            color: var(--text-primary);
+        }
+
+        .nav-arrow-left {
+            left: 0;
+            border-radius: 0 16px 16px 0;
+        }
+
+        .nav-arrow-right {
+            right: 0;
+            border-radius: 16px 0 0 16px;
+        }
+
+        .slide-area:hover .nav-arrow {
+            opacity: 1;
+        }
+
+        .nav-arrow:hover {
+            background: var(--bg-panel-hover);
+            border-color: var(--accent-primary);
+            transform: translateY(-50%) scale(1.05);
+        }
+
+
+        .zoom-controls {
+            position: absolute;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            gap: 8px;
+            background: var(--bg-panel);
+            backdrop-filter: blur(20px);
+            padding: 10px 16px;
+            border-radius: 50px;
+            border: 1px solid var(--border-color);
+        }
+
+        .zoom-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: var(--bg-glass);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            font-size: 18px;
+        }
+
+        .zoom-btn:hover {
+            background: var(--bg-panel-hover);
+            border-color: var(--accent-primary);
+        }
+
+        .zoom-level {
+            padding: 0 12px;
+            color: var(--text-primary);
+            font-size: 13px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+        }
+
+        /* ==================== TOOLS PANEL ==================== */
+        .tools-panel {
+            grid-area: tools;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px 0;
+            gap: 16px;
+        }
+
+        .tool-btn {
+            width: 56px;
+            height: 56px;
+            border-radius: 14px;
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+
+        .tool-btn:hover {
+            background: var(--bg-panel);
+            backdrop-filter: blur(20px);
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
+            transform: scale(1.1);
+            box-shadow: 0 8px 24px var(--accent-glow);
+        }
+
+        .tool-btn svg {
+            width: 24px;
+            height: 24px;
+            stroke: currentColor;
+            fill: none;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .tool-divider {
+            width: 40px;
+            height: 1px;
+            background: var(--border-color);
+            margin: 8px 0;
+        }
+
+        /* ==================== TIMELINE ==================== */
+        .timeline {
+            grid-area: timeline;
+            padding: 20px 24px;
+            overflow-x: auto;
+            overflow-y: hidden;
+        }
+
+        .timeline-header {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-tertiary);
+            margin-bottom: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .timeline-slides {
+            display: flex;
+            gap: 14px;
+            padding-bottom: 10px;
+        }
+
+        .timeline-slide {
+            flex-shrink: 0;
+            width: 180px;
+            cursor: pointer;
+            position: relative;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 2px solid transparent;
+            transition: all 0.3s ease;
+            background: var(--bg-glass);
+            backdrop-filter: blur(10px);
+        }
+
+        .timeline-slide:hover {
+            border-color: var(--accent-primary);
+            transform: translateY(-4px);
+            box-shadow: 0 8px 24px var(--accent-glow);
+        }
+
+        .timeline-slide.active {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.3);
+        }
+
+        .timeline-slide img {
+            width: 100%;
+            height: 100px;
+            object-fit: cover;
+            display: block;
+        }
+
+        .timeline-slide-number {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            padding: 4px 10px;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            color: white;
+        }
+
+        .timeline-slide-label {
+            padding: 10px;
+            text-align: center;
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        /* ==================== SCROLLBARS ==================== */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--bg-glass);
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--bg-panel);
+        }
+    </style>
 </head>
 <body>
-    <div class="container">
+    <!-- Animated gradient orbs -->
+    <div class="bg-orbs">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+
+    <div class="viewer-app">
         <!-- Header -->
-        <header class="header">
-            <h1>SeenSlide Viewer</h1>
-            <div class="session-info">
-                <select id="sessionSelect" class="session-select">
-                    <option value="">Select a session...</option>
+        <header class="header glass-panel">
+            <div class="header-left">
+                <img src="/static/logo.png" alt="SeenSlide" class="logo-img" style="width: 40px; height: 40px; border-radius: 6px;">
+                <div class="logo">SeenSlide</div>
+                <select class="session-select" id="sessionSelect" onchange="selectSession(this.value)">
+                    <option value="">Select a talk...</option>
                 </select>
-                <span id="connectionStatus" class="status disconnected">●</span>
+            </div>
+            <div class="header-actions">
+                <button class="header-btn" onclick="toggleTheme()">
+                    <span id="themeIcon">🌙</span>
+                </button>
+                <button class="header-btn" onclick="sharePresentation()">
+                    <span>🔗</span>
+                    <span>Share</span>
+                </button>
+                <button class="header-btn" onclick="downloadSlide()">
+                    <span>⬇</span>
+                    <span>Download</span>
+                </button>
             </div>
         </header>
 
-        <!-- Main Content -->
-        <main class="main-content">
-            <!-- Slide Viewer -->
-            <div class="slide-viewer">
-                <div id="slideContainer" class="slide-container">
-                    <div class="no-slide">
-                        <p>Select a session to view slides</p>
-                    </div>
-                </div>
+        <!-- Chat Panel with Tabs -->
+        <aside class="chat-panel glass-panel">
+            <div class="chat-tabs">
+                <div class="chat-tab active" onclick="switchChatTab('community')">Community</div>
+                <div class="chat-tab" onclick="switchChatTab('ai')">AI Assistant</div>
+            </div>
 
-                <!-- Navigation Controls -->
-                <div class="controls">
-                    <!-- First Row: Main navigation -->
-                    <div class="controls-row">
-                        <button id="firstBtn" class="nav-btn" title="First Slide">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                <path d="M11 19l-7-7 7-7m0 14l7-7-7-7"/>
-                                <path d="M6 5v14"/>
-                            </svg>
-                        </button>
-
-                        <button id="prevBtn" class="nav-btn" title="Previous Slide">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                <path d="M15 19l-7-7 7-7"/>
-                            </svg>
-                        </button>
-
-                        <div class="slide-counter">
-                            <input type="number" id="slideInput" class="slide-input" min="1" value="1">
-                            <span> / </span>
-                            <span id="totalSlides">0</span>
+            <!-- Community Chat -->
+            <div class="chat-content active" id="communityChat">
+                <div class="chat-messages" id="communityMessages">
+                    <div class="chat-message">
+                        <div class="chat-avatar">J</div>
+                        <div class="chat-bubble">
+                            <div class="chat-bubble-header">
+                                John
+                                <span class="slide-badge">Slide 1</span>
+                            </div>
+                            <div class="chat-bubble-text">Great introduction! Very clear explanation.</div>
+                            <div class="chat-timestamp">2 min ago</div>
                         </div>
-
-                        <button id="nextBtn" class="nav-btn" title="Next Slide">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                <path d="M9 5l7 7-7 7"/>
-                            </svg>
-                        </button>
-
-                        <button id="lastBtn" class="nav-btn" title="Last Slide">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                <path d="M13 5l7 7-7 7m0-14l-7 7 7 7"/>
-                                <path d="M18 5v14"/>
-                            </svg>
-                        </button>
-                    </div>
-
-                    <!-- Second Row: View controls -->
-                    <div class="controls-row">
-                        <button id="liveBtn" class="live-btn" title="Go to latest slide">LIVE</button>
-
-                        <button id="fullscreenBtn" class="nav-btn" title="Fullscreen (F)">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" stroke-width="2"/>
-                            </svg>
-                        </button>
                     </div>
                 </div>
-
-                <!-- Slide Info -->
-                <div class="slide-info">
-                    <div class="info-item">
-                        <span class="label">Timestamp:</span>
-                        <span id="slideTimestamp">--</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="label">Dimensions:</span>
-                        <span id="slideDimensions">--</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="label">Session:</span>
-                        <span id="sessionName">--</span>
-                    </div>
+                <div class="chat-input-area">
+                    <input type="text" class="chat-input" placeholder="Message the community..." id="communityInput" onkeypress="handleChatEnter(event, 'community')">
                 </div>
             </div>
 
-            <!-- Sidebar (Thumbnail View) -->
-            <aside class="sidebar">
-                <h3>Thumbnails</h3>
-                <div id="thumbnailGrid" class="thumbnail-grid">
-                    <!-- Thumbnails will be loaded here -->
+            <!-- AI Chat -->
+            <div class="chat-content" id="aiChat">
+                <div class="chat-messages" id="aiMessages">
+                    <div class="chat-message">
+                        <div class="chat-avatar">AI</div>
+                        <div class="chat-bubble">
+                            <div class="chat-bubble-header">SeenSlide AI</div>
+                            <div class="chat-bubble-text">Hello! I can help you understand the presentation, answer questions about specific slides, or provide summaries. Just ask!</div>
+                            <div class="chat-timestamp">Just now</div>
+                        </div>
+                    </div>
                 </div>
-            </aside>
+                <div class="chat-input-area">
+                    <input type="text" class="chat-input" placeholder="Ask about the presentation..." id="aiInput" onkeypress="handleChatEnter(event, 'ai')">
+                </div>
+            </div>
+        </aside>
+
+        <!-- Slide Area -->
+        <main class="slide-area glass-panel">
+            <div class="nav-arrow nav-arrow-left" onclick="previousSlide()">‹</div>
+            <div class="nav-arrow nav-arrow-right" onclick="nextSlide()">›</div>
+            <div class="slide-container" id="slideContainer">
+                <div style="text-align: center; color: var(--text-tertiary);">
+                    <div style="font-size: 64px; margin-bottom: 16px; opacity: 0.3;">📺</div>
+                    <p>Select a talk to view slides...</p>
+                </div>
+            </div>
+            <div class="zoom-controls" id="zoomControls">
+                <button class="zoom-btn" onclick="zoomOut()">−</button>
+                <div class="zoom-level"><span id="zoomLevel">100%</span></div>
+                <button class="zoom-btn" onclick="zoomIn()">+</button>
+                <button class="zoom-btn" onclick="resetZoom()">⟲</button>
+            </div>
         </main>
 
-        <!-- Footer -->
-        <footer class="footer">
-            <p>SeenSlide v1.0 | Real-time Presentation Capture</p>
+
+        <!-- Tools Panel -->
+        <aside class="tools-panel glass-panel">
+            <button class="tool-btn" onclick="toggleMenu()" title="Menu">
+                <svg viewBox="0 0 24 24"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+            </button>
+            <button class="tool-btn" onclick="enterSlideFullscreen()" title="Fullscreen">
+                <svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+            </button>
+            <div class="tool-divider"></div>
+            <button class="tool-btn" onclick="previousSlide()" title="Previous">
+                <svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+            </button>
+            <button class="tool-btn" onclick="nextSlide()" title="Next">
+                <svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+            </button>
+            <div class="tool-divider"></div>
+            <button class="tool-btn" title="Bookmark">
+                <svg viewBox="0 0 24 24"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+            </button>
+            <button class="tool-btn" title="AI Lookup">
+                <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            </button>
+            <div class="tool-divider"></div>
+            <button class="tool-btn" title="Export">
+                <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5-5 5 5M12 15V5"/></svg>
+            </button>
+            <button class="tool-btn" title="Settings">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6m6.364-15.364L16.95 7.05m-9.9 9.9l-1.414 1.414M23 12h-6m-6 0H1m15.364 6.364l-1.414-1.414m-9.9-9.9l-1.414-1.414"/></svg>
+            </button>
+        </aside>
+
+        <!-- Timeline -->
+        <footer class="timeline glass-panel">
+            <div class="timeline-header">Timeline</div>
+            <div class="timeline-slides" id="timelineSlides"></div>
         </footer>
     </div>
 
-    <!-- Loading Overlay -->
-    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
-        <div class="spinner"></div>
-        <p>Loading...</p>
-    </div>
+    <script>
+        // ========================================================================
+        // LAN VIEWER - Optimized for LAN API
+        // ========================================================================
+        let slides = [];
+        let currentSlideIndex = 0;
+        let zoomLevel = 1;
+        let autoRefreshInterval = null;
+        let SESSION_ID = null;
+        let currentChatTab = 'community';
+        let isDragging = false;
+        let startX, startY;
+        let translateX = 0, translateY = 0;
+        let lastSlideCount = 0;
 
-    <script src="/static/app.js"></script>
+        // ========================================================================
+        // INITIALIZATION
+        // ========================================================================
+        function init() {
+            loadSessions();
+            setupZoomAndPan();
+            setupTouchGestures();
+            loadSavedTheme();
+        }
+
+        async function loadSessions() {
+            try {
+                const response = await fetch('/api/sessions');
+                let sessions = await response.json();
+
+                // Sort sessions by start_time descending (latest first)
+                sessions.sort((a, b) => {
+                    const dateA = new Date(a.start_time || a.created_at || 0);
+                    const dateB = new Date(b.start_time || b.created_at || 0);
+                    return dateB - dateA; // Descending order
+                });
+
+                const select = document.getElementById('sessionSelect');
+                select.innerHTML = '<option value="">Select a talk...</option>';
+
+                sessions.forEach(session => {
+                    const option = document.createElement('option');
+                    option.value = session.session_id;
+                    option.textContent = `${session.name || 'Untitled'} (${session.slide_count || 0} slides)`;
+                    select.appendChild(option);
+                });
+
+                // Auto-select most recent session if available
+                if (sessions.length > 0) {
+                    const mostRecent = sessions[0];
+                    select.value = mostRecent.session_id;
+                    selectSession(mostRecent.session_id);
+                }
+            } catch (error) {
+                console.error('Error loading sessions:', error);
+            }
+        }
+
+        async function selectSession(sessionId) {
+            if (!sessionId) return;
+
+            SESSION_ID = sessionId;
+            currentSlideIndex = 0;
+
+            // Stop existing auto-refresh
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            }
+
+            await loadSlides();
+            startAutoRefresh();
+        }
+
+        // ========================================================================
+        // SLIDE LOADING - LAN API
+        // ========================================================================
+        async function loadSlides(autoDisplay = true) {
+            try {
+                const response = await fetch(`/api/sessions/${SESSION_ID}/slides?limit=1000`);
+                if (!response.ok) {
+                    throw new Error('Failed to load slides');
+                }
+
+                const slidesData = await response.json();
+                slides = slidesData.map(slide => {
+                    const filename = slide.image_path ? slide.image_path.split('/').pop() : '';
+                    const thumbFilename = slide.thumbnail_path ? slide.thumbnail_path.split('/').pop() : filename;
+
+                    return {
+                        ...slide,
+                        url: `/api/images/${SESSION_ID}/${filename}`,
+                        thumbnailUrl: `/api/images/${SESSION_ID}/${thumbFilename}`
+                    };
+                });
+
+                lastSlideCount = slides.length;
+                renderTimeline();
+
+                // Only auto-display on initial load, not on refresh
+                if (autoDisplay && slides.length > 0) {
+                    // Go to last slide by default on initial load
+                    displaySlide(slides.length - 1);
+                }
+            } catch (error) {
+                console.error('Error loading slides:', error);
+            }
+        }
+
+        function startAutoRefresh() {
+            autoRefreshInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/api/sessions/${SESSION_ID}`);
+                    const data = await response.json();
+
+                    if (data.slide_count && data.slide_count !== lastSlideCount) {
+                        const wasOnLastSlide = (currentSlideIndex === slides.length - 1);
+                        const hadNoSlides = (slides.length === 0);
+
+                        // Load new slides WITHOUT auto-displaying
+                        await loadSlides(false);
+
+                        // Only auto-advance if user was already on the last slide
+                        if (wasOnLastSlide || hadNoSlides) {
+                            displaySlide(slides.length - 1);
+                        } else {
+                            // Just update the timeline, keep user on current slide
+                            renderTimeline();
+                        }
+                    }
+                } catch (error) {
+                    console.error('Auto-refresh error:', error);
+                }
+            }, 3000);
+        }
+
+        // ========================================================================
+        // SLIDE DISPLAY
+        // ========================================================================
+        function displaySlide(index) {
+            if (index < 0 || index >= slides.length) return;
+            currentSlideIndex = index;
+            const slide = slides[index];
+
+            document.getElementById('slideContainer').innerHTML = `
+                <img src="${slide.url}"
+                     alt="Slide ${index + 1}"
+                     class="slide-image"
+                     id="slideImage"
+                     ondblclick="handleDoubleClick()"
+                     style="transform: scale(${zoomLevel}) translate(${translateX}px, ${translateY}px)">
+            `;
+            document.getElementById('zoomControls').style.display = 'flex';
+            document.querySelectorAll('.timeline-slide').forEach((el, i) => {
+                el.classList.toggle('active', i === index);
+            });
+        }
+
+        function renderTimeline() {
+            const container = document.getElementById('timelineSlides');
+            container.innerHTML = slides.map((slide, index) => `
+                <div class="timeline-slide ${index === currentSlideIndex ? 'active' : ''}" onclick="goToSlide(${index})">
+                    <img src="${slide.thumbnailUrl}" alt="Slide ${index + 1}">
+                    <div class="timeline-slide-number">${index + 1}</div>
+                    <div class="timeline-slide-label">Slide ${index + 1}</div>
+                </div>
+            `).join('');
+        }
+
+        // ========================================================================
+        // NAVIGATION
+        // ========================================================================
+        function goToSlide(index) { resetZoom(); displaySlide(index); }
+        function nextSlide() { if (currentSlideIndex < slides.length - 1) goToSlide(currentSlideIndex + 1); }
+        function previousSlide() { if (currentSlideIndex > 0) goToSlide(currentSlideIndex - 1); }
+
+        // ========================================================================
+        // ZOOM & PAN
+        // ========================================================================
+        function zoomIn() { zoomLevel = Math.min(zoomLevel + 0.25, 3); updateZoom(); }
+        function zoomOut() { zoomLevel = Math.max(zoomLevel - 0.25, 0.5); updateZoom(); }
+        function resetZoom() { zoomLevel = 1; translateX = 0; translateY = 0; updateZoom(); }
+        function updateZoom() {
+            const img = document.getElementById('slideImage');
+            if (img) img.style.transform = `scale(${zoomLevel}) translate(${translateX}px, ${translateY}px)`;
+            document.getElementById('zoomLevel').textContent = Math.round(zoomLevel * 100) + '%';
+        }
+        function handleDoubleClick() {
+            zoomLevel = zoomLevel === 1 ? 2 : 1;
+            translateX = translateY = 0;
+            updateZoom();
+        }
+
+        function setupZoomAndPan() {
+            const slideArea = document.querySelector('.slide-area');
+            slideArea.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                e.deltaY < 0 ? zoomIn() : zoomOut();
+            });
+        }
+
+        function setupTouchGestures() {
+            const slideArea = document.querySelector('.slide-area');
+            let touchStartX = 0, initialDistance = 0, initialScale = 1;
+
+            slideArea.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    touchStartX = e.touches[0].clientX;
+                } else if (e.touches.length === 2) {
+                    initialDistance = getDistance(e.touches[0], e.touches[1]);
+                    initialScale = zoomLevel;
+                }
+            });
+
+            slideArea.addEventListener('touchmove', (e) => {
+                if (e.touches.length === 2) {
+                    e.preventDefault();
+                    const currentDistance = getDistance(e.touches[0], e.touches[1]);
+                    zoomLevel = initialScale * (currentDistance / initialDistance);
+                    zoomLevel = Math.max(0.5, Math.min(3, zoomLevel));
+                    updateZoom();
+                }
+            });
+
+            slideArea.addEventListener('touchend', (e) => {
+                if (e.changedTouches.length === 1 && zoomLevel === 1) {
+                    const touchEndX = e.changedTouches[0].clientX;
+                    const diff = touchStartX - touchEndX;
+                    if (Math.abs(diff) > 50) diff > 0 ? nextSlide() : previousSlide();
+                }
+            });
+        }
+
+        function getDistance(touch1, touch2) {
+            const dx = touch1.clientX - touch2.clientX;
+            const dy = touch1.clientY - touch2.clientY;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        // ========================================================================
+        // FULLSCREEN
+        // ========================================================================
+        function enterSlideFullscreen() {
+            const viewerApp = document.querySelector('.viewer-app');
+            if (!viewerApp) return;
+
+            // Use native browser fullscreen API
+            if (viewerApp.requestFullscreen) {
+                viewerApp.requestFullscreen();
+            } else if (viewerApp.webkitRequestFullscreen) {
+                viewerApp.webkitRequestFullscreen();
+            } else if (viewerApp.mozRequestFullScreen) {
+                viewerApp.mozRequestFullScreen();
+            } else if (viewerApp.msRequestFullscreen) {
+                viewerApp.msRequestFullscreen();
+            }
+        }
+
+        function exitFullscreen() {
+            if (document.fullscreenElement || document.webkitFullscreenElement ||
+                document.mozFullScreenElement || document.msFullscreenElement) {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) {
+                    document.webkitExitFullscreen();
+                } else if (document.mozCancelFullScreen) {
+                    document.mozCancelFullScreen();
+                } else if (document.msExitFullscreen) {
+                    document.msExitFullscreen();
+                }
+            }
+        }
+
+        // ========================================================================
+        // CHAT TABS
+        // ========================================================================
+        function switchChatTab(tab) {
+            currentChatTab = tab;
+            document.querySelectorAll('.chat-tab').forEach(el => {
+                el.classList.toggle('active', el.textContent.toLowerCase().includes(tab));
+            });
+            document.getElementById('communityChat').classList.toggle('active', tab === 'community');
+            document.getElementById('aiChat').classList.toggle('active', tab === 'ai');
+        }
+
+        function handleChatEnter(event, type) {
+            if (event.key !== 'Enter') return;
+            const input = event.target;
+            const message = input.value.trim();
+            if (!message) return;
+
+            const messagesId = type === 'community' ? 'communityMessages' : 'aiMessages';
+            const container = document.getElementById(messagesId);
+            const slideNum = currentSlideIndex + 1;
+
+            container.innerHTML += `
+                <div class="chat-message" style="flex-direction: row-reverse;">
+                    <div class="chat-avatar">U</div>
+                    <div class="chat-bubble" style="background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); border: none;">
+                        <div class="chat-bubble-header" style="color: white;">
+                            You
+                            <span class="slide-badge">Slide ${slideNum}</span>
+                        </div>
+                        <div class="chat-bubble-text" style="color: white;">${message}</div>
+                        <div class="chat-timestamp" style="color: rgba(255,255,255,0.8);">Just now</div>
+                    </div>
+                </div>
+            `;
+            container.scrollTop = container.scrollHeight;
+            input.value = '';
+
+            // Simulate AI response
+            if (type === 'ai') {
+                setTimeout(() => {
+                    container.innerHTML += `
+                        <div class="chat-message">
+                            <div class="chat-avatar">AI</div>
+                            <div class="chat-bubble">
+                                <div class="chat-bubble-header">SeenSlide AI</div>
+                                <div class="chat-bubble-text">I understand you're asking about: "${message}". This feature will be available soon!</div>
+                                <div class="chat-timestamp">Just now</div>
+                            </div>
+                        </div>
+                    `;
+                    container.scrollTop = container.scrollHeight;
+                }, 1000);
+            }
+        }
+
+        // ========================================================================
+        // THEME
+        // ========================================================================
+        function toggleTheme() {
+            const html = document.documentElement;
+            const current = html.getAttribute('data-theme');
+            const newTheme = current === 'light' ? 'dark' : 'light';
+            html.setAttribute('data-theme', newTheme);
+            document.getElementById('themeIcon').textContent = newTheme === 'light' ? '☀️' : '🌙';
+            localStorage.setItem('theme', newTheme);
+        }
+
+        function loadSavedTheme() {
+            const saved = localStorage.getItem('theme');
+            if (saved) {
+                document.documentElement.setAttribute('data-theme', saved);
+                document.getElementById('themeIcon').textContent = saved === 'light' ? '☀️' : '🌙';
+            }
+        }
+
+        // ========================================================================
+        // ACTIONS
+        // ========================================================================
+        function sharePresentation() {
+            const url = window.location.href;
+            if (navigator.share) {
+                navigator.share({ title: 'SeenSlide Presentation', url });
+            } else {
+                navigator.clipboard.writeText(url);
+                alert('Link copied!');
+            }
+        }
+
+        function downloadSlide() {
+            const img = document.getElementById('slideImage');
+            if (!img) return;
+            const link = document.createElement('a');
+            link.href = img.src;
+            link.download = `slide-${currentSlideIndex + 1}.jpg`;
+            link.click();
+        }
+
+        function toggleMenu() { console.log('Menu toggle'); }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            // ESC key is handled natively by browser for fullscreen, but we can add manual handling
+            if (e.key === 'Escape') {
+                exitFullscreen();
+            } else if (e.key === 'ArrowRight' || e.key === ' ') {
+                e.preventDefault();
+                nextSlide();
+            } else if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                previousSlide();
+            } else if (e.key === 'f' || e.key === 'F') {
+                e.preventDefault();
+                if (document.fullscreenElement) {
+                    exitFullscreen();
+                } else {
+                    enterSlideFullscreen();
+                }
+            }
+        });
+
+        // Stop auto-refresh when page is hidden
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            } else if (!document.hidden && SESSION_ID) {
+                startAutoRefresh();
+            }
+        });
+
+        // ========================================================================
+        // START
+        // ========================================================================
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+    </script>
 </body>
 </html>

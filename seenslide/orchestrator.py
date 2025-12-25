@@ -6,6 +6,7 @@ import time
 
 from core.bus.event_bus import EventBus
 from core.models.session import Session
+from core.models.capture_mode import CaptureMode
 from core.config.config_loader import ConfigLoader
 from core.registry.plugin_registry import PluginRegistry
 from modules.capture.daemon import CaptureDaemon
@@ -59,7 +60,8 @@ class SeenSlideOrchestrator:
         session_name: str,
         description: str = "",
         presenter_name: str = "",
-        monitor_id: int = 1
+        monitor_id: int = 1,
+        mode: CaptureMode = CaptureMode.ACTIVE
     ) -> bool:
         """Start a new capture session.
 
@@ -68,6 +70,7 @@ class SeenSlideOrchestrator:
             description: Session description
             presenter_name: Name of presenter
             monitor_id: Monitor to capture from
+            mode: Capture mode (IDLE or ACTIVE)
 
         Returns:
             True if started successfully, False otherwise
@@ -107,7 +110,8 @@ class SeenSlideOrchestrator:
             self.capture_daemon = CaptureDaemon(
                 provider=capture_provider,
                 session=self.session,
-                event_bus=self.event_bus
+                event_bus=self.event_bus,
+                mode=mode
             )
 
             # Initialize deduplication engine
@@ -119,10 +123,10 @@ class SeenSlideOrchestrator:
             )
 
             # Initialize storage manager
-            storage_config = self.config.get("storage", {})
+            # Pass full config so storage manager can access both storage and cloud sections
             self.storage_manager = StorageManager(
                 session=self.session,
-                config=storage_config,
+                config=self.config,  # Pass entire config, not just storage section
                 event_bus=self.event_bus
             )
 
@@ -195,6 +199,77 @@ class SeenSlideOrchestrator:
             return False
 
         return self.capture_daemon.resume()
+
+    def set_capture_mode(self, mode: CaptureMode) -> bool:
+        """Switch capture mode between IDLE and ACTIVE.
+
+        Args:
+            mode: New capture mode
+
+        Returns:
+            True if mode switched successfully, False otherwise
+        """
+        if not self._running or not self.capture_daemon:
+            logger.warning("Cannot set mode: capture daemon not running")
+            return False
+
+        try:
+            self.capture_daemon.set_mode(mode)
+            logger.info(f"Capture mode set to: {mode.value}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to set capture mode: {e}")
+            return False
+
+    def get_capture_mode(self) -> Optional[CaptureMode]:
+        """Get current capture mode.
+
+        Returns:
+            Current capture mode or None if not running
+        """
+        if not self.capture_daemon:
+            return None
+        return self.capture_daemon.get_mode()
+
+    def update_session(self, new_session: Session) -> bool:
+        """Update the current session (for switching between talks).
+
+        Args:
+            new_session: New session object
+
+        Returns:
+            True if updated successfully, False otherwise
+        """
+        if not self._running:
+            logger.warning("Cannot update session: orchestrator not running")
+            return False
+
+        try:
+            # Update session in orchestrator
+            old_session_id = self.session.session_id if self.session else None
+            self.session = new_session
+
+            # Update session in storage manager
+            if self.storage_manager:
+                self.storage_manager._session = new_session
+                logger.info(f"Updated storage manager session from {old_session_id} to {new_session.session_id}")
+
+            # Update session in capture daemon
+            if self.capture_daemon:
+                self.capture_daemon._session = new_session
+                logger.info(f"Updated capture daemon session from {old_session_id} to {new_session.session_id}")
+
+            # Update session in dedup engine
+            if self.dedup_engine:
+                self.dedup_engine._session = new_session
+                logger.info(f"Updated dedup engine session from {old_session_id} to {new_session.session_id}")
+
+            logger.info(f"Session updated successfully: {new_session.name} ({new_session.session_id})")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to update session: {e}")
+            return False
 
     def is_running(self) -> bool:
         """Check if a session is running.

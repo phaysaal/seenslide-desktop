@@ -11,6 +11,7 @@ from core.models.slide import ProcessedSlide, RawCapture
 from core.models.session import Session
 from modules.storage.providers.filesystem_provider import FilesystemStorageProvider
 from modules.storage.providers.sqlite_provider import SQLiteStorageProvider
+from modules.storage.providers.cloud_provider import CloudStorageProvider
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class StorageManager:
         # Initialize providers
         self._filesystem = FilesystemStorageProvider()
         self._database = SQLiteStorageProvider()
+        self._cloud = CloudStorageProvider()
 
         self._running = False
         self._slides_stored = 0
@@ -70,9 +72,29 @@ class StorageManager:
                 logger.error("Failed to initialize database provider")
                 return False
 
+            # Initialize cloud provider if cloud config exists
+            cloud_config = self._config.get("cloud", {})
+            if cloud_config:
+                self._cloud.initialize(cloud_config)
+
             # Create session in storage
             self._filesystem.create_session(self._session)
             self._database.create_session(self._session)
+
+            # Use existing cloud session if provided, otherwise create new one
+            existing_cloud_session_id = cloud_config.get("existing_session_id")
+            if existing_cloud_session_id and self._cloud.enabled:
+                # Use existing persistent cloud session
+                self._cloud.cloud_session_id = existing_cloud_session_id
+                logger.info(f"Using existing cloud session: {existing_cloud_session_id}")
+            elif self._cloud.enabled:
+                # Create new cloud session (legacy behavior)
+                self._cloud.start_session(
+                    session_id=self._session.session_id,
+                    session_name=self._session.name,
+                    description=self._session.description,
+                    presenter_name=self._session.presenter_name
+                )
 
             # Subscribe to SLIDE_UNIQUE events
             self._event_bus.subscribe(
@@ -112,6 +134,7 @@ class StorageManager:
             # Cleanup providers
             self._filesystem.cleanup()
             self._database.cleanup()
+            self._cloud.cleanup()
 
             self._running = False
             logger.info(
@@ -217,6 +240,17 @@ class StorageManager:
 
             # Save to database
             self._database.save_slide(slide)
+
+            # Upload to cloud if enabled
+            try:
+                import io
+                # Convert image to JPEG bytes for cloud upload
+                img_byte_arr = io.BytesIO()
+                capture.image.convert('RGB').save(img_byte_arr, format='JPEG', quality=85)
+                img_byte_arr.seek(0)
+                self._cloud.save_slide(slide, img_byte_arr.getvalue())
+            except Exception as e:
+                logger.warning(f"Failed to upload slide to cloud: {e}")
 
             self._slides_stored += 1
 

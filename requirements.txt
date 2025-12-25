@@ -28,3 +28,9 @@ PyYAML>=6.0.1
 
 # Utilities
 python-dateutil>=2.8.2
+
+# Cloud Sync
+requests>=2.31.0
+
+# QR Code Generation
+qrcode[pil]>=7.4.2

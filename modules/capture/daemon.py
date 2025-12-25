@@ -9,6 +9,7 @@ from core.bus.event_bus import EventBus
 from core.interfaces.events import Event, EventType
 from core.interfaces.capture import ICaptureProvider, CaptureError
 from core.models.session import Session
+from core.models.capture_mode import CaptureMode
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,8 @@ class CaptureDaemon:
         self,
         provider: ICaptureProvider,
         session: Session,
-        event_bus: Optional[EventBus] = None
+        event_bus: Optional[EventBus] = None,
+        mode: CaptureMode = CaptureMode.ACTIVE
     ):
         """Initialize the capture daemon.
 
@@ -32,10 +34,12 @@ class CaptureDaemon:
             provider: Initialized capture provider
             session: Session configuration
             event_bus: Event bus for publishing events (None = create new)
+            mode: Capture mode (IDLE or ACTIVE)
         """
         self._provider = provider
         self._session = session
         self._event_bus = event_bus or EventBus()
+        self._mode = mode
 
         self._thread: Optional[threading.Thread] = None
         self._running = False
@@ -45,6 +49,17 @@ class CaptureDaemon:
         self._capture_count = 0
         self._error_count = 0
         self._last_capture_time = 0.0
+
+        # Store original interval for mode switching
+        self._original_interval = session.capture_interval_seconds
+        self._idle_interval = 60.0  # Capture once per minute in idle mode
+
+        # Set initial interval based on mode
+        if mode == CaptureMode.IDLE:
+            self._session.capture_interval_seconds = self._idle_interval
+            logger.info(f"CaptureDaemon initialized in IDLE mode (interval: {self._idle_interval}s)")
+        else:
+            logger.info(f"CaptureDaemon initialized in ACTIVE mode (interval: {self._original_interval}s)")
 
         logger.info(
             f"CaptureDaemon initialized for session: {session.session_id}"
@@ -182,6 +197,47 @@ class CaptureDaemon:
 
         logger.info("Capture daemon resumed")
 
+    def set_mode(self, mode: CaptureMode) -> None:
+        """Switch capture mode between IDLE and ACTIVE.
+
+        Args:
+            mode: New capture mode
+        """
+        if self._mode == mode:
+            logger.debug(f"Already in {mode.value} mode")
+            return
+
+        old_mode = self._mode
+        self._mode = mode
+
+        # Update capture interval based on mode
+        if mode == CaptureMode.IDLE:
+            self._session.capture_interval_seconds = self._idle_interval
+            logger.info(f"Switched to IDLE mode (interval: {self._idle_interval}s)")
+        else:
+            self._session.capture_interval_seconds = self._original_interval
+            logger.info(f"Switched to ACTIVE mode (interval: {self._original_interval}s)")
+
+        # Publish mode change event
+        self._event_bus.publish(Event(
+            type=EventType.SESSION_STARTED,  # Reuse this event type
+            data={
+                "session_id": self._session.session_id,
+                "mode_changed": True,
+                "old_mode": old_mode.value,
+                "new_mode": mode.value,
+            },
+            source="capture_daemon"
+        ))
+
+    def get_mode(self) -> CaptureMode:
+        """Get current capture mode.
+
+        Returns:
+            Current capture mode
+        """
+        return self._mode
+
     def is_running(self) -> bool:
         """Check if daemon is running.
 
@@ -261,24 +317,31 @@ class CaptureDaemon:
             self._capture_count += 1
             self._last_capture_time = time.time()
 
-            # Publish capture event
-            self._event_bus.publish(Event(
-                type=EventType.SLIDE_CAPTURED,
-                data={
-                    "session_id": self._session.session_id,
-                    "capture_id": capture.capture_id,
-                    "timestamp": capture.timestamp,
-                    "width": capture.width,
-                    "height": capture.height,
-                    "monitor_id": capture.monitor_id,
-                    "capture": capture,  # Pass the full capture object
-                },
-                source="capture_daemon"
-            ))
+            # Only publish SLIDE_CAPTURED event in ACTIVE mode
+            # In IDLE mode, we capture to keep the portal session alive but don't process
+            if self._mode == CaptureMode.ACTIVE:
+                # Publish capture event
+                self._event_bus.publish(Event(
+                    type=EventType.SLIDE_CAPTURED,
+                    data={
+                        "session_id": self._session.session_id,
+                        "capture_id": capture.capture_id,
+                        "timestamp": capture.timestamp,
+                        "width": capture.width,
+                        "height": capture.height,
+                        "monitor_id": capture.monitor_id,
+                        "capture": capture,  # Pass the full capture object
+                    },
+                    source="capture_daemon"
+                ))
 
-            logger.debug(
-                f"Captured slide #{self._capture_count}: {capture.capture_id}"
-            )
+                logger.debug(
+                    f"Captured slide #{self._capture_count}: {capture.capture_id}"
+                )
+            else:
+                logger.debug(
+                    f"Idle capture #{self._capture_count} (not published)"
+                )
 
         except CaptureError as e:
             logger.error(f"Capture failed: {e}")
