@@ -745,12 +745,13 @@ class AdminApp {
     }
 
     async loadCloudTalks() {
-        if (!this.cloudApiUrl || !this.currentSessionId) {
+        // Use cloud session ID, not local session ID
+        if (!this.cloudApiUrl || !this.cloudSessionId) {
             return [];
         }
 
         try {
-            const response = await fetch(`${this.cloudApiUrl}/api/cloud/session/${this.currentSessionId}/talks`);
+            const response = await fetch(`${this.cloudApiUrl}/api/cloud/session/${this.cloudSessionId}/talks`);
             if (response.ok) {
                 const data = await response.json();
                 return data.talks || [];
