@@ -14,6 +14,8 @@ class AdminApp {
         this.cloudEnabled = false;
         this.cloudSessionId = null;
         this.cloudApiUrl = null;
+        this._loginListenerAdded = false;
+        this._dashboardListenersAdded = false;
 
         this.init();
     }
@@ -21,7 +23,9 @@ class AdminApp {
     async init() {
         // Check if already authenticated
         try {
-            const response = await fetch('/api/auth/me');
+            const response = await fetch('/api/auth/me', {
+                credentials: 'include'
+            });
             if (response.ok) {
                 const user = await response.json();
                 this.authenticated = true;
@@ -39,8 +43,12 @@ class AdminApp {
         document.getElementById('loginScreen').style.display = 'flex';
         document.getElementById('dashboard').style.display = 'none';
 
-        const form = document.getElementById('loginForm');
-        form.addEventListener('submit', (e) => this.handleLogin(e));
+        // Only add event listener once
+        if (!this._loginListenerAdded) {
+            const form = document.getElementById('loginForm');
+            form.addEventListener('submit', (e) => this.handleLogin(e));
+            this._loginListenerAdded = true;
+        }
     }
 
     showDashboard() {
@@ -57,18 +65,28 @@ class AdminApp {
         this.loadPersistentSession();
         this.loadSessions();
         this.updateStatus();
+        this.loadTalks();
 
         // Start status polling
         this.statusInterval = setInterval(() => this.updateStatus(), 5000);
     }
 
     setupEventListeners() {
+        // Only add event listeners once to prevent duplicates on re-login
+        if (this._dashboardListenersAdded) {
+            return;
+        }
+
         document.getElementById('logoutBtn').addEventListener('click', () => this.handleLogout());
         document.getElementById('resetSessionBtn').addEventListener('click', () => this.resetPersistentSession());
-        document.getElementById('startViewerBtn').addEventListener('click', () => this.startViewer()); // F@Claude: perhaps not needed
-        document.getElementById('stopViewerBtn').addEventListener('click', () => this.stopViewer()); // F@Claude: perhaps not needed
+        document.getElementById('editSessionNameBtn').addEventListener('click', () => this.editSessionName());
+        document.getElementById('startViewerBtn').addEventListener('click', () => this.startViewer());
+        document.getElementById('stopViewerBtn').addEventListener('click', () => this.stopViewer());
         document.getElementById('startCaptureBtn').addEventListener('click', () => this.startCapture());
         document.getElementById('stopCaptureBtn').addEventListener('click', () => this.stopCapture());
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => this.cleanup());
 
         // Session switcher
         document.getElementById('sessionSwitcher').addEventListener('change', (e) => this.switchSession(e.target.value));
@@ -82,6 +100,8 @@ class AdminApp {
         toleranceSlider.addEventListener('input', (e) => {
             toleranceValue.textContent = e.target.value;
         });
+
+        this._dashboardListenersAdded = true;
     }
 
     async handleLogin(e) {
@@ -119,7 +139,10 @@ class AdminApp {
 
     async handleLogout() {
         try {
-            await fetch('/api/auth/logout', {method: 'POST'});
+            await fetch('/api/auth/logout', {
+                method: 'POST',
+                credentials: 'include'
+            });
             this.authenticated = false;
             this.currentUser = null;
             clearInterval(this.statusInterval);
@@ -131,11 +154,16 @@ class AdminApp {
 
     async loadPersistentSession() {
         try {
-            const response = await fetch('/api/persistent-session');
+            const response = await fetch('/api/persistent-session', {
+                credentials: 'include'
+            });
             const data = await response.json();
 
             document.getElementById('persistentSessionId').textContent = data.session_id;
             document.getElementById('persistentSessionName').textContent = data.session_name;
+
+            // Store current session ID for API operations
+            this.currentSessionId = data.session_id;
 
             // Store cloud session info
             this.cloudEnabled = data.cloud_enabled || false;
@@ -161,25 +189,77 @@ class AdminApp {
         }
     }
 
-    async resetPersistentSession() {
-        if (!confirm('Are you sure you want to reset the session ID? This will generate a new QR code and viewers will need the new link.')) {
-            return;
+    resetPersistentSession() {
+        this.showConfirm(
+            'Start New Session',
+            'This will generate a new QR code and viewers will need the new link. Continue?',
+            () => this.doResetPersistentSession(),
+            'Create New Session',
+            'btn-primary'
+        );
+    }
+
+    async doResetPersistentSession() {
+        this.showLoading();
+        try {
+            const response = await fetch('/api/persistent-session/reset', {
+                method: 'POST',
+                credentials: 'include'
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                this.showNotification('New session created! QR code updated.', 'success');
+                await this.loadPersistentSession();
+                await this.loadSessions();
+            } else {
+                this.showNotification(data.message || 'Failed to create new session', 'error');
+            }
+        } catch (error) {
+            console.error('Reset session error:', error);
+            this.showNotification('Failed to create new session', 'error');
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    editSessionName() {
+        const currentName = document.getElementById('persistentSessionName').textContent;
+
+        this.showPrompt(
+            'Edit Session Name',
+            'Enter a new name for this session:',
+            currentName,
+            (newName) => this.updateSessionName(newName)
+        );
+    }
+
+    async updateSessionName(newName) {
+        const currentName = document.getElementById('persistentSessionName').textContent;
+        if (newName === currentName) {
+            return; // No change
         }
 
         this.showLoading();
         try {
-            const response = await fetch('/api/persistent-session/reset', {method: 'POST'});
+            const response = await fetch(`/api/sessions/${this.currentSessionId}`, {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: `name=${encodeURIComponent(newName)}`,
+                credentials: 'include'
+            });
+
             const data = await response.json();
 
             if (data.success) {
-                this.showNotification('Session ID reset successfully! New QR code generated.', 'success');
-                await this.loadPersistentSession();
+                this.showNotification('Session name updated successfully!', 'success');
+                document.getElementById('persistentSessionName').textContent = newName;
             } else {
-                this.showNotification(data.message || 'Failed to reset session ID', 'error');
+                this.showNotification(data.detail || 'Failed to update session name', 'error');
             }
         } catch (error) {
-            console.error('Reset session error:', error);
-            this.showNotification('Failed to reset session ID', 'error');
+            console.error('Edit session name error:', error);
+            this.showNotification('Failed to update session name', 'error');
         } finally {
             this.hideLoading();
         }
@@ -188,7 +268,9 @@ class AdminApp {
     async updateStatus() {
         try {
             // Get capture status
-            const captureResp = await fetch('/api/sessions/status');
+            const captureResp = await fetch('/api/sessions/status', {
+                credentials: 'include'
+            });
             const captureData = await captureResp.json();
 
             const captureStatusEl = document.getElementById('captureStatus');
@@ -207,13 +289,15 @@ class AdminApp {
             } else {
                 captureStatusEl.textContent = 'Inactive';
                 captureStatusEl.className = 'status-badge inactive';
-                captureInfoEl.textContent = 'No active capture session';
+                captureInfoEl.textContent = 'No active talk';
                 document.getElementById('startCaptureBtn').disabled = false;
                 document.getElementById('stopCaptureBtn').disabled = true;
             }
 
             // Get viewer status
-            const viewerResp = await fetch('/api/viewer/status');
+            const viewerResp = await fetch('/api/viewer/status', {
+                credentials: 'include'
+            });
             const viewerData = await viewerResp.json();
 
             const viewerStatusEl = document.getElementById('viewerStatus');
@@ -243,7 +327,9 @@ class AdminApp {
 
     async loadViewerInfo() {
         try {
-            const urlResp = await fetch('/api/viewer-url');
+            const urlResp = await fetch('/api/viewer-url', {
+                credentials: 'include'
+            });
             const urlData = await urlResp.json();
 
             // Show cloud URL if available, otherwise local URL
@@ -271,7 +357,10 @@ class AdminApp {
     async startViewer() {
         this.showLoading();
         try {
-            const response = await fetch('/api/viewer/start', {method: 'POST'});
+            const response = await fetch('/api/viewer/start', {
+                method: 'POST',
+                credentials: 'include'
+            });
             const data = await response.json();
 
             if (data.success) {
@@ -287,12 +376,22 @@ class AdminApp {
         }
     }
 
-    async stopViewer() {
-        if (!confirm('Are you sure you want to stop the viewer server?')) return;
+    stopViewer() {
+        this.showConfirm(
+            'Stop Viewer Server',
+            'Are you sure you want to stop the viewer server? Viewers will lose connection.',
+            () => this.doStopViewer(),
+            'Stop Server'
+        );
+    }
 
+    async doStopViewer() {
         this.showLoading();
         try {
-            const response = await fetch('/api/viewer/stop', {method: 'POST'});
+            const response = await fetch('/api/viewer/stop', {
+                method: 'POST',
+                credentials: 'include'
+            });
             const data = await response.json();
 
             if (data.success) {
@@ -309,14 +408,14 @@ class AdminApp {
     }
 
     async startCapture() {
-        const name = document.getElementById('sessionName').value.trim();
+        const name = document.getElementById('talkTitle').value.trim();
         if (!name) {
-            alert('Please enter a session name');
+            this.showNotification('Please enter a talk title', 'error');
             return;
         }
 
         const presenter = document.getElementById('presenterName').value.trim();
-        const description = document.getElementById('sessionDescription').value.trim();
+        const description = document.getElementById('talkDescription').value.trim();
         const monitorId = parseInt(document.getElementById('monitorId').value);
 
         // Convert tolerance to perceptual threshold
@@ -336,7 +435,8 @@ class AdminApp {
                     description,
                     monitor_id: monitorId,
                     dedup_tolerance: dedupTolerance
-                })
+                }),
+                credentials: 'include'
             });
 
             if (!response.ok) {
@@ -383,9 +483,9 @@ class AdminApp {
                 }
 
                 // Clear form
-                document.getElementById('sessionName').value = '';
+                document.getElementById('talkTitle').value = '';
                 document.getElementById('presenterName').value = '';
-                document.getElementById('sessionDescription').value = '';
+                document.getElementById('talkDescription').value = '';
             } else {
                 this.showNotification(data.message || 'Failed to start capture', 'error');
             }
@@ -399,12 +499,22 @@ class AdminApp {
         }
     }
 
-    async stopCapture() {
-        if (!confirm('Are you sure you want to stop the capture session?')) return;
+    stopCapture() {
+        this.showConfirm(
+            'Stop Talk',
+            'Are you sure you want to stop recording the current talk?',
+            () => this.doStopCapture(),
+            'Stop Talk'
+        );
+    }
 
+    async doStopCapture() {
         this.showLoading();
         try {
-            const response = await fetch('/api/sessions/stop', {method: 'POST'});
+            const response = await fetch('/api/sessions/stop', {
+                method: 'POST',
+                credentials: 'include'
+            });
 
             if (!response.ok) {
                 const errorText = await response.text();
@@ -458,7 +568,9 @@ class AdminApp {
 
     async loadSessions() {
         try {
-            const response = await fetch('/api/sessions');
+            const response = await fetch('/api/sessions', {
+                credentials: 'include'
+            });
             this.sessions = await response.json();
 
             this.populateSessionSwitcher();
@@ -470,60 +582,57 @@ class AdminApp {
     populateSessionSwitcher() {
         const switcher = document.getElementById('sessionSwitcher');
 
-        // Load current session from API or use first session as current
-        this.loadCurrentSession();
+        // Update current session display
+        const currentSession = this.sessions.find(s => s.session_id === this.currentSessionId);
+        if (currentSession) {
+            document.getElementById('currentSessionDisplay').textContent = `Currently viewing: ${currentSession.name}`;
+        }
 
         // Filter out current session - only show other sessions
         const otherSessions = this.sessions.filter(s => s.session_id !== this.currentSessionId);
 
         if (otherSessions.length === 0) {
-            switcher.innerHTML = '<option value="">No other sessions</option>';
+            switcher.innerHTML = '<option value="">No other sessions available</option>';
             return;
         }
 
-        switcher.innerHTML = otherSessions.map(session => `
-            <option value="${session.session_id}">${session.name} (${session.session_id})</option>
-        `).join('');
+        // Add "Back to current" option at the top, then other sessions
+        const currentName = currentSession ? currentSession.name : 'Current Session';
+        switcher.innerHTML = `<option value="${this.currentSessionId}">← Back to ${currentName}</option>` +
+            otherSessions.map(session => `
+                <option value="${session.session_id}">${session.name}</option>
+            `).join('');
 
-        switcher.value = '';  // Reset to default
-    }
-
-    async loadCurrentSession() {
-        // Get the current session from the server
-        try {
-            const response = await fetch('/api/persistent-session');
-            if (response.ok) {
-                const data = await response.json();
-                // The current session is the one created on startup
-                // For now, we'll use the first session if currentSessionId is not set
-                if (!this.currentSessionId && this.sessions.length > 0) {
-                    this.currentSessionId = this.sessions[0].session_id;
-                    const sessionName = this.sessions[0].name;
-                    document.getElementById('currentSessionDisplay').textContent = `Currently viewing: ${sessionName}`;
-                }
-            }
-        } catch (error) {
-            console.error('Error loading current session:', error);
-        }
+        switcher.value = this.currentSessionId;  // Default to current
     }
 
     async switchSession(sessionId) {
         if (!sessionId) {
-            document.getElementById('talksList').innerHTML = '<p style="color: #9ca3af; padding: 16px;">Select a session to view talks</p>';
             return;
         }
 
-        this.currentSessionId = sessionId;
-        const sessionName = this.sessions.find(s => s.session_id === sessionId)?.name || sessionId;
+        // Update display
+        const session = this.sessions.find(s => s.session_id === sessionId);
+        const sessionName = session?.name || sessionId;
         document.getElementById('currentSessionDisplay').textContent = `Currently viewing: ${sessionName}`;
 
+        // Load talks for this session (temporarily switch context)
+        const previousSessionId = this.currentSessionId;
+        this.currentSessionId = sessionId;
         await this.loadTalks();
+
+        // Update switcher to show "Back to" option for original session
+        this.populateSessionSwitcher();
     }
 
     async loadTalks() {
         if (!this.currentSessionId) {
             return;
         }
+
+        // Show loading state
+        const container = document.getElementById('talksList');
+        container.innerHTML = '<p class="talks-loading"><span class="spinner-small"></span> Loading talks...</p>';
 
         try {
             const cloudTalks = await this.loadCloudTalks();
@@ -535,6 +644,7 @@ class AdminApp {
             this.renderTalks();
         } catch (error) {
             console.error('Error loading talks:', error);
+            container.innerHTML = '<p class="talks-error">Failed to load talks. <button class="btn btn-small btn-secondary" onclick="app.loadTalks()">Retry</button></p>';
             this.showNotification('Error loading talks', 'error');
         }
     }
@@ -562,7 +672,9 @@ class AdminApp {
         }
 
         try {
-            const response = await fetch(`/api/sessions/${this.currentSessionId}/talks`);
+            const response = await fetch(`/api/sessions/${this.currentSessionId}/talks`, {
+                credentials: 'include'
+            });
             if (response.ok) {
                 const data = await response.json();
                 return (data.talks || []).map(talk => ({
@@ -662,18 +774,29 @@ class AdminApp {
         }
     }
 
-    async deleteTalk(source, localTalkId, cloudTalkId) {
+    deleteTalk(source, localTalkId, cloudTalkId) {
         const talk = this.talks.find(t => (source === 'local' || source === 'both') ? t.localTalkId === localTalkId : t.cloudTalkId === cloudTalkId);
         if (!talk) return;
 
-        if (!confirm(`Delete "${talk.title}" from ${source}?`)) return;
+        const sourceLabel = source === 'both' ? 'local and cloud storage' : source === 'cloud' ? 'cloud storage' : 'local storage';
+        this.showConfirm(
+            'Delete Talk',
+            `Are you sure you want to delete "${talk.title}" from ${sourceLabel}?`,
+            () => this.doDeleteTalk(source, localTalkId, cloudTalkId),
+            'Delete'
+        );
+    }
 
+    async doDeleteTalk(source, localTalkId, cloudTalkId) {
         this.showLoading();
         try {
             const promises = [];
 
             if (source === 'local' || source === 'both') {
-                promises.push(fetch(`/api/sessions/${this.currentSessionId}/talks/${localTalkId}`, {method: 'DELETE'}));
+                promises.push(fetch(`/api/sessions/${this.currentSessionId}/talks/${localTalkId}`, {
+                    method: 'DELETE',
+                    credentials: 'include'
+                }));
             }
 
             if (source === 'cloud' || source === 'both') {
@@ -693,43 +816,22 @@ class AdminApp {
         }
     }
 
-    renderSessions() {
-        const container = document.getElementById('sessionsList');
-
-        if (this.sessions.length === 0) {
-            container.innerHTML = '<p style="color: #6b7280; text-align: center;">No sessions found</p>';
-            return;
-        }
-
-        container.innerHTML = this.sessions.map(session => `
-            <div class="session-card ${session.is_active ? 'active' : ''}">
-                <div class="session-header">
-                    <div class="session-title">${session.name}</div>
-                    ${session.is_active ? '<span class="status-badge active">Active</span>' : ''}
-                </div>
-                <div class="session-meta">
-                    <div><strong>Presenter:</strong> ${session.presenter_name || 'N/A'}</div>
-                    <div><strong>Slides:</strong> ${session.slide_count}</div>
-                    <div><strong>Status:</strong> ${session.status}</div>
-                    <div><strong>Started:</strong> ${session.start_time ? new Date(session.start_time).toLocaleString() : 'N/A'}</div>
-                </div>
-                ${session.description ? `<p style="color: #6b7280; margin-bottom: 12px;">${session.description}</p>` : ''}
-                <div class="session-actions">
-                    ${!session.is_active ? `
-                        <button class="btn btn-danger btn-small" onclick="app.deleteSession('${session.session_id}')">Delete Local</button>
-                        <button class="btn btn-danger btn-small" onclick="app.deleteCloudSession('${session.session_id}')" style="background: #dc2626;">Delete from Cloud</button>
-                    ` : ''}
-                </div>
-            </div>
-        `).join('');
+    deleteSession(sessionId) {
+        this.showConfirm(
+            'Delete Session',
+            'Are you sure you want to delete this session? All slides will be permanently deleted.',
+            () => this.doDeleteSession(sessionId),
+            'Delete Session'
+        );
     }
 
-    async deleteSession(sessionId) {
-        if (!confirm('Are you sure you want to delete this session? All slides will be permanently deleted.')) return;
-
+    async doDeleteSession(sessionId) {
         this.showLoading();
         try {
-            const response = await fetch(`/api/sessions/${sessionId}`, {method: 'DELETE'});
+            const response = await fetch(`/api/sessions/${sessionId}`, {
+                method: 'DELETE',
+                credentials: 'include'
+            });
             const data = await response.json();
 
             if (data.success) {
@@ -745,14 +847,24 @@ class AdminApp {
         }
     }
 
-    async deleteCloudSession(sessionId) {
-        if (!confirm('Are you sure you want to delete this session from the cloud? All slides will be permanently deleted from cloud storage.')) return;
+    deleteCloudSession(sessionId) {
+        if (!this.cloudApiUrl) {
+            this.showNotification('Cloud API not configured', 'error');
+            return;
+        }
 
+        this.showConfirm(
+            'Delete from Cloud',
+            'Are you sure you want to delete this session from the cloud? All slides will be permanently deleted from cloud storage.',
+            () => this.doDeleteCloudSession(sessionId),
+            'Delete from Cloud'
+        );
+    }
+
+    async doDeleteCloudSession(sessionId) {
         this.showLoading();
         try {
-            // Get cloud URL from viewer info
-            const cloudApiUrl = 'https://web-production-2b06f.up.railway.app';
-            const response = await fetch(`${cloudApiUrl}/api/cloud/session/${sessionId}`, {
+            const response = await fetch(`${this.cloudApiUrl}/api/cloud/session/${sessionId}`, {
                 method: 'DELETE'
             });
             const data = await response.json();
@@ -770,6 +882,89 @@ class AdminApp {
         }
     }
 
+    cleanup() {
+        // Stop status polling
+        if (this.statusInterval) {
+            clearInterval(this.statusInterval);
+            this.statusInterval = null;
+        }
+    }
+
+    // Modal methods
+    showModal(title, content, actions) {
+        const overlay = document.getElementById('modalOverlay');
+        document.getElementById('modalTitle').textContent = title;
+        document.getElementById('modalContent').innerHTML = content;
+        document.getElementById('modalActions').innerHTML = actions;
+        overlay.classList.add('active');
+    }
+
+    hideModal() {
+        document.getElementById('modalOverlay').classList.remove('active');
+        this._modalCallback = null;
+        this._promptCallback = null;
+    }
+
+    showConfirm(title, message, onConfirm, confirmText = 'Confirm', confirmClass = 'btn-danger') {
+        // Store callback for later execution
+        this._modalCallback = onConfirm;
+
+        const content = `<p>${message}</p>`;
+        const actions = `
+            <button class="btn btn-secondary" onclick="app.hideModal()">Cancel</button>
+            <button class="btn ${confirmClass}" onclick="app.executeModalCallback()">${confirmText}</button>
+        `;
+        this.showModal(title, content, actions);
+    }
+
+    executeModalCallback() {
+        const callback = this._modalCallback;
+        this.hideModal();
+        if (callback) {
+            callback();
+        }
+    }
+
+    showPrompt(title, message, currentValue, onSubmit) {
+        // Store callback for later execution
+        this._promptCallback = onSubmit;
+
+        const content = `
+            <p>${message}</p>
+            <input type="text" id="modalPromptInput" value="${currentValue || ''}" placeholder="Enter value...">
+        `;
+        const actions = `
+            <button class="btn btn-secondary" onclick="app.hideModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="app.executePromptCallback()">Save</button>
+        `;
+        this.showModal(title, content, actions);
+
+        // Focus input after modal renders
+        setTimeout(() => {
+            const input = document.getElementById('modalPromptInput');
+            if (input) {
+                input.focus();
+                input.select();
+                // Allow Enter key to submit
+                input.addEventListener('keyup', (e) => {
+                    if (e.key === 'Enter') {
+                        this.executePromptCallback();
+                    }
+                });
+            }
+        }, 100);
+    }
+
+    executePromptCallback() {
+        const input = document.getElementById('modalPromptInput');
+        const value = input ? input.value.trim() : '';
+        const callback = this._promptCallback;
+        this.hideModal();
+        if (value && callback) {
+            callback(value);
+        }
+    }
+
     showLoading() {
         document.getElementById('loadingOverlay').style.display = 'flex';
     }
@@ -779,7 +974,32 @@ class AdminApp {
     }
 
     showNotification(message, type = 'info') {
-        alert(message);
+        const container = document.getElementById('toastContainer');
+
+        const icons = {
+            success: '✓',
+            error: '✕',
+            warning: '⚠',
+            info: 'ℹ'
+        };
+
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.innerHTML = `
+            <span class="toast-icon">${icons[type] || icons.info}</span>
+            <span class="toast-message">${message}</span>
+            <button class="toast-close" onclick="this.parentElement.remove()">×</button>
+        `;
+
+        container.appendChild(toast);
+
+        // Auto-remove after 5 seconds
+        setTimeout(() => {
+            if (toast.parentElement) {
+                toast.classList.add('fade-out');
+                setTimeout(() => toast.remove(), 300);
+            }
+        }, 5000);
     }
 }
 
