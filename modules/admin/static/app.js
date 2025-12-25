@@ -600,33 +600,39 @@ class AdminApp {
         const switcher = document.getElementById('sessionSwitcher');
         const displayEl = document.getElementById('currentSessionDisplay');
 
-        // Update current session display
-        // currentSessionId is the LATEST local session
-        const currentSession = this.sessions.find(s => s.session_id === this.currentSessionId);
-        if (currentSession) {
-            displayEl.textContent = `Currently viewing: ${currentSession.name}`;
-        } else if (this.sessions.length === 0) {
-            displayEl.textContent = 'No sessions yet';
-        } else {
-            displayEl.textContent = 'No session selected';
-        }
-
-        // Filter out current session - only show other sessions
-        const otherSessions = this.sessions.filter(s => s.session_id !== this.currentSessionId);
-
-        if (otherSessions.length === 0) {
-            switcher.innerHTML = '<option value="">No other sessions available</option>';
+        // Handle empty sessions list
+        if (this.sessions.length === 0) {
+            displayEl.textContent = 'No talks yet - start a talk to begin';
+            switcher.innerHTML = '<option value="">No talks available</option>';
             return;
         }
 
-        // Add "Back to current" option at the top, then other sessions
-        const currentName = currentSession ? currentSession.name : 'Current Session';
+        // Update current session display
+        const currentSession = this.sessions.find(s => s.session_id === this.currentSessionId);
+        if (currentSession) {
+            displayEl.textContent = `Currently viewing: ${currentSession.name}`;
+        } else {
+            // Default to first session if currentSessionId not set
+            this.currentSessionId = this.sessions[0].session_id;
+            displayEl.textContent = `Currently viewing: ${this.sessions[0].name}`;
+        }
+
+        // Filter out current session - only show other sessions in dropdown
+        const otherSessions = this.sessions.filter(s => s.session_id !== this.currentSessionId);
+
+        if (otherSessions.length === 0) {
+            switcher.innerHTML = '<option value="">No other talks available</option>';
+            return;
+        }
+
+        // Populate dropdown with other sessions
+        const currentName = currentSession ? currentSession.name : this.sessions[0].name;
         switcher.innerHTML = `<option value="${this.currentSessionId}">← Back to ${currentName}</option>` +
             otherSessions.map(session => `
                 <option value="${session.session_id}">${session.name}</option>
             `).join('');
 
-        switcher.value = this.currentSessionId;  // Default to current
+        switcher.value = this.currentSessionId;
     }
 
     async switchSession(sessionId) {

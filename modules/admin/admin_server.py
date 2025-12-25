@@ -135,9 +135,10 @@ class AdminServer:
             # Create cloud session immediately
             self._create_persistent_cloud_session()
 
-        # Current local session (auto-created on startup)
+        # Current local session (created when user starts a talk, not on startup)
         self.current_session_id: Optional[str] = None
-        self._create_fresh_local_session()
+        # NOTE: We no longer create a fresh local session on startup
+        # Local sessions (talks) are created when user starts a talk via /api/sessions/start
 
         # Persistent idle capture orchestrator
         self.idle_orchestrator: Optional[SeenSlideOrchestrator] = None

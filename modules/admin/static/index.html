@@ -4,12 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SeenSlide Admin</title>
+    <link rel="icon" type="image/png" href="/static/logo.png">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <!-- Login Screen -->
     <div id="loginScreen" class="login-screen">
         <div class="login-box">
+            <img src="/static/logo.png" alt="SeenSlide" class="login-logo">
             <h1>SeenSlide Admin</h1>
             <p class="subtitle">Sign in to manage your presentation capture</p>
             <form id="loginForm">
@@ -32,8 +34,11 @@
         <!-- Header -->
         <header class="header">
             <div class="header-left">
-                <h1>SeenSlide Admin</h1>
-                <span id="userInfo" class="user-info"></span>
+                <img src="/static/logo.png" alt="SeenSlide" class="header-logo">
+                <div>
+                    <h1>SeenSlide Admin</h1>
+                    <span id="userInfo" class="user-info"></span>
+                </div>
             </div>
             <div class="header-right">
                 <button id="logoutBtn" class="btn btn-secondary">Logout</button>
@@ -42,32 +47,36 @@
 
         <!-- Main Content -->
         <div class="container">
-            <!-- Session Switcher -->
+            <!-- Talk History -->
             <div class="status-cards">
                 <div class="status-card" style="grid-column: 1 / -1;">
-                    <h3>Session Management</h3>
+                    <h3>Talk History</h3>
                     <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 12px;">
-                        <span id="currentSessionDisplay" style="color: #10b981; font-weight: bold; font-size: 14px;">Loading current session...</span>
+                        <span id="currentSessionDisplay" style="color: #10b981; font-weight: bold; font-size: 14px;">Loading talks...</span>
                     </div>
                     <div style="display: flex; gap: 12px; align-items: center;">
-                        <label for="sessionSwitcher" style="margin: 0;"><strong>Switch to Other Session:</strong></label>
+                        <label for="sessionSwitcher" style="margin: 0;"><strong>Browse Talks:</strong></label>
                         <select id="sessionSwitcher" class="form-control" style="flex: 1; max-width: 300px;">
-                            <option value="">Loading sessions...</option>
+                            <option value="">Loading...</option>
                         </select>
                     </div>
                 </div>
             </div>
 
-            <!-- Persistent Session Info -->
+            <!-- Current Session Info -->
             <div class="status-cards">
                 <div class="status-card" style="grid-column: 1 / -1;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <h3>Persistent Session</h3>
-                        <button id="resetSessionBtn" class="btn btn-secondary btn-small">Reset Session ID</button>
+                        <h3>Current Session</h3>
+                        <button id="resetSessionBtn" class="btn btn-secondary btn-small">New Session</button>
                     </div>
                     <div id="persistentSessionInfo" class="status-info">
                         <div><strong>Session ID:</strong> <span id="persistentSessionId">Loading...</span></div>
-                        <div><strong>Session Name:</strong> <span id="persistentSessionName">Loading...</span></div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <strong>Session Name:</strong>
+                            <span id="persistentSessionName">Loading...</span>
+                            <button id="editSessionNameBtn" class="btn btn-small" style="padding: 2px 6px; font-size: 12px;" title="Edit session name">✎</button>
+                        </div>
                         <div><strong>Cloud Status:</strong> <span id="cloudStatus">Checking...</span></div>
                     </div>
                     <div id="qrCodeContainer" class="qr-container" style="margin-top: 16px;">
@@ -109,10 +118,10 @@
                     </div>
 
                     <div class="control-section">
-                        <h3>Talk Recording</h3>
+                        <h3>Start New Talk</h3>
                         <div id="captureControlsForm">
                             <div class="form-inline">
-                                <input type="text" id="sessionName" placeholder="Talk Title" required>
+                                <input type="text" id="talkTitle" placeholder="Talk Title (e.g., 'Introduction to AI')" required>
                                 <input type="text" id="presenterName" placeholder="Presenter Name">
                                 <select id="monitorId">
                                     <option value="1">Monitor 1</option>
@@ -120,7 +129,7 @@
                                     <option value="3">Monitor 3</option>
                                 </select>
                             </div>
-                            <textarea id="sessionDescription" placeholder="Description (optional)" rows="2"></textarea>
+                            <textarea id="talkDescription" placeholder="Description (optional)" rows="2"></textarea>
 
                             <!-- Deduplication Tolerance Control -->
                             <div class="tolerance-control">
@@ -162,6 +171,22 @@
     <!-- Loading Overlay -->
     <div id="loadingOverlay" class="loading-overlay">
         <div class="spinner"></div>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Modal Dialog -->
+    <div id="modalOverlay" class="modal-overlay">
+        <div class="modal-box">
+            <h3 id="modalTitle">Modal Title</h3>
+            <div id="modalContent">
+                <!-- Dynamic content -->
+            </div>
+            <div id="modalActions" class="modal-actions">
+                <!-- Dynamic buttons -->
+            </div>
+        </div>
     </div>
 
     <script src="/static/app.js"></script>
