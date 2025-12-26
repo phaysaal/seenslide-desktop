@@ -669,6 +669,12 @@ class AdminApp {
         const switcher = document.getElementById('sessionSwitcher');
         const switcherContainer = document.getElementById('sessionSwitcherContainer');
 
+        // Check if elements exist
+        if (!switcher || !switcherContainer) {
+            console.error('Session switcher elements not found');
+            return;
+        }
+
         // Hide switcher if 0 or 1 sessions (no need to browse)
         if (this.sessions.length <= 1) {
             switcherContainer.style.display = 'none';
