@@ -159,6 +159,9 @@ class AdminServer:
         self.active_session_id: Optional[str] = None
         self.active_talk_name: Optional[str] = None
 
+        # Crop region for deduplication (set via API by GUI)
+        self.crop_region: Optional[Dict[str, int]] = None
+
         # Viewer server process
         self.viewer_process = None
         self.viewer_running = False
@@ -267,13 +270,14 @@ class AdminServer:
 
                 logger.info(f"Injected cloud config with session ID: {self.cloud_session_id}")
 
-            # Start in IDLE mode
+            # Start in IDLE mode (with crop region if set)
             success = self.idle_orchestrator.start_session(
                 session_name="Idle Capture",
                 description="Keeping portal session alive",
                 presenter_name="System",
                 monitor_id=1,
-                mode=CaptureMode.IDLE
+                mode=CaptureMode.IDLE,
+                crop_region=self.crop_region
             )
 
             if success:
@@ -429,6 +433,86 @@ class AdminServer:
                     }
             except Exception as e:
                 logger.error(f"Failed to create new cloud session: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        # Crop Region Endpoints
+        @self.app.get("/api/crop-region")
+        async def get_crop_region(
+            current_user: User = Depends(self._get_current_user)
+        ):
+            """Get current crop region for deduplication."""
+            return {
+                "crop_region": self.crop_region,
+                "message": "Crop region retrieved successfully" if self.crop_region else "No crop region set"
+            }
+
+        @self.app.post("/api/crop-region")
+        async def set_crop_region(
+            request: Dict[str, Any],
+            current_user: User = Depends(self._get_current_user)
+        ):
+            """Set crop region for deduplication.
+
+            Request body format:
+            {
+                "crop_region": {
+                    "x": int,
+                    "y": int,
+                    "width": int,
+                    "height": int
+                }
+            }
+
+            Pass null or omit crop_region to disable region-based deduplication.
+            """
+            try:
+                crop_region = request.get("crop_region")
+
+                # Validate crop region format if provided
+                if crop_region is not None:
+                    required_keys = {"x", "y", "width", "height"}
+                    if not all(k in crop_region for k in required_keys):
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Crop region must contain: {required_keys}"
+                        )
+
+                    # Validate values are integers and positive
+                    for key in required_keys:
+                        if not isinstance(crop_region[key], int) or crop_region[key] < 0:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"Crop region {key} must be a non-negative integer"
+                            )
+
+                    # Validate width and height are positive
+                    if crop_region["width"] <= 0 or crop_region["height"] <= 0:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Crop region width and height must be positive"
+                        )
+
+                # Store the crop region
+                self.crop_region = crop_region
+
+                # Update idle orchestrator if it's running
+                if self.idle_orchestrator and self.idle_orchestrator.dedup_engine:
+                    self.idle_orchestrator.dedup_engine._crop_region = crop_region
+                    logger.info(f"Updated crop region in active dedup engine: {crop_region}")
+
+                message = f"Crop region set successfully: {crop_region}" if crop_region else "Crop region disabled (full image deduplication)"
+                logger.info(message)
+
+                return {
+                    "success": True,
+                    "message": message,
+                    "crop_region": self.crop_region
+                }
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error setting crop region: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
         @self.app.get("/api/sessions")
