@@ -57,14 +57,20 @@ class SeenSlideApp:
         # Request screen capture permission FIRST
         # This will trigger the REAL system permission dialog
         logger.info("Requesting screen capture permission...")
+
         if not PortalSessionManager.request_permission():
             logger.error("Screen capture permission denied or failed")
+
             QMessageBox.critical(
                 None,
-                "Permission Required",
-                "SeenSlide requires screen capture permission to function.\n\n"
-                "Please grant permission when your system asks for it.\n\n"
-                "The application will now exit.",
+                "Screen Capture Failed",
+                "SeenSlide could not initialize screen capture.\n\n"
+                "Possible causes:\n"
+                "• Permission was denied in the system dialog\n"
+                "• X11/Wayland configuration issues (XGetImage failed)\n"
+                "• Display server not accessible\n\n"
+                "SeenSlide cannot function without screen capture.\n\n"
+                "Please check your system configuration and try again.",
                 QMessageBox.Ok
             )
             return 1
@@ -102,27 +108,14 @@ class SeenSlideApp:
         """Handle Conference Mode selection."""
         logger.info("User selected Conference Mode")
 
-        # Ask if user wants to select a custom region
-        reply = QMessageBox.question(
-            self.mode_selector,
-            "Capture Region",
-            "Would you like to select a custom capture region?\n\n"
-            "This region will be used for slide change detection.\n"
-            "(Full screen is captured, only this region is compared)\n\n"
-            "Click 'Yes' to select a region, or 'No' to use default (50% center).",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
+        # Use default region (50% center)
+        # User can adjust region later if needed through the admin UI
+        width, height = get_primary_screen_size()
+        self.crop_region = calculate_default_region(width, height, 0.5)
+        logger.info(f"Using default crop region (50% center): {self.crop_region}")
 
-        if reply == QMessageBox.Yes:
-            # Show region selector
-            self._show_region_selector_for_conference()
-        else:
-            # Use default region
-            width, height = get_primary_screen_size()
-            self.crop_region = calculate_default_region(width, height, 0.5)
-            logger.info(f"Using default crop region: {self.crop_region}")
-            self._launch_conference_mode()
+        # Launch conference mode directly
+        self._launch_conference_mode()
 
     def _show_region_selector_for_conference(self):
         """Show region selector for Conference Mode."""

@@ -38,7 +38,7 @@ class PortalSessionManager:
     def request_permission(parent=None) -> bool:
         """Request screen capture permission from user.
 
-        This triggers the REAL system permission dialog immediately.
+        This triggers the REAL system permission dialog by doing a test capture.
 
         Args:
             parent: Parent widget for dialog
@@ -53,28 +53,30 @@ class PortalSessionManager:
             return _portal_permission_granted
 
         logger.info("Triggering system screen capture permission dialog...")
+        logger.info("(Your system may show a permission dialog - please grant it)")
 
-        # Import here to trigger portal dialog
+        # Do a REAL test capture to trigger the portal dialog
         try:
-            from gui.utils.screenshot_util import get_screen_info
+            from gui.utils.screenshot_util import capture_screenshot
 
             # This will trigger the system's REAL permission dialog
-            # If on Wayland with portal, user will see the system dialog
-            screens = get_screen_info()
+            # The user will see the authentic system permission request
+            test_img = capture_screenshot(monitor_id=1)
 
-            if screens and len(screens) > 0:
+            if test_img:
                 _portal_session_initialized = True
                 _portal_permission_granted = True
-                logger.info("✅ Screen capture permission granted")
+                logger.info("✅ Screen capture permission granted and working")
                 return True
             else:
+                # Capture failed - permission likely denied
                 _portal_session_initialized = True
                 _portal_permission_granted = False
-                logger.error("Failed to get screen info")
+                logger.error("Screen capture test failed")
                 return False
 
         except Exception as e:
-            logger.error(f"Failed to initialize screen capture: {e}")
+            logger.error(f"Failed to test screen capture: {e}")
             _portal_session_initialized = True
             _portal_permission_granted = False
             return False
