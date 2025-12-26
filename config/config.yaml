@@ -1,0 +1,49 @@
+# SeenSlide Configuration
+# This file configures the screen capture and deduplication settings
+
+# Screen capture settings
+capture:
+  # Provider to use: "portal" for Wayland, "mss" for X11
+  provider: "portal"
+
+  # Capture interval in seconds (how often to capture screenshots)
+  interval_seconds: 2.0
+
+  # Provider-specific configuration
+  config:
+    cursor_mode: "hidden"  # Options: "hidden", "embedded", "metadata"
+
+# Deduplication settings
+deduplication:
+  # Strategy: "hash", "perceptual", or "hybrid"
+  strategy: "hash"
+
+  # Hash algorithm (for hash strategy)
+  hash_algorithm: "md5"
+
+  # Perceptual threshold (for perceptual/hybrid strategies)
+  # Higher = more strict (0.95 = 95% similar required to be considered duplicate)
+  perceptual_threshold: 0.95
+
+  # Hash size for perceptual hashing
+  perceptual_hash_size: 8
+
+# Storage settings
+storage:
+  # Base directory for storing captured slides
+  base_dir: "./data"
+
+  # Whether to save raw captures
+  save_raw: true
+
+  # Image format: "png" or "jpg"
+  image_format: "png"
+
+  # JPG quality (1-100, only used if image_format is "jpg")
+  jpg_quality: 95
+
+# Cloud sync settings (optional)
+cloud:
+  enabled: false
+  # api_url: "https://your-cloud-service.com"
+  # api_key: "your-api-key"
