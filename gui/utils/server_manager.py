@@ -183,8 +183,13 @@ class ServerManager:
                     self.session_token = response.cookies.get("session_token")
                     logger.info("✅ Login successful")
                     return True
+                else:
+                    # Login failed, log the message
+                    message = data.get("message", "Unknown error")
+                    logger.error(f"Login failed: {message}")
+                    return False
 
-            logger.error(f"Login failed: {response.text}")
+            logger.error(f"Login failed with status {response.status_code}: {response.text}")
             return False
 
         except Exception as e:
