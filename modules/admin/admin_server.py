@@ -203,28 +203,13 @@ class AdminServer:
             local_session_id = self.local_session_manager.load_session_id()
 
             if local_session_id:
-                # Local session ID found - verify with cloud (supports cross-device usage)
-                if self.admin_username and self.admin_password_hash:
-                    logger.info(f"Verifying session {local_session_id} with cloud...")
-                    verified = self.cloud_provider.verify_session(
-                        session_id=local_session_id,
-                        admin_username=self.admin_username,
-                        admin_password_hash=self.admin_password_hash
-                    )
-
-                    if verified:
-                        self.cloud_session_id = local_session_id
-                        logger.info(f"📺 Viewer URL: {self.cloud_provider.api_url}/{local_session_id}")
-                    else:
-                        logger.warning("Session verification failed. Creating new session...")
-                        self.local_session_manager.clear_session()
-                        local_session_id = None  # Fall through to create new session
-                else:
-                    # No credentials provided - assume same machine, trust local session ID
-                    self.cloud_session_id = local_session_id
-                    self.cloud_provider.cloud_session_id = local_session_id
-                    logger.info(f"✅ Loaded existing cloud session: {local_session_id}")
-                    logger.info(f"📺 Viewer URL: {self.cloud_provider.api_url}/{local_session_id}")
+                # Local session ID found - trust it and reuse
+                # Note: Session verification with cloud is disabled until cloud API supports it
+                # TODO: Enable verification once /api/cloud/session/verify endpoint is implemented
+                self.cloud_session_id = local_session_id
+                self.cloud_provider.cloud_session_id = local_session_id
+                logger.info(f"✅ Loaded existing cloud session: {local_session_id}")
+                logger.info(f"📺 Viewer URL: {self.cloud_provider.api_url}/{local_session_id}")
 
             if not local_session_id:
                 # No local session or verification failed - create new one
