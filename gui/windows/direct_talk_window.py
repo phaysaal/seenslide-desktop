@@ -40,12 +40,14 @@ class DirectTalkWindow(QWidget):
         # Server manager
         self.server_manager = ServerManager()
 
-        # Selected region
-        self.crop_region: Optional[Dict[str, int]] = None
+        # Selected region (default to 50% center)
+        width, height = get_primary_screen_size()
+        self.crop_region = calculate_default_region(width, height, 0.5)
 
         # Talk session
         self.session_id: Optional[str] = None
         self.is_active = False
+        self.server_started = False
 
         # Status polling timer
         self.status_timer = QTimer(self)
@@ -53,6 +55,9 @@ class DirectTalkWindow(QWidget):
 
         # Setup UI
         self._setup_ui()
+
+        # Start idle orchestrator after window shows
+        QTimer.singleShot(500, self._start_idle_server)
 
         logger.info("DirectTalkWindow initialized")
 
@@ -312,9 +317,60 @@ class DirectTalkWindow(QWidget):
         """
         self.tolerance_value_label.setText(f"{value}%")
 
+    def _start_idle_server(self):
+        """Start idle orchestrator in background."""
+        logger.info("Starting idle orchestrator for Direct Talk mode...")
+
+        try:
+            # Start admin server
+            logger.info("Starting admin server...")
+            success = self.server_manager.start_server()
+
+            if not success:
+                raise Exception("Failed to start admin server")
+
+            # Login
+            logger.info("Logging in...")
+            success = self.server_manager.login("admin", "admin123")
+
+            if not success:
+                raise Exception("Failed to login to admin server")
+
+            # Set crop region (default 50% center)
+            logger.info(f"Setting default crop region: {self.crop_region}")
+            success = self.server_manager.set_crop_region(self.crop_region)
+
+            if not success:
+                raise Exception("Failed to set crop region")
+
+            self.server_started = True
+            logger.info("✅ Idle server started successfully")
+
+            # Update region display
+            self._update_region_display()
+
+        except Exception as e:
+            logger.error(f"Failed to start idle server: {e}")
+            QMessageBox.critical(
+                self,
+                "Server Start Failed",
+                f"Could not start idle server:\n{str(e)}\n\n"
+                "Direct Talk mode requires the server to be running.\n"
+                "Please restart the application."
+            )
+            self.close_requested.emit()
+
     def _select_region(self):
         """Open region selector."""
         logger.info("Opening region selector...")
+
+        if not self.server_started:
+            QMessageBox.warning(
+                self,
+                "Server Not Ready",
+                "Please wait for the server to start before selecting a region."
+            )
+            return
 
         # Capture screenshot (will trigger portal dialog if needed)
         monitor_id = self.monitor_combo.currentData()
@@ -359,6 +415,14 @@ class DirectTalkWindow(QWidget):
             self.crop_region = region
             self._update_region_display()
             logger.info(f"Region selected: {region}")
+
+            # Update server's crop region
+            if self.server_started:
+                success = self.server_manager.set_crop_region(region)
+                if not success:
+                    logger.warning("Failed to update crop region on server")
+                else:
+                    logger.info("Updated crop region on server")
 
         selector.region_confirmed.connect(on_confirmed)
         selector.show()
@@ -413,33 +477,15 @@ class DirectTalkWindow(QWidget):
         self.countdown_widget.setVisible(False)
 
         # Show status
-        self.status_label.setText("Starting server and initializing talk...")
+        self.status_label.setText("Switching to active mode and starting talk...")
         self.status_group.setVisible(True)
 
         # Process events to update UI
         QApplication.processEvents()
 
         try:
-            # Start admin server
-            logger.info("Starting admin server...")
-            success = self.server_manager.start_server()
-
-            if not success:
-                raise Exception("Failed to start admin server")
-
-            # Login
-            logger.info("Logging in...")
-            success = self.server_manager.login("admin", "admin123")
-
-            if not success:
-                raise Exception("Failed to login to admin server")
-
-            # Set crop region
-            logger.info(f"Setting crop region: {self.crop_region}")
-            success = self.server_manager.set_crop_region(self.crop_region)
-
-            if not success:
-                raise Exception("Failed to set crop region")
+            if not self.server_started:
+                raise Exception("Server not started. Please restart the application.")
 
             # Get form data
             talk_name = self.talk_name_input.text().strip()
@@ -448,7 +494,7 @@ class DirectTalkWindow(QWidget):
             monitor_id = self.monitor_combo.currentData()
             tolerance = self.tolerance_slider.value() / 100.0  # Convert to 0.0-1.0
 
-            # Start talk
+            # Start talk (switches from IDLE to ACTIVE mode)
             logger.info(f"Starting talk: {talk_name}")
             self.session_id = self.server_manager.start_talk(
                 name=talk_name,
@@ -480,9 +526,6 @@ class DirectTalkWindow(QWidget):
                 "Failed to Start",
                 f"Could not start talk:\n{str(e)}\n\nPlease try again."
             )
-
-            # Cleanup
-            self._cleanup()
 
             # Reset UI
             self.status_group.setVisible(False)
@@ -537,7 +580,8 @@ class DirectTalkWindow(QWidget):
                         self,
                         "Talk Stopped",
                         "Talk has been stopped successfully.\n\n"
-                        "Your slides have been saved and are available in the cloud viewer."
+                        "Your slides have been saved and are available in the cloud viewer.\n\n"
+                        "You can start a new talk or close this window."
                     )
                 else:
                     QMessageBox.warning(
@@ -555,33 +599,49 @@ class DirectTalkWindow(QWidget):
                 )
 
             finally:
-                self._cleanup()
+                # Cleanup but keep server running (switches back to IDLE mode)
+                self._cleanup(stop_server=False)
                 self.talk_stopped.emit()
-                self.close_requested.emit()
+
+                # Reset UI to allow starting another talk
+                self.status_group.setVisible(False)
+                self.stop_button.setVisible(False)
+                self.start_button.setEnabled(True)
 
     def _on_talk_stopped_externally(self):
         """Handle talk being stopped externally."""
         logger.info("Talk was stopped externally")
-        self._cleanup()
+        self._cleanup(stop_server=False)
 
         QMessageBox.information(
             self,
             "Talk Ended",
-            "The talk has ended.\n\nYour slides are available in the cloud viewer."
+            "The talk has ended.\n\nYour slides are available in the cloud viewer.\n\n"
+            "You can start a new talk or close this window."
         )
 
         self.talk_stopped.emit()
-        self.close_requested.emit()
 
-    def _cleanup(self):
-        """Cleanup resources."""
+        # Reset UI to allow starting another talk
+        self.status_group.setVisible(False)
+        self.stop_button.setVisible(False)
+        self.start_button.setEnabled(True)
+
+    def _cleanup(self, stop_server: bool = True):
+        """Cleanup resources.
+
+        Args:
+            stop_server: If True, stop the server. If False, just reset state.
+        """
         logger.info("Cleaning up resources...")
 
         # Stop polling
         self.status_timer.stop()
 
-        # Stop server
-        self.server_manager.cleanup()
+        # Stop server only if requested
+        if stop_server:
+            self.server_manager.cleanup()
+            self.server_started = False
 
         # Reset state
         self.is_active = False
@@ -599,10 +659,19 @@ class DirectTalkWindow(QWidget):
             )
 
             if reply == QMessageBox.Yes:
-                self._cleanup()
+                # Stop talk first
+                if self.server_started:
+                    try:
+                        self.server_manager.stop_talk()
+                    except:
+                        pass
+
+                # Cleanup and stop server
+                self._cleanup(stop_server=True)
                 event.accept()
             else:
                 event.ignore()
         else:
-            self._cleanup()
+            # No active talk, just cleanup and stop server
+            self._cleanup(stop_server=True)
             event.accept()
