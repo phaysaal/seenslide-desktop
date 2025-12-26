@@ -3,7 +3,7 @@
 from typing import Optional
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame
+    QFrame, QToolButton
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont, QPixmap, QPainter, QColor
@@ -81,25 +81,27 @@ class ModeSelector(QWidget):
         buttons_layout.setSpacing(20)
 
         # Direct Talk button
-        self.direct_talk_button = self._create_mode_button(
+        self.direct_talk_button = self._create_mode_card(
             "Quick Talk",
-            "Start a single talk immediately\n\n"
-            "• Auto-start after 10-second countdown\n"
-            "• No manual server management\n"
-            "• Perfect for individual presentations"
+            "Start a single talk immediately",
+            [
+                "Auto-start after 10-second countdown",
+                "No manual server management",
+                "Perfect for individual presentations"
+            ]
         )
-        self.direct_talk_button.clicked.connect(self._on_direct_talk_clicked)
         buttons_layout.addWidget(self.direct_talk_button)
 
         # Conference Mode button
-        self.conference_button = self._create_mode_button(
+        self.conference_button = self._create_mode_card(
             "Conference Mode",
-            "Launch admin interface for multiple talks\n\n"
-            "• Manage multiple presentations\n"
-            "• Full control via web interface\n"
-            "• Runs in background (system tray)"
+            "Launch admin interface for multiple talks",
+            [
+                "Manage multiple presentations",
+                "Full control via web interface",
+                "Runs in background (system tray)"
+            ]
         )
-        self.conference_button.clicked.connect(self._on_conference_clicked)
         buttons_layout.addWidget(self.conference_button)
 
         main_layout.addLayout(buttons_layout)
@@ -143,28 +145,61 @@ class ModeSelector(QWidget):
 
         return pixmap
 
-    def _create_mode_button(self, title: str, description: str) -> QPushButton:
-        """Create a mode selection button.
+    def _create_mode_card(self, title: str, subtitle: str, points: list) -> QPushButton:
+        """Create a mode selection card.
 
         Args:
-            title: Button title
-            description: Mode description
+            title: Card title
+            subtitle: Card subtitle
+            points: List of bullet points
 
         Returns:
-            Styled QPushButton
+            Clickable QPushButton styled as a card
         """
         button = QPushButton(self)
-        button.setText(f"{title}\n\n{description}")
         button.setMinimumHeight(180)
+        button.setCursor(Qt.PointingHandCursor)
+
+        # Create layout for button content
+        layout = QVBoxLayout(button)
+        layout.setSpacing(10)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        # Title
+        title_label = QLabel(title)
+        title_label.setFont(QFont("Arial", 16, QFont.Bold))
+        title_label.setStyleSheet("color: #4CAF50;")
+        title_label.setAlignment(Qt.AlignLeft)
+        layout.addWidget(title_label)
+
+        # Subtitle
+        subtitle_label = QLabel(subtitle)
+        subtitle_label.setFont(QFont("Arial", 11))
+        subtitle_label.setStyleSheet("color: #666;")
+        subtitle_label.setWordWrap(True)
+        layout.addWidget(subtitle_label)
+
+        # Spacer
+        layout.addSpacing(10)
+
+        # Bullet points
+        for point in points:
+            point_label = QLabel(f"• {point}")
+            point_label.setFont(QFont("Arial", 10))
+            point_label.setStyleSheet("color: #555;")
+            point_label.setWordWrap(True)
+            layout.addWidget(point_label)
+
+        # Add stretch to push content to top
+        layout.addStretch()
+
+        # Style the button
         button.setStyleSheet("""
             QPushButton {
                 background-color: white;
                 border: 2px solid #ddd;
                 border-radius: 10px;
-                padding: 20px;
-                font-size: 13px;
-                text-align: center;
-                color: #333;
+                text-align: left;
             }
             QPushButton:hover {
                 border-color: #4CAF50;
@@ -172,18 +207,15 @@ class ModeSelector(QWidget):
             }
             QPushButton:pressed {
                 background-color: #e8f5e9;
+                border-color: #45a049;
             }
         """)
 
-        # Make title bold by using HTML
-        button.setText("")
-        button.setText(
-            f"<div style='text-align: center;'>"
-            f"<div style='font-size: 18px; font-weight: bold; color: #4CAF50; margin-bottom: 15px;'>{title}</div>"
-            f"<div style='font-size: 12px; color: #666; line-height: 1.6; text-align: left;'>{description.replace(chr(10), '<br>')}</div>"
-            f"</div>"
-        )
-        button.setTextFormat(Qt.RichText)
+        # Connect click based on which button
+        if "Quick" in title or "Direct" in title:
+            button.clicked.connect(self._on_direct_talk_clicked)
+        else:
+            button.clicked.connect(self._on_conference_clicked)
 
         return button
 
