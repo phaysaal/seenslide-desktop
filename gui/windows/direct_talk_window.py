@@ -85,9 +85,9 @@ class DirectTalkWindow(QWidget):
         settings_group = self._create_settings_group()
         main_layout.addWidget(settings_group)
 
-        # Region selection group
-        region_group = self._create_region_group()
-        main_layout.addWidget(region_group)
+        # Region info (no manual selection - using 50% default)
+        region_info = self._create_region_info()
+        main_layout.addWidget(region_info)
 
         # Countdown widget (hidden initially)
         self.countdown_widget = CountdownWidget(duration=10, title="Talk starting in...")
@@ -236,19 +236,19 @@ class DirectTalkWindow(QWidget):
         group.setLayout(layout)
         return group
 
-    def _create_region_group(self) -> QGroupBox:
-        """Create region selection group.
+    def _create_region_info(self) -> QGroupBox:
+        """Create region info display (no manual selection).
 
         Returns:
-            QGroupBox with region display and selection
+            QGroupBox with region information
         """
         group = QGroupBox("Capture Region", self)
         layout = QVBoxLayout()
 
         # Info label
         info_label = QLabel(
-            "Select a region for slide change detection.\n"
-            "Full screen will be captured, but only this region is compared.",
+            "Using default region: 50% of screen (centered)\n"
+            "Full screen will be captured, but only this region is compared for slide changes.",
             self
         )
         info_label.setStyleSheet("color: #666; font-size: 11px;")
@@ -256,34 +256,17 @@ class DirectTalkWindow(QWidget):
         layout.addWidget(info_label)
 
         # Region display
-        self.region_display = QLabel("No region selected (will use default)", self)
+        self.region_display = QLabel("Calculating region...", self)
         self.region_display.setStyleSheet("""
             QLabel {
                 background-color: #f5f5f5;
                 padding: 10px;
                 border: 1px solid #ddd;
                 border-radius: 3px;
+                color: #333;
             }
         """)
         layout.addWidget(self.region_display)
-
-        # Select region button
-        self.select_region_button = QPushButton("Select Region", self)
-        self.select_region_button.setStyleSheet("""
-            QPushButton {
-                background-color: #2196F3;
-                color: white;
-                border: none;
-                padding: 8px 20px;
-                font-size: 13px;
-                border-radius: 3px;
-            }
-            QPushButton:hover {
-                background-color: #0b7dda;
-            }
-        """)
-        self.select_region_button.clicked.connect(self._select_region)
-        layout.addWidget(self.select_region_button)
 
         group.setLayout(layout)
         return group
