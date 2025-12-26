@@ -48,6 +48,8 @@ class DirectTalkWindow(QWidget):
         self.session_id: Optional[str] = None
         self.talk_name: Optional[str] = None
         self.presenter_name: Optional[str] = None
+        self.cloud_session_id: Optional[str] = None
+        self.cloud_viewer_url: Optional[str] = None
         self.is_active = False
         self.server_started = False
 
@@ -331,6 +333,17 @@ class DirectTalkWindow(QWidget):
             self.server_started = True
             logger.info("✅ Idle server started successfully")
 
+            # Get cloud session info
+            try:
+                status = self.server_manager.get_status()
+                if status:
+                    self.cloud_session_id = status.get('cloud_session_id')
+                    self.cloud_viewer_url = status.get('cloud_viewer_url')
+                    logger.info(f"Cloud session: {self.cloud_session_id}")
+                    logger.info(f"Cloud viewer: {self.cloud_viewer_url}")
+            except Exception as e:
+                logger.warning(f"Could not get cloud session info: {e}")
+
             # Update region display
             self._update_region_display()
 
@@ -529,7 +542,17 @@ class DirectTalkWindow(QWidget):
         status_text = f"✅ Talk Active\n\n"
         status_text += f"Talk: {self.talk_name}\n"
         status_text += f"Presenter: {self.presenter_name}\n"
-        status_text += f"Session ID: {self.session_id[:8]}...\n\n"
+
+        # Show cloud session ID (like LBQ-4462)
+        if self.cloud_session_id:
+            status_text += f"Cloud Session: {self.cloud_session_id}\n"
+
+        status_text += f"Talk Session: {self.session_id[:8]}...\n\n"
+
+        # Show cloud viewer URL
+        if self.cloud_viewer_url:
+            status_text += f"📺 Viewer: {self.cloud_viewer_url}\n\n"
+
         status_text += f"📊 Slides captured: {slides_count}"
 
         self.status_label.setText(status_text)
@@ -544,6 +567,10 @@ class DirectTalkWindow(QWidget):
 
             if status:
                 active = status.get('active', False)
+
+                # Update cloud session info (in case it changed)
+                self.cloud_session_id = status.get('cloud_session_id') or self.cloud_session_id
+                self.cloud_viewer_url = status.get('cloud_viewer_url') or self.cloud_viewer_url
 
                 # Get slides count from stats (if available)
                 stats = status.get('stats', {})
@@ -657,6 +684,7 @@ class DirectTalkWindow(QWidget):
         self.session_id = None
         self.talk_name = None
         self.presenter_name = None
+        # Note: Don't reset cloud_session_id - it persists across talks
 
     def closeEvent(self, event):
         """Handle window close event."""
