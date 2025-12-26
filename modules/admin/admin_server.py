@@ -245,11 +245,22 @@ class AdminServer:
             logger.info("Starting idle mode capture...")
 
             # Create orchestrator in IDLE mode
-            config_path = Path.home() / ".config" / "seenslide" / "config.yaml"
-            if not config_path.exists():
-                config_path = Path(__file__).parent.parent.parent / "dev" / "config_wayland.yaml"
-                if not config_path.exists():
-                    config_path = None
+            # Try config locations in order of preference
+            config_paths = [
+                Path.home() / ".config" / "seenslide" / "config.yaml",  # User config
+                Path(__file__).parent.parent.parent / "config" / "config.yaml",  # Project config
+                Path(__file__).parent.parent.parent / "dev" / "config_wayland.yaml"  # Dev config
+            ]
+
+            config_path = None
+            for path in config_paths:
+                if path.exists():
+                    config_path = path
+                    logger.info(f"Using config file: {config_path}")
+                    break
+
+            if not config_path:
+                logger.warning("No config file found, using defaults")
 
             self.idle_orchestrator = SeenSlideOrchestrator(
                 config_path=str(config_path) if config_path else None
