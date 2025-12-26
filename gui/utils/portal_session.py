@@ -38,27 +38,46 @@ class PortalSessionManager:
     def request_permission(parent=None) -> bool:
         """Request screen capture permission from user.
 
-        This is a simplified version that just marks permission as granted
-        and lets the actual capture operations handle any errors.
+        This triggers the REAL system permission dialog immediately.
 
         Args:
             parent: Parent widget for dialog
 
         Returns:
-            Always True (actual permission handled by capture operations)
+            True if permission granted, False otherwise
         """
         global _portal_session_initialized, _portal_permission_granted
 
-        if _portal_session_initialized and _portal_permission_granted:
+        if _portal_session_initialized:
             logger.info("Screen capture already initialized")
-            return True
+            return _portal_permission_granted
 
-        # Just mark as initialized - let actual capture operations handle permissions
-        _portal_session_initialized = True
-        _portal_permission_granted = True
-        logger.info("Screen capture initialized (will be tested on first use)")
+        logger.info("Triggering system screen capture permission dialog...")
 
-        return True
+        # Import here to trigger portal dialog
+        try:
+            from gui.utils.screenshot_util import get_screen_info
+
+            # This will trigger the system's REAL permission dialog
+            # If on Wayland with portal, user will see the system dialog
+            screens = get_screen_info()
+
+            if screens and len(screens) > 0:
+                _portal_session_initialized = True
+                _portal_permission_granted = True
+                logger.info("✅ Screen capture permission granted")
+                return True
+            else:
+                _portal_session_initialized = True
+                _portal_permission_granted = False
+                logger.error("Failed to get screen info")
+                return False
+
+        except Exception as e:
+            logger.error(f"Failed to initialize screen capture: {e}")
+            _portal_session_initialized = True
+            _portal_permission_granted = False
+            return False
 
     @staticmethod
     def reset():

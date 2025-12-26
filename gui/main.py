@@ -54,7 +54,22 @@ class SeenSlideApp:
         Returns:
             Exit code
         """
-        # Show mode selector (permission will be checked when needed)
+        # Request screen capture permission FIRST
+        # This will trigger the REAL system permission dialog
+        logger.info("Requesting screen capture permission...")
+        if not PortalSessionManager.request_permission():
+            logger.error("Screen capture permission denied or failed")
+            QMessageBox.critical(
+                None,
+                "Permission Required",
+                "SeenSlide requires screen capture permission to function.\n\n"
+                "Please grant permission when your system asks for it.\n\n"
+                "The application will now exit.",
+                QMessageBox.Ok
+            )
+            return 1
+
+        # Show mode selector
         self.show_mode_selector()
 
         # Run event loop
