@@ -46,6 +46,8 @@ class DirectTalkWindow(QWidget):
 
         # Talk session
         self.session_id: Optional[str] = None
+        self.talk_name: Optional[str] = None
+        self.presenter_name: Optional[str] = None
         self.is_active = False
         self.server_started = False
 
@@ -490,11 +492,15 @@ class DirectTalkWindow(QWidget):
             if not self.session_id:
                 raise Exception("Failed to start talk")
 
+            # Store talk info
+            self.talk_name = talk_name
+            self.presenter_name = presenter
+
             # Mark as active
             self.is_active = True
 
-            # Update UI
-            self.status_label.setText(f"✅ Talk active: {talk_name}\n\nCapturing slides...")
+            # Update UI with session info
+            self._update_status_display(0)  # Start with 0 slides
             self.stop_button.setVisible(True)
 
             # Start status polling
@@ -514,6 +520,20 @@ class DirectTalkWindow(QWidget):
             self.status_group.setVisible(False)
             self.start_button.setEnabled(True)
 
+    def _update_status_display(self, slides_count: int):
+        """Update the status display with session info and stats.
+
+        Args:
+            slides_count: Number of unique slides captured
+        """
+        status_text = f"✅ Talk Active\n\n"
+        status_text += f"Talk: {self.talk_name}\n"
+        status_text += f"Presenter: {self.presenter_name}\n"
+        status_text += f"Session ID: {self.session_id[:8]}...\n\n"
+        status_text += f"📊 Slides captured: {slides_count}"
+
+        self.status_label.setText(status_text)
+
     def _poll_status(self):
         """Poll server for live statistics."""
         if not self.is_active:
@@ -524,7 +544,6 @@ class DirectTalkWindow(QWidget):
 
             if status:
                 active = status.get('active', False)
-                talk_name = status.get('talk_name', 'Unknown')
 
                 # Get slides count from stats (if available)
                 stats = status.get('stats', {})
@@ -533,13 +552,11 @@ class DirectTalkWindow(QWidget):
                 else:
                     slides_count = 0
 
-                logger.debug(f"Status poll: active={active}, talk_name={talk_name}, slides={slides_count}")
+                logger.debug(f"Status poll: active={active}, slides={slides_count}")
 
                 if active:
-                    self.status_label.setText(
-                        f"✅ Talk active: {talk_name}\n\n"
-                        f"Slides captured: {slides_count}"
-                    )
+                    # Update display with current slide count
+                    self._update_status_display(slides_count)
                 else:
                     # Talk was stopped externally
                     logger.warning(f"Talk appears inactive (active={active}), triggering external stop")
@@ -638,6 +655,8 @@ class DirectTalkWindow(QWidget):
         # Reset state
         self.is_active = False
         self.session_id = None
+        self.talk_name = None
+        self.presenter_name = None
 
     def closeEvent(self, event):
         """Handle window close event."""
