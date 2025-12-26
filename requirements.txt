@@ -3,6 +3,8 @@
 
 # GUI Framework
 customtkinter>=5.2.0
+PyQt5>=5.15.0
+PyQt5-Qt5>=5.15.2
 
 # Local Web Server
 fastapi>=0.104.0
