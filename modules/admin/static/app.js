@@ -847,8 +847,8 @@ class AdminApp {
             return;
         }
 
-        container.innerHTML = this.talks.map(talk => {
-            const deleteButtons = this.getDeleteButtons(talk);
+        container.innerHTML = this.talks.map((talk, index) => {
+            const deleteButtons = this.getDeleteButtons(talk, index);
             return `
                 <div class="session-card">
                     <div class="session-header">
@@ -870,34 +870,55 @@ class AdminApp {
                 </div>
             `;
         }).join('');
+
+        // Add event listeners for delete buttons
+        this.attachDeleteHandlers();
     }
 
-    getDeleteButtons(talk) {
+    getDeleteButtons(talk, index) {
         if (talk.source === 'both') {
             return `
-                <button class="btn btn-danger btn-small" onclick="app.deleteTalk('local', '${talk.localTalkId}')">Delete from Local</button>
-                <button class="btn btn-danger btn-small" onclick="app.deleteTalk('cloud', '${talk.cloudTalkId}')" style="background: #dc2626;">Delete from Cloud</button>
-                <button class="btn btn-danger btn-small" onclick="app.deleteTalk('both', '${talk.localTalkId}', '${talk.cloudTalkId}')" style="background: #991b1b;">Delete from Both</button>
+                <button class="btn btn-danger btn-small delete-talk-btn" data-index="${index}" data-source="local">Delete from Local</button>
+                <button class="btn btn-danger btn-small delete-talk-btn" data-index="${index}" data-source="cloud" style="background: #dc2626;">Delete from Cloud</button>
+                <button class="btn btn-danger btn-small delete-talk-btn" data-index="${index}" data-source="both" style="background: #991b1b;">Delete from Both</button>
             `;
         } else if (talk.source === 'cloud') {
             return `
-                <button class="btn btn-danger btn-small" onclick="app.deleteTalk('cloud', '${talk.cloudTalkId}')">Delete from Cloud</button>
+                <button class="btn btn-danger btn-small delete-talk-btn" data-index="${index}" data-source="cloud">Delete from Cloud</button>
             `;
         } else {
             return `
-                <button class="btn btn-danger btn-small" onclick="app.deleteTalk('local', '${talk.localTalkId}')">Delete from Local</button>
+                <button class="btn btn-danger btn-small delete-talk-btn" data-index="${index}" data-source="local">Delete from Local</button>
             `;
         }
     }
 
-    deleteTalk(source, localTalkId, cloudTalkId) {
-        const talk = this.talks.find(t => (source === 'local' || source === 'both') ? t.localTalkId === localTalkId : t.cloudTalkId === cloudTalkId);
-        if (!talk) return;
+    attachDeleteHandlers() {
+        const deleteButtons = document.querySelectorAll('.delete-talk-btn');
+        deleteButtons.forEach(button => {
+            button.addEventListener('click', (e) => {
+                const index = parseInt(e.target.dataset.index);
+                const source = e.target.dataset.source;
+                const talk = this.talks[index];
 
+                if (!talk) {
+                    console.error('Talk not found at index', index);
+                    return;
+                }
+
+                const localTalkId = talk.localTalkId;
+                const cloudTalkId = talk.cloudTalkId;
+
+                this.deleteTalk(source, localTalkId, cloudTalkId, talk.title);
+            });
+        });
+    }
+
+    deleteTalk(source, localTalkId, cloudTalkId, talkTitle) {
         const sourceLabel = source === 'both' ? 'local and cloud storage' : source === 'cloud' ? 'cloud storage' : 'local storage';
         this.showConfirm(
             'Delete Talk',
-            `Are you sure you want to delete "${talk.title}" from ${sourceLabel}?`,
+            `Are you sure you want to delete "${talkTitle}" from ${sourceLabel}?`,
             () => this.doDeleteTalk(source, localTalkId, cloudTalkId),
             'Delete'
         );
