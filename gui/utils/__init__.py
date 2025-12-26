@@ -19,6 +19,7 @@ from .screenshot_util import (
 )
 from .server_manager import ServerManager
 from .tray_icon import TrayIcon
+from .portal_session import PortalSessionManager
 
 __all__ = [
     'calculate_default_region',
@@ -35,5 +36,6 @@ __all__ = [
     'get_monitor_count',
     'get_all_screens_combined_size',
     'ServerManager',
-    'TrayIcon'
+    'TrayIcon',
+    'PortalSessionManager'
 ]

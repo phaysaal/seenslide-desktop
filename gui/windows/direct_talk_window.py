@@ -15,6 +15,7 @@ from gui.widgets.region_selector import RegionSelector
 from gui.utils.server_manager import ServerManager
 from gui.utils.screenshot_util import capture_screenshot, get_primary_screen_size, get_monitor_count
 from gui.utils.region_utils import calculate_default_region
+from gui.utils.portal_session import PortalSessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -314,6 +315,17 @@ class DirectTalkWindow(QWidget):
     def _select_region(self):
         """Open region selector."""
         logger.info("Opening region selector...")
+
+        # Verify we have permission
+        if not PortalSessionManager.has_permission():
+            logger.error("No screen capture permission")
+            QMessageBox.critical(
+                self,
+                "Permission Required",
+                "Screen capture permission is required for region selection.\n\n"
+                "Please restart the application and grant permission."
+            )
+            return
 
         # Capture screenshot
         monitor_id = self.monitor_combo.currentData()

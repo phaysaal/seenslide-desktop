@@ -18,6 +18,7 @@ from gui.windows.conference_launcher import ConferenceLauncher
 from gui.widgets.region_selector import RegionSelector
 from gui.utils.screenshot_util import capture_screenshot, get_primary_screen_size
 from gui.utils.region_utils import calculate_default_region
+from gui.utils.portal_session import PortalSessionManager
 
 # Setup logging
 logging.basicConfig(
@@ -53,6 +54,12 @@ class SeenSlideApp:
         Returns:
             Exit code
         """
+        # Request screen capture permission first
+        logger.info("Requesting screen capture permission...")
+        if not PortalSessionManager.request_permission():
+            logger.error("Screen capture permission denied, exiting")
+            return 1
+
         # Show mode selector
         self.show_mode_selector()
 
@@ -111,6 +118,17 @@ class SeenSlideApp:
     def _show_region_selector_for_conference(self):
         """Show region selector for Conference Mode."""
         logger.info("Showing region selector for Conference Mode")
+
+        # Verify we have permission
+        if not PortalSessionManager.has_permission():
+            logger.error("No screen capture permission")
+            QMessageBox.critical(
+                self.mode_selector,
+                "Permission Required",
+                "Screen capture permission is required for region selection.\n\n"
+                "Please restart the application and grant permission."
+            )
+            return
 
         # Capture screenshot
         screenshot = capture_screenshot(monitor_id=1)
