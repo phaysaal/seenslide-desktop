@@ -257,6 +257,13 @@ class SeenSlideOrchestrator:
             # Update session in storage manager
             if self.storage_manager:
                 self.storage_manager._session = new_session
+
+                # Update cloud provider's cloud_session_id from the new session
+                if hasattr(self.storage_manager, '_cloud') and self.storage_manager._cloud:
+                    if new_session.cloud_session_id:
+                        self.storage_manager._cloud.cloud_session_id = new_session.cloud_session_id
+                        logger.info(f"Updated cloud provider to use cloud session: {new_session.cloud_session_id}")
+
                 logger.info(f"Updated storage manager session from {old_session_id} to {new_session.session_id}")
 
             # Update session in capture daemon
