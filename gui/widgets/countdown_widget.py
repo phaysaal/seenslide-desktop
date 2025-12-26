@@ -9,6 +9,63 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class CountdownCircle(QWidget):
+    """Custom widget to draw countdown circle."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.remaining = 10
+        self.duration = 10
+        self.setFixedSize(200, 200)
+
+    def paintEvent(self, event):
+        """Paint the countdown circle."""
+        # Calculate progress (0.0 to 1.0)
+        progress = 1.0 - (self.remaining / self.duration) if self.duration > 0 else 1.0
+
+        # Create painter
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # Get widget dimensions
+        width = self.width()
+        height = self.height()
+        size = min(width, height)
+
+        # Center the circle
+        x = (width - size) // 2
+        y = (height - size) // 2
+        rect = QRectF(x + 10, y + 10, size - 20, size - 20)
+
+        # Draw background circle (gray)
+        pen = QPen(QColor(200, 200, 200), 8)
+        painter.setPen(pen)
+        painter.drawEllipse(rect)
+
+        # Draw progress arc (green)
+        pen = QPen(QColor(76, 175, 80), 8)  # Green color
+        painter.setPen(pen)
+
+        # Arc spans 360 degrees, starts at top (90 degrees)
+        start_angle = 90 * 16  # Qt uses 1/16th degree units
+        span_angle = -int(progress * 360 * 16)  # Negative for clockwise
+        painter.drawArc(rect, start_angle, span_angle)
+
+        # Draw remaining seconds in center
+        font = QFont("Arial", 48, QFont.Bold)
+        painter.setFont(font)
+        painter.setPen(QColor(51, 51, 51))  # Dark gray text
+        painter.drawText(rect, Qt.AlignCenter, str(self.remaining))
+
+        painter.end()
+
+    def set_countdown(self, remaining: int, duration: int):
+        """Update countdown values and trigger repaint."""
+        self.remaining = remaining
+        self.duration = duration
+        self.update()
+
+
 class CountdownWidget(QWidget):
     """Widget displaying countdown timer with circular progress."""
 
@@ -65,9 +122,8 @@ class CountdownWidget(QWidget):
         """)
         layout.addWidget(self.title_label)
 
-        # Countdown display (will be drawn in paintEvent)
-        self.countdown_display = QWidget(self)
-        self.countdown_display.setFixedSize(200, 200)
+        # Countdown display (custom widget with its own paintEvent)
+        self.countdown_display = CountdownCircle(self)
         layout.addWidget(self.countdown_display, alignment=Qt.AlignCenter)
 
         # Cancel button
@@ -92,57 +148,13 @@ class CountdownWidget(QWidget):
 
         self.setLayout(layout)
 
-    def paintEvent(self, event):
-        """Paint the countdown circle."""
-        super().paintEvent(event)
-
-        # Only paint if countdown_display exists and is visible
-        if not hasattr(self, 'countdown_display'):
-            return
-
-        # Calculate progress (0.0 to 1.0)
-        progress = 1.0 - (self.remaining / self.duration) if self.duration > 0 else 1.0
-
-        # Create painter
-        painter = QPainter(self.countdown_display)
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        # Get widget dimensions
-        width = self.countdown_display.width()
-        height = self.countdown_display.height()
-        size = min(width, height)
-
-        # Center the circle
-        x = (width - size) // 2
-        y = (height - size) // 2
-        rect = QRectF(x + 10, y + 10, size - 20, size - 20)
-
-        # Draw background circle (gray)
-        pen = QPen(QColor(200, 200, 200), 8)
-        painter.setPen(pen)
-        painter.drawEllipse(rect)
-
-        # Draw progress arc (green)
-        pen = QPen(QColor(76, 175, 80), 8)  # Green color
-        painter.setPen(pen)
-
-        # Arc spans 360 degrees, starts at top (90 degrees)
-        start_angle = 90 * 16  # Qt uses 1/16th degree units
-        span_angle = -int(progress * 360 * 16)  # Negative for clockwise
-        painter.drawArc(rect, start_angle, span_angle)
-
-        # Draw remaining seconds in center
-        font = QFont("Arial", 48, QFont.Bold)
-        painter.setFont(font)
-        painter.setPen(QColor(51, 51, 51))  # Dark gray text
-        painter.drawText(rect, Qt.AlignCenter, str(self.remaining))
-
     def start(self):
         """Start the countdown."""
         logger.info(f"Starting countdown: {self.duration}s")
         self.remaining = self.duration
         self.timer.start(1000)  # Tick every second
-        self.update()
+        if hasattr(self, 'countdown_display'):
+            self.countdown_display.set_countdown(self.remaining, self.duration)
 
     def stop(self):
         """Stop the countdown."""
@@ -155,7 +167,8 @@ class CountdownWidget(QWidget):
         logger.debug(f"Countdown: {self.remaining}s remaining")
 
         # Update display
-        self.update()
+        if hasattr(self, 'countdown_display'):
+            self.countdown_display.set_countdown(self.remaining, self.duration)
 
         # Check if finished
         if self.remaining <= 0:
@@ -183,4 +196,5 @@ class CountdownWidget(QWidget):
         """Reset countdown to initial duration."""
         self.stop()
         self.remaining = self.duration
-        self.update()
+        if hasattr(self, 'countdown_display'):
+            self.countdown_display.set_countdown(self.remaining, self.duration)
