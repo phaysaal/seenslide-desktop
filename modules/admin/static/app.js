@@ -667,12 +667,16 @@ class AdminApp {
 
     populateSessionSwitcher() {
         const switcher = document.getElementById('sessionSwitcher');
+        const switcherContainer = document.getElementById('sessionSwitcherContainer');
 
-        // Handle empty sessions list
-        if (this.sessions.length === 0) {
-            switcher.innerHTML = '<option value="">No talks available</option>';
+        // Hide switcher if 0 or 1 sessions (no need to browse)
+        if (this.sessions.length <= 1) {
+            switcherContainer.style.display = 'none';
             return;
         }
+
+        // Show switcher if multiple sessions exist
+        switcherContainer.style.display = 'flex';
 
         // Update current session display (based on active talk)
         this.updateCurrentTalkDisplay();
@@ -681,7 +685,7 @@ class AdminApp {
         const otherSessions = this.sessions.filter(s => s.session_id !== this.currentSessionId);
 
         if (otherSessions.length === 0) {
-            switcher.innerHTML = '<option value="">No other talks available</option>';
+            switcher.innerHTML = '<option value="">No other sessions available</option>';
             return;
         }
 
