@@ -349,6 +349,9 @@ class AdminApp {
             // Update the "Currently viewing" display
             this.updateCurrentTalkDisplay();
 
+            // Auto-refresh talks list
+            await this.loadTalks();
+
             // Get viewer status
             const viewerResp = await fetch('/api/viewer/status', {
                 credentials: 'include'
