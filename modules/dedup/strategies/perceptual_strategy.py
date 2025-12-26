@@ -2,7 +2,7 @@
 
 import logging
 import time
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import imagehash
 
@@ -68,12 +68,16 @@ class PerceptualDeduplicationStrategy(IDeduplicationStrategy):
             logger.error(f"Failed to initialize perceptual strategy: {e}")
             return False
 
-    def is_duplicate(self, current: RawCapture, previous: RawCapture) -> bool:
+    def is_duplicate(self, current: RawCapture, previous: RawCapture,
+                     crop_region: Optional[Dict[str, int]] = None) -> bool:
         """Check if current is duplicate of previous using perceptual hash.
 
         Args:
             current: Current capture to check
             previous: Previous capture to compare against
+            crop_region: Optional region to crop before comparison.
+                        Format: {"x": int, "y": int, "width": int, "height": int}
+                        If None, compares full images (backward compatible)
 
         Returns:
             True if images are perceptually similar, False otherwise
@@ -87,9 +91,26 @@ class PerceptualDeduplicationStrategy(IDeduplicationStrategy):
         try:
             start_time = time.time()
 
+            # Get images to compare
+            current_img = current.image
+            previous_img = previous.image
+
+            # Crop if region specified
+            if crop_region:
+                x = crop_region['x']
+                y = crop_region['y']
+                w = crop_region['width']
+                h = crop_region['height']
+
+                # Crop both images to the specified region
+                current_img = current_img.crop((x, y, x + w, y + h))
+                previous_img = previous_img.crop((x, y, x + w, y + h))
+
+                logger.debug(f"Cropped images to region: x={x}, y={y}, w={w}, h={h}")
+
             # Compute perceptual hashes
-            current_hash = imagehash.phash(current.image, hash_size=self._hash_size)
-            previous_hash = imagehash.phash(previous.image, hash_size=self._hash_size)
+            current_hash = imagehash.phash(current_img, hash_size=self._hash_size)
+            previous_hash = imagehash.phash(previous_img, hash_size=self._hash_size)
 
             # Compute similarity
             # imagehash returns Hamming distance (0 = identical)

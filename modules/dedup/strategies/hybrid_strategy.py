@@ -2,7 +2,7 @@
 
 import logging
 import time
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from core.interfaces.dedup import IDeduplicationStrategy, DeduplicationError
 from core.models.slide import RawCapture
@@ -85,12 +85,16 @@ class HybridDeduplicationStrategy(IDeduplicationStrategy):
             logger.error(f"Failed to initialize hybrid strategy: {e}")
             return False
 
-    def is_duplicate(self, current: RawCapture, previous: RawCapture) -> bool:
+    def is_duplicate(self, current: RawCapture, previous: RawCapture,
+                     crop_region: Optional[Dict[str, int]] = None) -> bool:
         """Check if current is duplicate using hybrid approach.
 
         Args:
             current: Current capture to check
             previous: Previous capture to compare against
+            crop_region: Optional region to crop before comparison.
+                        Format: {"x": int, "y": int, "width": int, "height": int}
+                        If None, compares full images (backward compatible)
 
         Returns:
             True if images are duplicates, False otherwise
@@ -109,7 +113,7 @@ class HybridDeduplicationStrategy(IDeduplicationStrategy):
             # Try each stage in order
             for stage in self._stages:
                 if stage == 'hash':
-                    is_dup = self._hash_strategy.is_duplicate(current, previous)
+                    is_dup = self._hash_strategy.is_duplicate(current, previous, crop_region)
                     if is_dup:
                         matched_stage = 'hash'
                         self._hash_matches += 1
@@ -117,7 +121,7 @@ class HybridDeduplicationStrategy(IDeduplicationStrategy):
                         break  # Exact match found, no need to check further
 
                 elif stage == 'perceptual':
-                    is_dup = self._perceptual_strategy.is_duplicate(current, previous)
+                    is_dup = self._perceptual_strategy.is_duplicate(current, previous, crop_region)
                     if is_dup:
                         matched_stage = 'perceptual'
                         self._perceptual_matches += 1

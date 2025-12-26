@@ -1,7 +1,7 @@
 """Main orchestrator for SeenSlide system."""
 
 import logging
-from typing import Optional
+from typing import Optional, Dict
 import time
 
 from core.bus.event_bus import EventBus
@@ -61,7 +61,8 @@ class SeenSlideOrchestrator:
         description: str = "",
         presenter_name: str = "",
         monitor_id: int = 1,
-        mode: CaptureMode = CaptureMode.ACTIVE
+        mode: CaptureMode = CaptureMode.ACTIVE,
+        crop_region: Optional[Dict[str, int]] = None
     ) -> bool:
         """Start a new capture session.
 
@@ -71,6 +72,9 @@ class SeenSlideOrchestrator:
             presenter_name: Name of presenter
             monitor_id: Monitor to capture from
             mode: Capture mode (IDLE or ACTIVE)
+            crop_region: Optional region for deduplication.
+                        Format: {"x": int, "y": int, "width": int, "height": int}
+                        If None, full images are compared
 
         Returns:
             True if started successfully, False otherwise
@@ -119,7 +123,8 @@ class SeenSlideOrchestrator:
             self.dedup_engine = DeduplicationEngine(
                 strategy=strategy,
                 session=self.session,
-                event_bus=self.event_bus
+                event_bus=self.event_bus,
+                crop_region=crop_region
             )
 
             # Initialize storage manager

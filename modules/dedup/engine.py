@@ -24,7 +24,8 @@ class DeduplicationEngine:
         self,
         strategy: IDeduplicationStrategy,
         session: Session,
-        event_bus: Optional[EventBus] = None
+        event_bus: Optional[EventBus] = None,
+        crop_region: Optional[Dict[str, int]] = None
     ):
         """Initialize the deduplication engine.
 
@@ -32,10 +33,14 @@ class DeduplicationEngine:
             strategy: Initialized deduplication strategy
             session: Session configuration
             event_bus: Event bus for publishing events (None = create new)
+            crop_region: Optional region to crop before deduplication.
+                        Format: {"x": int, "y": int, "width": int, "height": int}
+                        If None, full images are compared
         """
         self._strategy = strategy
         self._session = session
         self._event_bus = event_bus or EventBus()
+        self._crop_region = crop_region
 
         self._previous_capture: Optional[RawCapture] = None
         self._running = False
@@ -45,9 +50,10 @@ class DeduplicationEngine:
         self._unique_slides = 0
         self._duplicate_slides = 0
 
+        region_info = f" with crop region {crop_region}" if crop_region else ""
         logger.info(
             f"DeduplicationEngine initialized for session: {session.session_id} "
-            f"with strategy: {strategy.name}"
+            f"with strategy: {strategy.name}{region_info}"
         )
 
     def start(self) -> bool:
@@ -159,8 +165,12 @@ class DeduplicationEngine:
                 self._previous_capture = capture
                 return
 
-            # Compare with previous
-            is_duplicate = self._strategy.is_duplicate(capture, self._previous_capture)
+            # Compare with previous (using crop region if specified)
+            is_duplicate = self._strategy.is_duplicate(
+                capture,
+                self._previous_capture,
+                crop_region=self._crop_region
+            )
             similarity_score = self._strategy.get_similarity_score()
 
             if is_duplicate:

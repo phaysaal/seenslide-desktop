@@ -3,7 +3,7 @@
 import logging
 import hashlib
 import time
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from core.interfaces.dedup import IDeduplicationStrategy, DeduplicationError
 from core.models.slide import RawCapture
@@ -57,12 +57,16 @@ class HashDeduplicationStrategy(IDeduplicationStrategy):
             logger.error(f"Failed to initialize hash strategy: {e}")
             return False
 
-    def is_duplicate(self, current: RawCapture, previous: RawCapture) -> bool:
+    def is_duplicate(self, current: RawCapture, previous: RawCapture,
+                     crop_region: Optional[Dict[str, int]] = None) -> bool:
         """Check if current is duplicate of previous using hash comparison.
 
         Args:
             current: Current capture to check
             previous: Previous capture to compare against
+            crop_region: Optional region to crop before comparison.
+                        Format: {"x": int, "y": int, "width": int, "height": int}
+                        If None, compares full images (backward compatible)
 
         Returns:
             True if images are identical (hashes match), False otherwise
@@ -76,9 +80,26 @@ class HashDeduplicationStrategy(IDeduplicationStrategy):
         try:
             start_time = time.time()
 
+            # Get images to compare
+            current_img = current.image
+            previous_img = previous.image
+
+            # Crop if region specified
+            if crop_region:
+                x = crop_region['x']
+                y = crop_region['y']
+                w = crop_region['width']
+                h = crop_region['height']
+
+                # Crop both images to the specified region
+                current_img = current_img.crop((x, y, x + w, y + h))
+                previous_img = previous_img.crop((x, y, x + w, y + h))
+
+                logger.debug(f"Cropped images to region: x={x}, y={y}, w={w}, h={h}")
+
             # Compute hashes
-            current_hash = self._compute_hash(current.image)
-            previous_hash = self._compute_hash(previous.image)
+            current_hash = self._compute_hash(current_img)
+            previous_hash = self._compute_hash(previous_img)
 
             # Compare hashes
             is_dup = current_hash == previous_hash

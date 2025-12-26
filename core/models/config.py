@@ -1,7 +1,7 @@
 """Configuration data models."""
 
 from dataclasses import dataclass, field
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 
 @dataclass
@@ -21,6 +21,7 @@ class DeduplicationConfig:
     hash_algorithm: str = "md5"
     perceptual_threshold: float = 0.95
     perceptual_hash_size: int = 8
+    crop_region: Optional[Dict[str, int]] = None  # Region for deduplication comparison
 
 
 @dataclass
