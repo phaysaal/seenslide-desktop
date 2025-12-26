@@ -145,6 +145,60 @@ class CloudStorageProvider(IStorageProvider):
             self.enabled = False  # Disable on error
             return ""
 
+    def create_talk(
+        self,
+        session_id: str,
+        talk_name: str,
+        presenter_name: str = "",
+        description: str = ""
+    ) -> bool:
+        """Create a talk in the cloud session.
+
+        Args:
+            session_id: Local session ID
+            talk_name: Name of the talk
+            presenter_name: Presenter name
+            description: Talk description
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.enabled or not self.cloud_session_id:
+            logger.debug("Cloud disabled or no cloud session, skipping talk creation")
+            return True  # Return success if cloud disabled
+
+        try:
+            url = f"{self.api_url}/api/cloud/session/{self.cloud_session_id}/create-talk"
+            headers = {
+                "Authorization": f"Bearer {self.session_token}",
+                "Content-Type": "application/json"
+            }
+            data = {
+                "local_session_id": session_id,
+                "title": talk_name,
+                "presenter_name": presenter_name or "Unknown",
+                "description": description or ""
+            }
+
+            logger.info(f"Creating talk in cloud session {self.cloud_session_id}: {talk_name}")
+            response = requests.post(url, headers=headers, json=data, timeout=10)
+            response.raise_for_status()
+
+            result = response.json()
+            logger.info(f"✅ Talk created in cloud: {talk_name}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to create talk in cloud: {e}", exc_info=True)
+            if hasattr(e, 'response'):
+                try:
+                    logger.error(f"Response status: {e.response.status_code}")
+                    logger.error(f"Response body: {e.response.text}")
+                except:
+                    pass
+            # Don't disable cloud on talk creation failure
+            return False
+
     def save_slide(self, slide: ProcessedSlide, image_data: bytes = None) -> str:
         """Upload slide to cloud.
 

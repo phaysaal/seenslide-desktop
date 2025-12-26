@@ -264,6 +264,17 @@ class SeenSlideOrchestrator:
                         self.storage_manager._cloud.cloud_session_id = new_session.cloud_session_id
                         logger.info(f"Updated cloud provider to use cloud session: {new_session.cloud_session_id}")
 
+                        # Create talk in cloud session (don't fail if this doesn't work)
+                        try:
+                            self.storage_manager._cloud.create_talk(
+                                session_id=new_session.session_id,
+                                talk_name=new_session.name,
+                                presenter_name=new_session.presenter_name,
+                                description=new_session.description
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to create talk in cloud (continuing anyway): {e}")
+
                 logger.info(f"Updated storage manager session from {old_session_id} to {new_session.session_id}")
 
             # Update session in capture daemon
