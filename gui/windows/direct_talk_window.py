@@ -316,27 +316,32 @@ class DirectTalkWindow(QWidget):
         """Open region selector."""
         logger.info("Opening region selector...")
 
-        # Verify we have permission
-        if not PortalSessionManager.has_permission():
-            logger.error("No screen capture permission")
-            QMessageBox.critical(
-                self,
-                "Permission Required",
-                "Screen capture permission is required for region selection.\n\n"
-                "Please restart the application and grant permission."
-            )
-            return
-
-        # Capture screenshot
+        # Capture screenshot (will trigger portal dialog if needed)
         monitor_id = self.monitor_combo.currentData()
         screenshot = capture_screenshot(monitor_id)
 
         if screenshot is None:
-            QMessageBox.warning(
+            logger.warning("Failed to capture screenshot for region selection")
+
+            reply = QMessageBox.warning(
                 self,
                 "Screenshot Failed",
-                "Could not capture screenshot. Please try again."
+                "Could not capture screenshot for region selection.\n\n"
+                "This could be due to:\n"
+                "• Screen capture permission denied\n"
+                "• X11/Wayland configuration issues\n"
+                "• Display server problems\n\n"
+                "Would you like to use the default region (50% center) instead?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
             )
+
+            if reply == QMessageBox.Yes:
+                # Set default region
+                width, height = get_primary_screen_size()
+                self.crop_region = calculate_default_region(width, height, 0.5)
+                self._update_region_display()
+                logger.info(f"Using default crop region: {self.crop_region}")
             return
 
         # Calculate default region (50% center)

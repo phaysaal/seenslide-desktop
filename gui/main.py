@@ -54,13 +54,7 @@ class SeenSlideApp:
         Returns:
             Exit code
         """
-        # Request screen capture permission first
-        logger.info("Requesting screen capture permission...")
-        if not PortalSessionManager.request_permission():
-            logger.error("Screen capture permission denied, exiting")
-            return 1
-
-        # Show mode selector
+        # Show mode selector (permission will be checked when needed)
         self.show_mode_selector()
 
         # Run event loop
@@ -119,30 +113,33 @@ class SeenSlideApp:
         """Show region selector for Conference Mode."""
         logger.info("Showing region selector for Conference Mode")
 
-        # Verify we have permission
-        if not PortalSessionManager.has_permission():
-            logger.error("No screen capture permission")
-            QMessageBox.critical(
-                self.mode_selector,
-                "Permission Required",
-                "Screen capture permission is required for region selection.\n\n"
-                "Please restart the application and grant permission."
-            )
-            return
-
-        # Capture screenshot
+        # Capture screenshot (will trigger portal dialog if needed)
         screenshot = capture_screenshot(monitor_id=1)
 
         if screenshot is None:
-            QMessageBox.warning(
+            logger.warning("Failed to capture screenshot for region selection")
+
+            reply = QMessageBox.warning(
                 self.mode_selector,
                 "Screenshot Failed",
-                "Could not capture screenshot. Using default region."
+                "Could not capture screenshot for region selection.\n\n"
+                "This could be due to:\n"
+                "• Screen capture permission denied\n"
+                "• X11/Wayland configuration issues\n"
+                "• Display server problems\n\n"
+                "Would you like to use the default region (50% center) instead?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
             )
-            # Fall back to default
-            width, height = get_primary_screen_size()
-            self.crop_region = calculate_default_region(width, height, 0.5)
-            self._launch_conference_mode()
+
+            if reply == QMessageBox.Yes:
+                # Fall back to default
+                width, height = get_primary_screen_size()
+                self.crop_region = calculate_default_region(width, height, 0.5)
+                self._launch_conference_mode()
+            else:
+                # User cancelled, go back to mode selector
+                logger.info("User cancelled region selection")
             return
 
         # Calculate default region
