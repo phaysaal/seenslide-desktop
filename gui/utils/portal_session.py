@@ -50,88 +50,84 @@ class PortalSessionManager:
             logger.info("Screen capture permission already granted")
             return True
 
-        logger.info("Requesting screen capture permission...")
+        logger.info("Testing screen capture capability...")
 
-        # Show permission dialog
-        reply = QMessageBox.question(
+        # Show info dialog explaining what will happen
+        QMessageBox.information(
             parent,
-            "Screen Capture Permission",
-            "SeenSlide needs permission to capture your screen.\n\n"
-            "This permission is required for:\n"
-            "• Selecting capture regions\n"
-            "• Capturing slide changes during presentations\n\n"
-            "Your screen will only be captured when you start a talk.\n\n"
-            "Grant screen capture permission?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes
+            "Screen Capture Setup",
+            "SeenSlide needs to capture your screen to detect slide changes.\n\n"
+            "Your system may now show a permission dialog.\n"
+            "Please grant screen capture permission to continue.\n\n"
+            "Click OK to proceed.",
+            QMessageBox.Ok
         )
 
-        if reply == QMessageBox.Yes:
-            # Try to initialize screen capture
-            try:
-                # Test if we can capture screen
-                from gui.utils.screenshot_util import capture_screenshot
+        # Try to initialize screen capture
+        # The system will show its own portal dialog if needed
+        try:
+            from gui.utils.screenshot_util import capture_screenshot
 
-                test_img = capture_screenshot(monitor_id=1)
+            logger.info("Attempting test screen capture...")
+            test_img = capture_screenshot(monitor_id=1)
 
-                if test_img:
-                    _portal_session_initialized = True
-                    _portal_permission_granted = True
-                    logger.info("✅ Screen capture permission granted")
-
-                    QMessageBox.information(
-                        parent,
-                        "Permission Granted",
-                        "Screen capture permission granted successfully!\n\n"
-                        "You can now proceed with region selection and capturing."
-                    )
-                    return True
-                else:
-                    # Failed to capture
-                    _portal_session_initialized = True
-                    _portal_permission_granted = False
-
-                    QMessageBox.critical(
-                        parent,
-                        "Permission Denied",
-                        "Failed to capture screen. Please check:\n\n"
-                        "• System permissions are granted\n"
-                        "• You're using X11 or have portal access\n"
-                        "• No other application is blocking screen capture\n\n"
-                        "SeenSlide cannot function without screen capture permission."
-                    )
-                    return False
-
-            except Exception as e:
-                logger.error(f"Failed to test screen capture: {e}")
-
+            if test_img:
+                _portal_session_initialized = True
+                _portal_permission_granted = True
+                logger.info("✅ Screen capture working!")
+                return True
+            else:
+                # Failed to capture
                 _portal_session_initialized = True
                 _portal_permission_granted = False
 
-                QMessageBox.critical(
+                logger.error("Screen capture failed")
+
+                reply = QMessageBox.critical(
                     parent,
-                    "Error",
-                    f"Failed to initialize screen capture:\n{str(e)}\n\n"
-                    "Please check your system configuration."
+                    "Screen Capture Failed",
+                    "Failed to capture screen.\n\n"
+                    "Possible causes:\n"
+                    "• Permission was denied in the system dialog\n"
+                    "• You're on Wayland without proper portal setup\n"
+                    "• Screen capture is blocked by your system\n\n"
+                    "SeenSlide cannot work without screen capture.\n\n"
+                    "Would you like to try again?",
+                    QMessageBox.Retry | QMessageBox.Close,
+                    QMessageBox.Retry
                 )
-                return False
-        else:
-            # User declined
+
+                if reply == QMessageBox.Retry:
+                    # Reset and try again
+                    _portal_session_initialized = False
+                    _portal_permission_granted = False
+                    return PortalSessionManager.request_permission(parent)
+                else:
+                    return False
+
+        except Exception as e:
+            logger.error(f"Failed to test screen capture: {e}")
+
             _portal_session_initialized = True
             _portal_permission_granted = False
 
-            logger.warning("User declined screen capture permission")
-
-            QMessageBox.warning(
+            reply = QMessageBox.critical(
                 parent,
-                "Permission Required",
-                "Screen capture permission is required for SeenSlide to function.\n\n"
-                "Without this permission, you cannot:\n"
-                "• Select capture regions\n"
-                "• Capture slides during presentations\n\n"
-                "The application will now exit."
+                "Error",
+                f"Failed to initialize screen capture:\n{str(e)}\n\n"
+                "This could be a system configuration issue.\n\n"
+                "Would you like to try again?",
+                QMessageBox.Retry | QMessageBox.Close,
+                QMessageBox.Retry
             )
-            return False
+
+            if reply == QMessageBox.Retry:
+                # Reset and try again
+                _portal_session_initialized = False
+                _portal_permission_granted = False
+                return PortalSessionManager.request_permission(parent)
+            else:
+                return False
 
     @staticmethod
     def reset():
