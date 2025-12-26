@@ -1,0 +1,375 @@
+"""Conference Mode launcher window."""
+
+from typing import Optional, Dict
+from PyQt5.QtWidgets import (
+    QWidget, QVBoxLayout, QLabel, QPushButton, QMessageBox,
+    QApplication
+)
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtGui import QFont
+import webbrowser
+import logging
+
+from gui.utils.tray_icon import TrayIcon
+from gui.utils.server_manager import ServerManager
+
+logger = logging.getLogger(__name__)
+
+
+class ConferenceLauncher(QWidget):
+    """Window for launching Conference Mode with system tray."""
+
+    # Signal emitted when launcher should close
+    close_requested = pyqtSignal()
+
+    def __init__(
+        self,
+        crop_region: Optional[Dict[str, int]] = None,
+        parent: Optional[QWidget] = None
+    ):
+        """Initialize Conference Launcher.
+
+        Args:
+            crop_region: Optional crop region to set
+            parent: Parent widget
+        """
+        super().__init__(parent)
+
+        # Server manager
+        self.server_manager = ServerManager()
+
+        # Crop region to set
+        self.crop_region = crop_region
+
+        # Tray icon
+        self.tray_icon = TrayIcon(self)
+        self.tray_icon.restore_requested.connect(self._on_restore_requested)
+        self.tray_icon.stop_server_requested.connect(self._on_stop_server_requested)
+        self.tray_icon.quit_requested.connect(self._on_quit_requested)
+
+        # Server state
+        self.server_started = False
+        self.minimized_to_tray = False
+
+        # Setup UI
+        self._setup_ui()
+
+        # Start server automatically after window shows
+        QTimer.singleShot(500, self._start_server)
+
+        logger.info("ConferenceLauncher initialized")
+
+    def _setup_ui(self):
+        """Setup the UI components."""
+        self.setWindowTitle("SeenSlide - Conference Mode")
+        self.setMinimumSize(500, 300)
+        self.setMaximumSize(500, 300)
+
+        # Main layout
+        main_layout = QVBoxLayout(self)
+        main_layout.setAlignment(Qt.AlignCenter)
+
+        # Title
+        title = QLabel("Conference Mode", self)
+        title.setFont(QFont("Arial", 20, QFont.Bold))
+        title.setAlignment(Qt.AlignCenter)
+        main_layout.addWidget(title)
+
+        # Status label
+        self.status_label = QLabel("Initializing...", self)
+        self.status_label.setFont(QFont("Arial", 14))
+        self.status_label.setAlignment(Qt.AlignCenter)
+        self.status_label.setStyleSheet("color: #666; margin: 30px;")
+        main_layout.addWidget(self.status_label)
+
+        # Progress message
+        self.progress_label = QLabel("", self)
+        self.progress_label.setAlignment(Qt.AlignCenter)
+        self.progress_label.setStyleSheet("color: #999; font-size: 12px;")
+        main_layout.addWidget(self.progress_label)
+
+        # Cancel button (initially hidden)
+        self.cancel_button = QPushButton("Cancel", self)
+        self.cancel_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                border: none;
+                padding: 10px 30px;
+                font-size: 14px;
+                border-radius: 5px;
+                min-width: 120px;
+            }
+            QPushButton:hover {
+                background-color: #da190b;
+            }
+        """)
+        self.cancel_button.clicked.connect(self._on_cancel)
+        self.cancel_button.setVisible(False)
+        main_layout.addWidget(self.cancel_button, alignment=Qt.AlignCenter)
+
+        self.setLayout(main_layout)
+
+    def _start_server(self):
+        """Start the admin server."""
+        logger.info("Starting admin server for Conference Mode...")
+
+        self.status_label.setText("Starting admin server...")
+        self.progress_label.setText("This may take up to 30 seconds...")
+        self.cancel_button.setVisible(True)
+
+        # Process events to update UI
+        QApplication.processEvents()
+
+        try:
+            # Start server
+            logger.info("Starting server subprocess...")
+            success = self.server_manager.start_server()
+
+            if not success:
+                raise Exception("Failed to start admin server")
+
+            self.status_label.setText("Server started")
+            self.progress_label.setText("Logging in...")
+            QApplication.processEvents()
+
+            # Login
+            logger.info("Logging in...")
+            success = self.server_manager.login("admin", "admin123")
+
+            if not success:
+                raise Exception("Failed to login to admin server")
+
+            # Set crop region if provided
+            if self.crop_region:
+                self.status_label.setText("Configuring capture region...")
+                self.progress_label.setText("")
+                QApplication.processEvents()
+
+                logger.info(f"Setting crop region: {self.crop_region}")
+                success = self.server_manager.set_crop_region(self.crop_region)
+
+                if not success:
+                    logger.warning("Failed to set crop region, continuing anyway")
+
+            # Mark as started
+            self.server_started = True
+
+            # Update UI
+            self.status_label.setText("✅ Server ready!")
+            self.progress_label.setText("Opening admin interface in browser...")
+            QApplication.processEvents()
+
+            # Wait a moment before opening browser
+            QTimer.singleShot(1000, self._open_browser)
+
+        except Exception as e:
+            logger.error(f"Failed to start server: {e}")
+            self._show_error(f"Could not start admin server:\n{str(e)}\n\nPlease try again.")
+            self._cleanup()
+            self.close_requested.emit()
+
+    def _open_browser(self):
+        """Open browser to admin UI."""
+        logger.info("Opening browser to admin UI...")
+
+        try:
+            # Open browser
+            url = self.server_manager.base_url
+            logger.info(f"Opening URL: {url}")
+            webbrowser.open(url)
+
+            # Show notification
+            self.tray_icon.show_message(
+                "SeenSlide - Conference Mode",
+                "Admin interface opened in browser.\nServer is running in the background.",
+                duration=5000
+            )
+
+            # Minimize to tray
+            QTimer.singleShot(2000, self._minimize_to_tray)
+
+        except Exception as e:
+            logger.error(f"Failed to open browser: {e}")
+            self._show_error(f"Server started but could not open browser:\n{str(e)}\n\nPlease navigate to: {self.server_manager.base_url}")
+
+    def _minimize_to_tray(self):
+        """Minimize window to system tray."""
+        logger.info("Minimizing to system tray...")
+
+        # Show tray icon
+        self.tray_icon.show()
+
+        # Update tooltip
+        self.tray_icon.set_tooltip("SeenSlide - Admin Server Running")
+
+        # Enable stop action
+        self.tray_icon.enable_stop_action(True)
+
+        # Hide window
+        self.hide()
+        self.minimized_to_tray = True
+
+        logger.info("Window minimized to tray")
+
+    def _on_restore_requested(self):
+        """Handle restore from tray."""
+        logger.info("Restoring window from tray...")
+
+        # Show window
+        self.show()
+        self.activateWindow()
+        self.raise_()
+
+        # Update UI
+        self.status_label.setText("✅ Server is running")
+        self.progress_label.setText(f"Admin UI: {self.server_manager.base_url}")
+        self.cancel_button.setText("Stop Server")
+        self.cancel_button.setVisible(True)
+
+        logger.info("Window restored")
+
+    def _on_stop_server_requested(self):
+        """Handle stop server from tray."""
+        logger.info("Stop server requested from tray...")
+
+        # Show confirmation
+        reply = QMessageBox.question(
+            None,  # No parent, show as separate window
+            "Stop Server",
+            "Are you sure you want to stop the admin server?\n\nAll active sessions will be ended.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            self._stop_server()
+
+    def _on_quit_requested(self):
+        """Handle quit from tray."""
+        logger.info("Quit requested from tray...")
+
+        if self.server_started:
+            # Show confirmation
+            reply = QMessageBox.question(
+                None,  # No parent, show as separate window
+                "Quit SeenSlide",
+                "Admin server is still running. Stop the server and quit?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+
+            if reply == QMessageBox.Yes:
+                self._stop_server()
+                self.close_requested.emit()
+        else:
+            self.close_requested.emit()
+
+    def _on_cancel(self):
+        """Handle cancel button (stop server)."""
+        if self.server_started:
+            reply = QMessageBox.question(
+                self,
+                "Stop Server",
+                "Stop the admin server and exit?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+
+            if reply == QMessageBox.Yes:
+                self._stop_server()
+                self.close_requested.emit()
+        else:
+            # Server not started yet, just close
+            self._cleanup()
+            self.close_requested.emit()
+
+    def _stop_server(self):
+        """Stop the admin server."""
+        logger.info("Stopping admin server...")
+
+        # Update UI if visible
+        if self.isVisible():
+            self.status_label.setText("Stopping server...")
+            self.progress_label.setText("")
+            QApplication.processEvents()
+
+        try:
+            # Stop server
+            self._cleanup()
+
+            # Show notification
+            self.tray_icon.show_message(
+                "SeenSlide",
+                "Admin server stopped",
+                duration=3000
+            )
+
+            logger.info("Server stopped successfully")
+
+            # Close window
+            self.close_requested.emit()
+
+        except Exception as e:
+            logger.error(f"Failed to stop server: {e}")
+            self._show_error(f"Failed to stop server:\n{str(e)}")
+
+    def _cleanup(self):
+        """Cleanup resources."""
+        logger.info("Cleaning up resources...")
+
+        # Stop server
+        self.server_manager.cleanup()
+
+        # Hide tray icon
+        self.tray_icon.hide()
+
+        # Reset state
+        self.server_started = False
+        self.minimized_to_tray = False
+
+    def _show_error(self, message: str):
+        """Show error message.
+
+        Args:
+            message: Error message
+        """
+        QMessageBox.critical(
+            self if self.isVisible() else None,
+            "Error",
+            message
+        )
+
+    def closeEvent(self, event):
+        """Handle window close event."""
+        if self.server_started and not self.minimized_to_tray:
+            # Ask if user wants to stop server or minimize to tray
+            reply = QMessageBox.question(
+                self,
+                "Server Running",
+                "Admin server is running. What would you like to do?",
+                QMessageBox.Close | QMessageBox.Ignore,
+                QMessageBox.Ignore
+            )
+
+            # Map buttons to actions
+            reply_button = QMessageBox.standardButton(reply)
+
+            if reply == QMessageBox.Close:
+                # Stop server and close
+                self._cleanup()
+                event.accept()
+            else:
+                # Minimize to tray
+                self._minimize_to_tray()
+                event.ignore()
+        else:
+            # Server not started or already in tray
+            if self.server_started:
+                # Just minimize to tray
+                self._minimize_to_tray()
+                event.ignore()
+            else:
+                # Clean up and close
+                self._cleanup()
+                event.accept()
