@@ -83,7 +83,7 @@ class AdminApp {
         document.getElementById('logoutBtn').addEventListener('click', () => this.handleLogout());
         document.getElementById('resetSessionBtn').addEventListener('click', () => this.resetPersistentSession());
         document.getElementById('editSessionNameBtn').addEventListener('click', () => this.editSessionName());
-        document.getElementById('clearAllTalksBtn').addEventListener('click', () => this.clearAllTalks());
+        // Removed: clearAllTalksBtn - session browsing feature removed
         document.getElementById('startViewerBtn').addEventListener('click', () => this.startViewer());
         document.getElementById('stopViewerBtn').addEventListener('click', () => this.stopViewer());
         document.getElementById('startCaptureBtn').addEventListener('click', () => this.startCapture());
@@ -92,8 +92,7 @@ class AdminApp {
         // Cleanup on page unload
         window.addEventListener('beforeunload', () => this.cleanup());
 
-        // Session switcher
-        document.getElementById('sessionSwitcher').addEventListener('change', (e) => this.switchSession(e.target.value));
+        // Removed: sessionSwitcher - session browsing feature removed
 
         // Refresh talks
         document.getElementById('refreshTalksBtn').addEventListener('click', () => this.loadTalks());
@@ -639,11 +638,11 @@ class AdminApp {
             // Reset browsing mode when loading sessions
             this.browsingHistory = false;
 
-            this.populateSessionSwitcher();
+            // Removed: populateSessionSwitcher() - session browsing feature removed
         } catch (error) {
             console.error('Error loading sessions:', error);
             this.browsingHistory = false;
-            this.populateSessionSwitcher();  // Still update switcher even on error
+            // Removed: populateSessionSwitcher() - session browsing feature removed
         }
     }
 
@@ -654,6 +653,11 @@ class AdminApp {
         }
 
         const displayEl = document.getElementById('currentSessionDisplay');
+
+        // Element removed - session browsing feature removed
+        if (!displayEl) {
+            return;
+        }
 
         // Show active talk if one is running
         if (this.activeTalk && this.activeTalk.active && this.activeTalk.talk_name) {
@@ -718,16 +722,19 @@ class AdminApp {
         const session = this.sessions.find(s => s.session_id === sessionId);
         const sessionName = session?.name || sessionId;
         const displayEl = document.getElementById('currentSessionDisplay');
-        displayEl.textContent = `Browsing history: ${sessionName}`;
-        displayEl.style.color = '#f59e0b';  // Orange color for browsing mode
+
+        // Element removed - session browsing feature removed
+        if (displayEl) {
+            displayEl.textContent = `Browsing history: ${sessionName}`;
+            displayEl.style.color = '#f59e0b';  // Orange color for browsing mode
+        }
 
         // Load talks for this session (temporarily switch context)
         const previousSessionId = this.currentSessionId;
         this.currentSessionId = sessionId;
         await this.loadTalks();
 
-        // Update switcher to show "Back to" option for original session
-        this.populateSessionSwitcher();
+        // Removed: populateSessionSwitcher() - session browsing feature removed
     }
 
     async loadTalks() {
