@@ -167,6 +167,7 @@ class SeenSlideApp:
         # Launch conference mode
         self.conference_launcher = ConferenceLauncher(crop_region=self.crop_region)
         self.conference_launcher.close_requested.connect(self._on_conference_closed)
+        self.conference_launcher.quit_application.connect(self._on_quit_application)
         self.conference_launcher.show()
 
     def _on_talk_stopped(self):
@@ -186,6 +187,21 @@ class SeenSlideApp:
 
         # Show mode selector again
         self.show_mode_selector()
+
+    def _on_quit_application(self):
+        """Handle application quit request."""
+        logger.info("Application quit requested")
+
+        # Close all windows
+        if self.conference_launcher:
+            self.conference_launcher.close()
+        if self.direct_talk_window:
+            self.direct_talk_window.close()
+        if self.mode_selector:
+            self.mode_selector.close()
+
+        # Quit the application
+        self.app.quit()
 
 
 def main():

@@ -19,8 +19,11 @@ logger = logging.getLogger(__name__)
 class ConferenceLauncher(QWidget):
     """Window for launching Conference Mode with system tray."""
 
-    # Signal emitted when launcher should close
+    # Signal emitted when launcher should close (back to mode selector)
     close_requested = pyqtSignal()
+
+    # Signal emitted when application should quit completely
+    quit_application = pyqtSignal()
 
     def __init__(
         self,
@@ -261,9 +264,9 @@ class ConferenceLauncher(QWidget):
 
             if reply == QMessageBox.Yes:
                 self._stop_server()
-                self.close_requested.emit()
+                self.quit_application.emit()
         else:
-            self.close_requested.emit()
+            self.quit_application.emit()
 
     def _on_cancel(self):
         """Handle cancel button (stop server)."""

@@ -39,8 +39,8 @@ class ModeSelector(QWidget):
 
         # Main layout
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(30)
-        main_layout.setContentsMargins(40, 40, 40, 40)
+        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(40, 30, 40, 40)
 
         # Logo/Icon area
         logo_label = QLabel(self)
@@ -50,16 +50,16 @@ class ModeSelector(QWidget):
 
         # Title
         title = QLabel("SeenSlide", self)
-        title.setFont(QFont("Arial", 32, QFont.Bold))
+        title.setFont(QFont("Arial", 24, QFont.Bold))
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet("color: #4CAF50; margin: 0;")
         main_layout.addWidget(title)
 
         # Subtitle
         subtitle = QLabel("Automatic Slide Capture for Presentations", self)
-        subtitle.setFont(QFont("Arial", 14))
+        subtitle.setFont(QFont("Arial", 12))
         subtitle.setAlignment(Qt.AlignCenter)
-        subtitle.setStyleSheet("color: #666; margin-bottom: 20px;")
+        subtitle.setStyleSheet("color: #666; margin-bottom: 10px;")
         main_layout.addWidget(subtitle)
 
         # Separator
@@ -124,8 +124,8 @@ class ModeSelector(QWidget):
         Returns:
             QPixmap with logo
         """
-        # Create 80x80 logo with "SS" text
-        pixmap = QPixmap(80, 80)
+        # Create 60x60 logo with "SS" text
+        pixmap = QPixmap(60, 60)
         pixmap.fill(Qt.transparent)
 
         painter = QPainter(pixmap)
@@ -134,11 +134,11 @@ class ModeSelector(QWidget):
         # Draw circle background
         painter.setBrush(QColor(76, 175, 80))  # Green
         painter.setPen(Qt.NoPen)
-        painter.drawEllipse(0, 0, 80, 80)
+        painter.drawEllipse(0, 0, 60, 60)
 
         # Draw "SS" text
         painter.setPen(QColor(255, 255, 255))  # White
-        painter.setFont(QFont("Arial", 32, QFont.Bold))
+        painter.setFont(QFont("Arial", 24, QFont.Bold))
         painter.drawText(pixmap.rect(), Qt.AlignCenter, "SS")
 
         painter.end()
