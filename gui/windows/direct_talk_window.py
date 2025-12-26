@@ -525,7 +525,15 @@ class DirectTalkWindow(QWidget):
             if status:
                 active = status.get('active', False)
                 talk_name = status.get('talk_name', 'Unknown')
-                slides_count = status.get('slides_captured', 0)
+
+                # Get slides count from stats (if available)
+                stats = status.get('stats', {})
+                if stats and 'deduplication' in stats:
+                    slides_count = stats['deduplication'].get('unique_slides', 0)
+                else:
+                    slides_count = 0
+
+                logger.debug(f"Status poll: active={active}, talk_name={talk_name}, slides={slides_count}")
 
                 if active:
                     self.status_label.setText(
@@ -534,10 +542,11 @@ class DirectTalkWindow(QWidget):
                     )
                 else:
                     # Talk was stopped externally
+                    logger.warning(f"Talk appears inactive (active={active}), triggering external stop")
                     self._on_talk_stopped_externally()
 
         except Exception as e:
-            logger.warning(f"Failed to poll status: {e}")
+            logger.warning(f"Failed to poll status: {e}", exc_info=True)
 
     def _stop_talk(self):
         """Stop the current talk."""
