@@ -46,8 +46,16 @@ class ServerManager:
             True if server started successfully, False otherwise
         """
         if self.is_running():
-            logger.warning("Server is already running")
+            logger.warning("Server process already running")
             return True
+
+        # Check if port is already in use by another process
+        if self.is_server_ready():
+            logger.info("Server already available at port, reusing existing server")
+            return True
+
+        # Kill any existing process on the port
+        self._kill_process_on_port()
 
         try:
             # Get path to seenslide_admin.py
@@ -364,6 +372,41 @@ class ServerManager:
 
         # Check if idle_running field exists and is True
         return status.get('idle_running', False)
+
+    def _kill_process_on_port(self):
+        """Kill any process using the server port."""
+        try:
+            import subprocess
+            # Find process using the port
+            result = subprocess.run(
+                ['lsof', '-ti', f':{self.port}'],
+                capture_output=True,
+                text=True
+            )
+
+            if result.returncode == 0 and result.stdout.strip():
+                pids = result.stdout.strip().split('\n')
+                for pid in pids:
+                    try:
+                        logger.info(f"Killing process {pid} on port {self.port}")
+                        subprocess.run(['kill', '-9', pid], check=False)
+                    except Exception as e:
+                        logger.warning(f"Failed to kill process {pid}: {e}")
+        except FileNotFoundError:
+            # lsof not available, try alternative method
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ['fuser', '-k', f'{self.port}/tcp'],
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode == 0:
+                    logger.info(f"Killed process on port {self.port} using fuser")
+            except Exception as e:
+                logger.warning(f"Could not kill process on port: {e}")
+        except Exception as e:
+            logger.warning(f"Error killing process on port: {e}")
 
     def cleanup(self):
         """Cleanup resources."""
