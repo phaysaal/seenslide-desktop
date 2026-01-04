@@ -80,6 +80,6 @@ storage:
 
 # Cloud sync settings (optional)
 cloud:
-  enabled: false
-  # api_url: "https://your-cloud-service.com"
-  # api_key: "your-api-key"
+  enabled: true
+  api_url: "https://seenslide.com"
+  session_token: "your-session-token-here"  # TODO: Replace with actual auth token
