@@ -343,6 +343,19 @@ class ServerManager:
             logger.error(f"Error getting status: {e}")
             return None
 
+    def is_idle_capture_running(self) -> bool:
+        """Check if idle capture is running.
+
+        Returns:
+            True if idle capture is running, False otherwise
+        """
+        status = self.get_status()
+        if not status:
+            return False
+
+        # Check if idle_running field exists and is True
+        return status.get('idle_running', False)
+
     def cleanup(self):
         """Cleanup resources."""
         if self.is_running():

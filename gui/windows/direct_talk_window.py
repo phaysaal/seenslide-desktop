@@ -330,8 +330,19 @@ class DirectTalkWindow(QWidget):
             if not success:
                 raise Exception("Failed to set crop region")
 
+            # Verify idle capture is running
+            import time
+            time.sleep(1)  # Give server time to start idle capture
+
+            if not self.server_manager.is_idle_capture_running():
+                raise Exception(
+                    "Idle capture failed to start.\n\n"
+                    "This is likely a screen capture permission issue.\n"
+                    "Please grant screen capture permissions when prompted."
+                )
+
             self.server_started = True
-            logger.info("✅ Idle server started successfully")
+            logger.info("✅ Idle capture started successfully")
 
             # Get cloud session info
             try:
