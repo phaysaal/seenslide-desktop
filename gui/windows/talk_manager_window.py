@@ -2,6 +2,7 @@
 
 import logging
 import requests
+import yaml
 from typing import Optional, List, Dict
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -10,8 +11,6 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont, QPalette, QColor
 from pathlib import Path
-
-from gui.utils.server_manager import ServerManager
 
 logger = logging.getLogger(__name__)
 
@@ -124,13 +123,44 @@ class TalkManagerWindow(QWidget):
         """
         super().__init__(parent)
 
-        self.server_manager = ServerManager()
+        # Load cloud configuration
+        self.api_url: Optional[str] = None
+        self.session_token: Optional[str] = None
+        self._load_cloud_config()
+
         self.sessions_data: List[Dict] = []
 
         self._setup_ui()
         self._load_talks()
 
         logger.info("TalkManagerWindow initialized")
+
+    def _load_cloud_config(self):
+        """Load cloud API configuration from config.yaml."""
+        try:
+            config_path = Path(__file__).parent.parent.parent / "config" / "config.yaml"
+            if not config_path.exists():
+                logger.warning(f"Config file not found: {config_path}")
+                return
+
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+
+            cloud_config = config.get('cloud', {})
+            if not cloud_config.get('enabled', False):
+                logger.warning("Cloud sync is disabled in config")
+                return
+
+            self.api_url = cloud_config.get('api_url', '').rstrip('/')
+            self.session_token = cloud_config.get('session_token') or cloud_config.get('api_key')
+
+            if self.api_url and self.session_token:
+                logger.info(f"Loaded cloud config: {self.api_url}")
+            else:
+                logger.warning("Cloud config incomplete (missing api_url or session_token)")
+
+        except Exception as e:
+            logger.error(f"Failed to load cloud config: {e}", exc_info=True)
 
     def _setup_ui(self):
         """Setup the UI components."""
@@ -259,7 +289,7 @@ class TalkManagerWindow(QWidget):
 
     def _load_talks(self):
         """Load all sessions and talks from cloud API."""
-        logger.info("Loading talks from cloud API...")
+        logger.info("Loading talks from Railway cloud...")
 
         # Clear existing content
         while self.content_layout.count():
@@ -268,62 +298,65 @@ class TalkManagerWindow(QWidget):
                 child.widget().deleteLater()
 
         try:
-            # Check if server is running - if not, try to check if it's available
-            if not self.server_manager.is_running():
-                # Server process not managed by us, check if it's available
-                if not self.server_manager.is_server_ready():
-                    self._show_empty_state(
-                        "🌐 Server Not Running",
-                        "The admin server is not running.\n\n"
-                        "Start a conference session to manage talks,\n"
-                        "or talks will be shown here after recording."
-                    )
-                    return
+            # Check if cloud is configured
+            if not self.api_url or not self.session_token:
+                self._show_empty_state(
+                    "🌐 Cloud Not Configured",
+                    "Cloud sync is not enabled in config.yaml.\n\n"
+                    "To manage talks, please configure:\n"
+                    "• cloud.enabled: true\n"
+                    "• cloud.api_url: your Railway URL\n"
+                    "• cloud.session_token: your auth token"
+                )
+                return
 
-            # Auto-login if not already logged in
-            if not self.server_manager.session_token:
-                logger.info("Logging in to admin server...")
-                # Try default credentials
-                if not self.server_manager.login("admin", "admin"):
-                    self._show_empty_state(
-                        "🔒 Authentication Failed",
-                        "Could not login to admin server.\n\n"
-                        "Please check your credentials or start a conference session."
-                    )
-                    return
-
-            # Get all sessions from API
-            base_url = self.server_manager.base_url
-            cookies = {"session_token": self.server_manager.session_token}
+            # Get all sessions from cloud API
+            headers = {
+                "Authorization": f"Bearer {self.session_token}"
+            }
 
             try:
                 response = requests.get(
-                    f"{base_url}/api/sessions",
-                    cookies=cookies,
-                    timeout=5
+                    f"{self.api_url}/api/cloud/sessions",
+                    headers=headers,
+                    timeout=10
                 )
                 response.raise_for_status()
                 sessions_data = response.json()
             except requests.exceptions.ConnectionError:
                 self._show_empty_state(
-                    "🌐 Cannot Connect to Server",
-                    "Unable to connect to the admin server.\n\n"
-                    "The server might have stopped unexpectedly."
+                    "🌐 Cannot Connect to Cloud",
+                    f"Unable to connect to Railway cloud.\n\n"
+                    f"URL: {self.api_url}\n\n"
+                    f"Please check your internet connection."
                 )
                 return
             except requests.exceptions.Timeout:
                 self._show_empty_state(
-                    "⏱️ Server Timeout",
-                    "The admin server is not responding.\n\n"
+                    "⏱️ Cloud Timeout",
+                    "Railway cloud is not responding.\n\n"
                     "Please try again in a moment."
                 )
                 return
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 401:
+                    self._show_empty_state(
+                        "🔒 Authentication Failed",
+                        "Invalid session token.\n\n"
+                        "Please check your cloud.session_token in config.yaml"
+                    )
+                else:
+                    self._show_empty_state(
+                        "⚠️ Cloud Error",
+                        f"HTTP {e.response.status_code}: {e.response.text}"
+                    )
+                return
 
-            if not sessions_data:
+            if not sessions_data or not isinstance(sessions_data, list):
                 self._show_empty_state(
                     "📭 No Sessions Yet",
-                    "You haven't recorded any sessions yet.\n\n"
-                    "Start a presentation from the launcher to see your talks here."
+                    "You haven't recorded any sessions to the cloud yet.\n\n"
+                    "Start a presentation with cloud sync enabled to see talks here."
                 )
                 return
 
@@ -349,13 +382,13 @@ class TalkManagerWindow(QWidget):
 
             self.content_layout.addStretch()
 
-            logger.info(f"Loaded {session_count} sessions")
+            logger.info(f"Loaded {session_count} sessions from cloud")
 
         except Exception as e:
             logger.error(f"Failed to load talks: {e}", exc_info=True)
             self._show_empty_state(
                 "⚠️ Error Loading Talks",
-                f"Failed to load talks from server.\n\n"
+                f"Failed to load talks from cloud.\n\n"
                 f"Error: {str(e)}\n\n"
                 f"Check logs for more details."
             )
@@ -402,14 +435,15 @@ class TalkManagerWindow(QWidget):
         """
         session_id = session.get('session_id', '')
 
-        # Fetch talks for this session from API
+        # Fetch talks for this session from cloud API
         try:
-            base_url = self.server_manager.base_url
-            cookies = {"session_token": self.server_manager.session_token}
+            headers = {
+                "Authorization": f"Bearer {self.session_token}"
+            }
             response = requests.get(
-                f"{base_url}/api/sessions/{session_id}/talks",
-                cookies=cookies,
-                timeout=5
+                f"{self.api_url}/api/cloud/session/{session_id}/talks",
+                headers=headers,
+                timeout=10
             )
             response.raise_for_status()
             talks = response.json()
@@ -563,19 +597,21 @@ class TalkManagerWindow(QWidget):
                 return
 
             try:
-                # Update via API
-                base_url = self.server_manager.base_url
-                talk_id = talk['talk_id']
-                cookies = {"session_token": self.server_manager.session_token}
+                # Update via cloud API
+                talk_id = talk.get('talk_id') or talk.get('id')
+                headers = {
+                    "Authorization": f"Bearer {self.session_token}",
+                    "Content-Type": "application/json"
+                }
 
                 response = requests.patch(
-                    f"{base_url}/api/sessions/{session_id}/talks/{talk_id}",
+                    f"{self.api_url}/api/cloud/session/{session_id}/talk/{talk_id}",
+                    headers=headers,
                     json={
                         'title': new_title,
                         'presenter_name': new_presenter
                     },
-                    cookies=cookies,
-                    timeout=5
+                    timeout=10
                 )
                 response.raise_for_status()
 
@@ -584,7 +620,7 @@ class TalkManagerWindow(QWidget):
                 self._load_talks()  # Refresh
 
             except requests.exceptions.RequestException as e:
-                logger.error(f"Failed to update talk via API: {e}")
+                logger.error(f"Failed to update talk via cloud API: {e}")
                 QMessageBox.critical(self, "Error", f"Failed to update talk: {str(e)}")
             except Exception as e:
                 logger.error(f"Failed to update talk: {e}")
@@ -608,24 +644,25 @@ class TalkManagerWindow(QWidget):
 
         if reply == QMessageBox.Yes:
             try:
-                # Delete via API
-                base_url = self.server_manager.base_url
-                talk_id = talk['talk_id']
-                cookies = {"session_token": self.server_manager.session_token}
+                # Delete via cloud API
+                talk_id = talk.get('talk_id') or talk.get('id')
+                headers = {
+                    "Authorization": f"Bearer {self.session_token}"
+                }
 
                 response = requests.delete(
-                    f"{base_url}/api/sessions/{session_id}/talks/{talk_id}",
-                    cookies=cookies,
-                    timeout=5
+                    f"{self.api_url}/api/cloud/session/{session_id}/talk/{talk_id}",
+                    headers=headers,
+                    timeout=10
                 )
                 response.raise_for_status()
 
-                logger.info(f"Deleted talk {talk_id}")
+                logger.info(f"Deleted talk {talk_id} from cloud")
                 QMessageBox.information(self, "Success", "Talk deleted successfully!")
                 self._load_talks()  # Refresh
 
             except requests.exceptions.RequestException as e:
-                logger.error(f"Failed to delete talk via API: {e}")
+                logger.error(f"Failed to delete talk via cloud API: {e}")
                 QMessageBox.critical(self, "Error", f"Failed to delete talk: {str(e)}")
             except Exception as e:
                 logger.error(f"Failed to delete talk: {e}")
