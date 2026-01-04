@@ -13,10 +13,12 @@ import logging
 
 from gui.widgets.countdown_widget import CountdownWidget
 from gui.widgets.region_selector import RegionSelector
-from gui.utils.server_manager import ServerManager
 from gui.utils.screenshot_util import capture_screenshot, get_primary_screen_size, get_monitor_count
 from gui.utils.region_utils import calculate_default_region
 from gui.utils.portal_session import PortalSessionManager
+
+# Import orchestrator directly
+from seenslide.orchestrator import SeenSlideOrchestrator, CaptureMode
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +40,8 @@ class DirectTalkWindow(QWidget):
         """
         super().__init__(parent)
 
-        # Server manager
-        self.server_manager = ServerManager()
+        # Orchestrator (run directly, no admin server)
+        self.orchestrator: Optional[SeenSlideOrchestrator] = None
 
         # Selected region (default to 50% center)
         width, height = get_primary_screen_size()
@@ -52,7 +54,6 @@ class DirectTalkWindow(QWidget):
         self.cloud_session_id: Optional[str] = None
         self.cloud_viewer_url: Optional[str] = None
         self.is_active = False
-        self.server_started = False
 
         # Status polling timer
         self.status_timer = QTimer(self)
@@ -62,7 +63,7 @@ class DirectTalkWindow(QWidget):
         self._setup_ui()
 
         # Start idle orchestrator after window shows
-        QTimer.singleShot(500, self._start_idle_server)
+        QTimer.singleShot(500, self._start_idle_orchestrator)
 
         logger.info("DirectTalkWindow initialized")
 
@@ -305,104 +306,63 @@ class DirectTalkWindow(QWidget):
         """
         self.tolerance_value_label.setText(f"{value}%")
 
-    def _start_idle_server(self):
-        """Start idle orchestrator in background."""
-        logger.info("Starting idle orchestrator for Direct Talk mode...")
+    def _start_idle_orchestrator(self):
+        """Start orchestrator in IDLE mode (no admin server needed)."""
+        logger.info("Starting orchestrator in IDLE mode for Direct Talk...")
 
         try:
-            # Start admin server
-            logger.info("Starting admin server...")
-            success = self.server_manager.start_server()
+            # Find config file
+            config_paths = [
+                Path.home() / ".config" / "seenslide" / "config.yaml",
+                Path(__file__).parent.parent.parent / "config" / "config.yaml",
+            ]
+
+            config_path = None
+            for path in config_paths:
+                if path.exists():
+                    config_path = path
+                    break
+
+            # Create orchestrator
+            self.orchestrator = SeenSlideOrchestrator(
+                config_path=str(config_path) if config_path else None
+            )
+
+            # Start in IDLE mode (triggers screen permission)
+            monitor_id = self.monitor_combo.currentData()
+            success = self.orchestrator.start_session(
+                session_name="Direct Talk - Idle",
+                description="Waiting for talk to start",
+                presenter_name="",
+                monitor_id=monitor_id,
+                mode=CaptureMode.IDLE,
+                crop_region=self.crop_region
+            )
 
             if not success:
-                raise Exception("Failed to start admin server")
+                raise Exception("Failed to start idle capture")
 
-            # Login
-            logger.info("Logging in...")
-            success = self.server_manager.login("admin", "admin123")
-
-            if not success:
-                raise Exception("Failed to login to admin server")
-
-            # Set crop region (default 50% center)
-            logger.info(f"Setting default crop region: {self.crop_region}")
-            success = self.server_manager.set_crop_region(self.crop_region)
-
-            if not success:
-                raise Exception("Failed to set crop region")
-
-            # Verify idle capture is running (with retries)
-            import time
-            max_retries = 5
-            retry_delay = 1
-
-            logger.info("Waiting for idle capture to start...")
-            for attempt in range(max_retries):
-                time.sleep(retry_delay)
-
-                status = self.server_manager.get_status()
-                if status:
-                    logger.info(f"Status check attempt {attempt + 1}: {status}")
-                    if status.get('idle_running', False):
-                        logger.info("✅ Idle capture confirmed running")
-                        break
-                else:
-                    logger.warning(f"Failed to get status on attempt {attempt + 1}")
-            else:
-                # All retries failed - try to read server logs
-                status = self.server_manager.get_status()
-                error_msg = (
-                    "Idle capture failed to start after 5 seconds.\n\n"
-                    "This is likely a screen capture permission issue.\n"
-                    "Please check:\n"
-                    "• Screen capture permissions are granted\n"
-                    "• Portal dialog was accepted (Wayland)\n\n"
-                )
-                if status:
-                    error_msg += f"Server status: {status}\n\n"
-
-                # Try to read server logs
-                log_file = Path("/tmp/seenslide/logs/admin_server.log")
-                if log_file.exists():
-                    try:
-                        with open(log_file, 'r') as f:
-                            logs = f.read()
-                            # Get last 1000 chars
-                            if len(logs) > 1000:
-                                logs = "..." + logs[-1000:]
-                            error_msg += f"Server logs:\n{logs}"
-                    except Exception as e:
-                        error_msg += f"Could not read logs: {e}"
-                else:
-                    error_msg += "Log file not found"
-
-                raise Exception(error_msg)
-
-            self.server_started = True
-            logger.info("✅ Idle capture started successfully")
+            logger.info("✅ Orchestrator started in IDLE mode")
 
             # Get cloud session info
-            try:
-                status = self.server_manager.get_status()
-                if status:
-                    self.cloud_session_id = status.get('cloud_session_id')
-                    self.cloud_viewer_url = status.get('cloud_viewer_url')
-                    logger.info(f"Cloud session: {self.cloud_session_id}")
-                    logger.info(f"Cloud viewer: {self.cloud_viewer_url}")
-            except Exception as e:
-                logger.warning(f"Could not get cloud session info: {e}")
+            if self.orchestrator.storage_manager.cloud_provider.enabled:
+                self.cloud_session_id = self.orchestrator.storage_manager.cloud_provider.cloud_session_id
+                api_url = self.orchestrator.storage_manager.cloud_provider.api_url
+                self.cloud_viewer_url = f"{api_url}/{self.cloud_session_id}"
+                logger.info(f"Cloud session: {self.cloud_session_id}")
+                logger.info(f"Cloud viewer: {self.cloud_viewer_url}")
 
             # Update region display
             self._update_region_display()
 
         except Exception as e:
-            logger.error(f"Failed to start idle server: {e}")
+            logger.error(f"Failed to start orchestrator: {e}", exc_info=True)
             QMessageBox.critical(
                 self,
-                "Server Start Failed",
-                f"Could not start idle server:\n{str(e)}\n\n"
-                "Direct Talk mode requires the server to be running.\n"
-                "Please restart the application."
+                "Startup Failed",
+                f"Could not start orchestrator:\n{str(e)}\n\n"
+                "This is likely a screen capture permission issue.\n"
+                "Please grant permissions when prompted."
             )
             self.close_requested.emit()
 
