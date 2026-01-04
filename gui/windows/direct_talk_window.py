@@ -330,16 +330,37 @@ class DirectTalkWindow(QWidget):
             if not success:
                 raise Exception("Failed to set crop region")
 
-            # Verify idle capture is running
+            # Verify idle capture is running (with retries)
             import time
-            time.sleep(1)  # Give server time to start idle capture
+            max_retries = 5
+            retry_delay = 1
 
-            if not self.server_manager.is_idle_capture_running():
-                raise Exception(
-                    "Idle capture failed to start.\n\n"
+            logger.info("Waiting for idle capture to start...")
+            for attempt in range(max_retries):
+                time.sleep(retry_delay)
+
+                status = self.server_manager.get_status()
+                if status:
+                    logger.info(f"Status check attempt {attempt + 1}: {status}")
+                    if status.get('idle_running', False):
+                        logger.info("✅ Idle capture confirmed running")
+                        break
+                else:
+                    logger.warning(f"Failed to get status on attempt {attempt + 1}")
+            else:
+                # All retries failed
+                status = self.server_manager.get_status()
+                error_msg = (
+                    "Idle capture failed to start after 5 seconds.\n\n"
                     "This is likely a screen capture permission issue.\n"
-                    "Please grant screen capture permissions when prompted."
+                    "Please check:\n"
+                    "• Screen capture permissions are granted\n"
+                    "• Portal dialog was accepted (Wayland)\n"
+                    "• No other errors in the terminal logs\n\n"
                 )
+                if status:
+                    error_msg += f"Server status: {status}"
+                raise Exception(error_msg)
 
             self.server_started = True
             logger.info("✅ Idle capture started successfully")
