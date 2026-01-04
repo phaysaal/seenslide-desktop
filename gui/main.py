@@ -6,8 +6,9 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+
 # Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from PyQt5.QtWidgets import QApplication, QMessageBox
 from PyQt5.QtCore import Qt
@@ -15,10 +16,12 @@ from PyQt5.QtCore import Qt
 from gui.windows.mode_selector import ModeSelector
 from gui.windows.direct_talk_window import DirectTalkWindow
 from gui.windows.conference_launcher import ConferenceLauncher
+from gui.windows.talk_manager_window import TalkManagerWindow
 from gui.widgets.region_selector import RegionSelector
 from gui.utils.screenshot_util import capture_screenshot, get_primary_screen_size
 from gui.utils.region_utils import calculate_default_region
 from gui.utils.portal_session import PortalSessionManager
+
 
 # Setup logging
 logging.basicConfig(
@@ -42,6 +45,8 @@ class SeenSlideApp:
         self.mode_selector: Optional[ModeSelector] = None
         self.direct_talk_window: Optional[DirectTalkWindow] = None
         self.conference_launcher: Optional[ConferenceLauncher] = None
+        self.talk_manager: Optional[TalkManagerWindow] = None
+
 
         # Selected crop region (None = use default)
         self.crop_region: Optional[dict] = None
@@ -69,6 +74,7 @@ class SeenSlideApp:
         self.mode_selector = ModeSelector()
         self.mode_selector.direct_talk_selected.connect(self._on_direct_talk_selected)
         self.mode_selector.conference_mode_selected.connect(self._on_conference_mode_selected)
+        self.mode_selector.manage_talks_selected.connect(self._on_manage_talks_selected)
         self.mode_selector.show()
 
     def _on_direct_talk_selected(self):
@@ -97,6 +103,26 @@ class SeenSlideApp:
 
         # Launch conference mode directly
         self._launch_conference_mode()
+
+    def _on_manage_talks_selected(self):
+        """Handle Manage Talks selection."""
+        logger.info("User selected Manage Talks")
+
+        # Hide mode selector
+        if self.mode_selector:
+            self.mode_selector.hide()
+
+        # Show talk manager
+        self.talk_manager = TalkManagerWindow()
+        self.talk_manager.close_requested.connect(self._on_talk_manager_closed)
+        self.talk_manager.show()
+
+    def _on_talk_manager_closed(self):
+        """Handle talk manager window closed."""
+        logger.info("Talk manager closed")
+
+        # Show mode selector again
+        self.show_mode_selector()
 
     def _show_region_selector_for_conference(self):
         """Show region selector for Conference Mode."""

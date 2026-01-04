@@ -680,6 +680,97 @@ class SQLiteStorageProvider(IStorageProvider):
             logger.error(f"Failed to get talks: {e}")
             return []
 
+    def get_talk(self, talk_id: str) -> Optional[dict]:
+        """Get a single talk by ID.
+
+        Args:
+            talk_id: Talk ID
+
+        Returns:
+            Talk dictionary or None if not found
+        """
+        if not self._initialized:
+            return None
+
+        try:
+            cursor = self._conn.cursor()
+            cursor.execute("""
+                SELECT talk_id, session_id, title, presenter_name, description, created_at, status, metadata
+                FROM talks
+                WHERE talk_id = ?
+            """, (talk_id,))
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            return {
+                'talk_id': row[0],
+                'session_id': row[1],
+                'title': row[2],
+                'presenter_name': row[3],
+                'description': row[4],
+                'created_at': row[5],
+                'status': row[6],
+                'metadata': json.loads(row[7]) if row[7] else {}
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get talk {talk_id}: {e}")
+            return None
+
+    def update_talk(self, talk_id: str, talk_data: dict) -> bool:
+        """Update a talk's properties.
+
+        Args:
+            talk_id: Talk ID
+            talk_data: Dictionary with updated fields (title, presenter_name, description, etc.)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self._initialized:
+            return False
+
+        try:
+            # Build UPDATE query dynamically based on provided fields
+            updateable_fields = ['title', 'presenter_name', 'description', 'status']
+            updates = []
+            values = []
+
+            for field in updateable_fields:
+                if field in talk_data:
+                    updates.append(f"{field} = ?")
+                    values.append(talk_data[field])
+
+            if not updates:
+                logger.warning("No fields to update")
+                return True
+
+            # Add talk_id to values for WHERE clause
+            values.append(talk_id)
+
+            query = f"""
+                UPDATE talks
+                SET {', '.join(updates)}
+                WHERE talk_id = ?
+            """
+
+            cursor = self._conn.cursor()
+            cursor.execute(query, values)
+            self._conn.commit()
+
+            if cursor.rowcount == 0:
+                logger.warning(f"Talk {talk_id} not found for update")
+                return False
+
+            logger.info(f"Updated talk {talk_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to update talk {talk_id}: {e}")
+            return False
+
     def delete_talk(self, talk_id: str) -> bool:
         """Delete a talk and unassign slides from it.
 

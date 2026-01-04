@@ -14,6 +14,7 @@ from modules.dedup.engine import DeduplicationEngine
 from modules.dedup.strategies.hash_strategy import HashDeduplicationStrategy
 from modules.dedup.strategies.perceptual_strategy import PerceptualDeduplicationStrategy
 from modules.dedup.strategies.hybrid_strategy import HybridDeduplicationStrategy
+from modules.dedup.strategies.adaptive_strategy import AdaptiveDeduplicationStrategy
 from modules.storage.manager import StorageManager
 
 # Import plugins to register providers
@@ -119,7 +120,7 @@ class SeenSlideOrchestrator:
             )
 
             # Initialize deduplication engine
-            strategy = self._create_dedup_strategy(dedup_config)
+            strategy = self._create_dedup_strategy(dedup_config, capture_provider)
             self.dedup_engine = DeduplicationEngine(
                 strategy=strategy,
                 session=self.session,
@@ -334,11 +335,12 @@ class SeenSlideOrchestrator:
 
         return stats
 
-    def _create_dedup_strategy(self, config: dict):
+    def _create_dedup_strategy(self, config: dict, capture_provider=None):
         """Create deduplication strategy based on configuration.
 
         Args:
             config: Deduplication configuration
+            capture_provider: Capture provider (needed for adaptive strategy)
 
         Returns:
             Deduplication strategy instance
@@ -351,6 +353,9 @@ class SeenSlideOrchestrator:
             strategy = PerceptualDeduplicationStrategy()
         elif strategy_name == "hybrid":
             strategy = HybridDeduplicationStrategy()
+        elif strategy_name == "adaptive":
+            strategy = AdaptiveDeduplicationStrategy(capture_provider=capture_provider)
+            logger.info("Using adaptive deduplication with region profiling")
         else:
             logger.warning(f"Unknown strategy '{strategy_name}', using hash")
             strategy = HashDeduplicationStrategy()

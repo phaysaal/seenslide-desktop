@@ -946,6 +946,49 @@ class AdminServer:
                 logger.error(f"Error creating talk: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
+        @self.app.patch("/api/sessions/{session_id}/talks/{talk_id}")
+        async def update_talk(
+            session_id: str,
+            talk_id: str,
+            title: Optional[str] = None,
+            presenter_name: Optional[str] = None,
+            description: Optional[str] = None,
+            current_user: User = Depends(self._get_current_user)
+        ):
+            """Update talk properties (title, presenter_name, description)."""
+            try:
+                # Get existing talk
+                talk = self.db_provider.get_talk(talk_id)
+                if not talk:
+                    raise HTTPException(status_code=404, detail="Talk not found")
+
+                # Update fields if provided
+                if title is not None:
+                    talk['title'] = title
+                if presenter_name is not None:
+                    talk['presenter_name'] = presenter_name
+                if description is not None:
+                    talk['description'] = description
+
+                # Save updated talk
+                success = self.db_provider.update_talk(talk_id, talk)
+                if not success:
+                    raise HTTPException(status_code=500, detail="Failed to update talk")
+
+                logger.info(f"Updated talk {talk_id}: {talk}")
+
+                return {
+                    "success": True,
+                    "talk": talk,
+                    "message": "Talk updated successfully"
+                }
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error updating talk: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
         @self.app.delete("/api/sessions/{session_id}/talks/{talk_id}")
         async def delete_talk(
             session_id: str,

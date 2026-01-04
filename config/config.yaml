@@ -15,7 +15,7 @@ capture:
 
 # Deduplication settings
 deduplication:
-  # Strategy: "hash", "perceptual", or "hybrid"
+  # Strategy: "hash", "perceptual", "hybrid", or "adaptive"
   strategy: "hash"
 
   # Hash algorithm (for hash strategy)
@@ -27,6 +27,42 @@ deduplication:
 
   # Hash size for perceptual hashing
   perceptual_hash_size: 8
+
+  # Deduplication threshold (for adaptive strategy)
+  # Slightly lower than perceptual to handle slide animations
+  dedup_threshold: 0.92
+
+  # Adaptive deduplication settings (used when strategy is "adaptive")
+  adaptive:
+    # Region profiling interval (seconds)
+    # How often to resample and detect static slide regions
+    sampling_interval: 30
+
+    # Number of screenshots to capture per sampling session
+    sample_count: 20
+
+    # Samples per second during sampling (fps)
+    # sample_count / sample_freq = total sampling duration
+    # 20 samples @ 10 fps = 2 seconds of sampling
+    sample_freq: 10
+
+    # Minimum region size as ratio of screen (0.0-1.0)
+    # Regions smaller than this are filtered out
+    # 0.5 = region must be at least 50% of screen
+    min_region_ratio: 0.5
+
+    # Maximum number of static regions to track
+    # Usually 1-2 regions (main slide area)
+    max_regions: 2
+
+    # Pixel difference threshold for change detection
+    # Higher = less sensitive to small changes
+    change_threshold: 25
+
+    # Maximum allowed change ratio for static pixels (0.0-1.0)
+    # Pixels that change more than this are considered dynamic
+    # 0.1 = pixel can change in max 10% of frames to be static
+    max_change_ratio: 0.1
 
 # Storage settings
 storage:
