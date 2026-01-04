@@ -74,9 +74,9 @@ class OrchestratorStartWorker(QThread):
             # Get cloud session info
             cloud_session_id = None
             cloud_viewer_url = None
-            if orchestrator.storage_manager.cloud_provider.enabled:
-                cloud_session_id = orchestrator.storage_manager.cloud_provider.cloud_session_id
-                api_url = orchestrator.storage_manager.cloud_provider.api_url
+            if orchestrator.storage_manager._cloud.enabled:
+                cloud_session_id = orchestrator.storage_manager._cloud.cloud_session_id
+                api_url = orchestrator.storage_manager._cloud.api_url
                 cloud_viewer_url = f"{api_url}/{cloud_session_id}"
 
             self.success.emit(orchestrator, cloud_session_id or "", cloud_viewer_url or "")
