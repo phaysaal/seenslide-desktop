@@ -490,34 +490,48 @@ class DirectTalkWindow(QWidget):
         QApplication.processEvents()
 
         try:
-            if not self.server_started:
-                raise Exception("Server not started. Please restart the application.")
+            if not self.orchestrator:
+                raise Exception("Orchestrator not started. Please restart the application.")
 
             # Get form data
             talk_name = self.talk_name_input.text().strip()
             presenter = self.presenter_input.text().strip()
             description = self.description_input.toPlainText().strip()
-            monitor_id = self.monitor_combo.currentData()
             tolerance = self.tolerance_slider.value() / 100.0  # Convert to 0.0-1.0
 
-            # Start talk (switches from IDLE to ACTIVE mode)
-            logger.info(f"Starting talk: {talk_name}")
-            self.session_id = self.server_manager.start_talk(
+            # Create new session for this talk
+            from core.models.session import Session
+            new_session = Session(
+                user_id="direct-talk-user",
+                cloud_session_id=self.cloud_session_id,
                 name=talk_name,
-                presenter_name=presenter,
                 description=description,
-                monitor_id=monitor_id,
-                dedup_tolerance=tolerance
+                presenter_name=presenter or "Unknown",
+                capture_interval_seconds=self.orchestrator.config.get("capture", {}).get("interval_seconds", 2.0),
+                dedup_strategy=self.orchestrator.config.get("deduplication", {}).get("strategy", "hash")
             )
 
-            if not self.session_id:
-                raise Exception("Failed to start talk")
+            logger.info(f"Created session for talk: {talk_name} ({new_session.session_id})")
 
-            # Store talk info
+            # Update orchestrator with new session
+            success = self.orchestrator.update_session(new_session)
+            if not success:
+                raise Exception("Failed to update orchestrator with session")
+
+            # Update deduplication tolerance
+            if 'deduplication' not in self.orchestrator.config:
+                self.orchestrator.config['deduplication'] = {}
+            self.orchestrator.config['deduplication']['perceptual_threshold'] = tolerance
+
+            # Switch to ACTIVE mode
+            success = self.orchestrator.set_capture_mode(CaptureMode.ACTIVE)
+            if not success:
+                raise Exception("Failed to switch to active mode")
+
+            # Store session info
+            self.session_id = new_session.session_id
             self.talk_name = talk_name
             self.presenter_name = presenter
-
-            # Mark as active
             self.is_active = True
 
             # Update UI with session info
@@ -527,10 +541,10 @@ class DirectTalkWindow(QWidget):
             # Start status polling
             self.status_timer.start(5000)  # Poll every 5 seconds
 
-            logger.info(f"Talk started successfully: {self.session_id}")
+            logger.info(f"✅ Talk started successfully: {self.session_id}")
 
         except Exception as e:
-            logger.error(f"Failed to start talk: {e}")
+            logger.error(f"Failed to start talk: {e}", exc_info=True)
             QMessageBox.critical(
                 self,
                 "Failed to Start",
@@ -566,36 +580,23 @@ class DirectTalkWindow(QWidget):
         self.status_label.setText(status_text)
 
     def _poll_status(self):
-        """Poll server for live statistics."""
-        if not self.is_active:
+        """Poll orchestrator for live statistics."""
+        if not self.is_active or not self.orchestrator:
             return
 
         try:
-            status = self.server_manager.get_status()
+            # Get stats directly from orchestrator
+            stats = self.orchestrator.get_statistics()
 
-            if status:
-                active = status.get('active', False)
+            if stats and 'deduplication' in stats:
+                slides_count = stats['deduplication'].get('unique_slides', 0)
+            else:
+                slides_count = 0
 
-                # Update cloud session info (in case it changed)
-                self.cloud_session_id = status.get('cloud_session_id') or self.cloud_session_id
-                self.cloud_viewer_url = status.get('cloud_viewer_url') or self.cloud_viewer_url
+            logger.debug(f"Status poll: slides={slides_count}")
 
-                # Get slides count from stats (if available)
-                stats = status.get('stats', {})
-                if stats and 'deduplication' in stats:
-                    slides_count = stats['deduplication'].get('unique_slides', 0)
-                else:
-                    slides_count = 0
-
-                logger.debug(f"Status poll: active={active}, slides={slides_count}")
-
-                if active:
-                    # Update display with current slide count
-                    self._update_status_display(slides_count)
-                else:
-                    # Talk was stopped externally
-                    logger.warning(f"Talk appears inactive (active={active}), triggering external stop")
-                    self._on_talk_stopped_externally()
+            # Update display with current slide count
+            self._update_status_display(slides_count)
 
         except Exception as e:
             logger.warning(f"Failed to poll status: {e}", exc_info=True)
@@ -617,25 +618,34 @@ class DirectTalkWindow(QWidget):
             logger.info("Stopping talk...")
 
             try:
-                success = self.server_manager.stop_talk()
+                if self.orchestrator:
+                    # Switch back to IDLE mode (keeps session alive for next talk)
+                    success = self.orchestrator.set_capture_mode(CaptureMode.IDLE)
 
-                if success:
-                    QMessageBox.information(
-                        self,
-                        "Talk Stopped",
-                        "Talk has been stopped successfully.\n\n"
-                        "Your slides have been saved and are available in the cloud viewer.\n\n"
-                        "You can start a new talk or close this window."
-                    )
+                    if success:
+                        logger.info("✅ Switched back to IDLE mode")
+                        QMessageBox.information(
+                            self,
+                            "Talk Stopped",
+                            "Talk has been stopped successfully.\n\n"
+                            "Your slides have been saved and are available in the cloud viewer.\n\n"
+                            "You can start a new talk or close this window."
+                        )
+                    else:
+                        QMessageBox.warning(
+                            self,
+                            "Stop Failed",
+                            "Could not switch back to idle mode."
+                        )
                 else:
                     QMessageBox.warning(
                         self,
                         "Stop Failed",
-                        "Could not stop talk. The talk may have already ended."
+                        "Orchestrator not available."
                     )
 
             except Exception as e:
-                logger.error(f"Failed to stop talk: {e}")
+                logger.error(f"Failed to stop talk: {e}", exc_info=True)
                 QMessageBox.critical(
                     self,
                     "Error",
@@ -643,8 +653,9 @@ class DirectTalkWindow(QWidget):
                 )
 
             finally:
-                # Cleanup but keep server running (switches back to IDLE mode)
-                self._cleanup(stop_server=False)
+                # Reset state
+                self.is_active = False
+                self.status_timer.stop()
                 self.talk_stopped.emit()
 
                 # Reset UI to allow starting another talk
@@ -671,21 +682,25 @@ class DirectTalkWindow(QWidget):
         self.stop_button.setVisible(False)
         self.start_button.setEnabled(True)
 
-    def _cleanup(self, stop_server: bool = True):
+    def _cleanup(self, stop_orchestrator: bool = True):
         """Cleanup resources.
 
         Args:
-            stop_server: If True, stop the server. If False, just reset state.
+            stop_orchestrator: If True, stop the orchestrator. If False, just reset state.
         """
         logger.info("Cleaning up resources...")
 
         # Stop polling
         self.status_timer.stop()
 
-        # Stop server only if requested
-        if stop_server:
-            self.server_manager.cleanup()
-            self.server_started = False
+        # Stop orchestrator only if requested
+        if stop_orchestrator and self.orchestrator:
+            try:
+                self.orchestrator.stop()
+                logger.info("Orchestrator stopped")
+            except Exception as e:
+                logger.error(f"Error stopping orchestrator: {e}")
+            self.orchestrator = None
 
         # Reset state
         self.is_active = False
@@ -707,18 +722,20 @@ class DirectTalkWindow(QWidget):
 
             if reply == QMessageBox.Yes:
                 # Stop talk first
-                if self.server_started:
+                if self.orchestrator:
                     try:
-                        self.server_manager.stop_talk()
+                        self.orchestrator.set_capture_mode(CaptureMode.IDLE)
                     except:
                         pass
 
-                # Cleanup and stop server
-                self._cleanup(stop_server=True)
+                # Cleanup and stop orchestrator
+                self._cleanup(stop_orchestrator=True)
+                self.close_requested.emit()
                 event.accept()
             else:
                 event.ignore()
         else:
-            # No active talk, just cleanup and stop server
-            self._cleanup(stop_server=True)
+            # No active talk, just cleanup and stop orchestrator
+            self._cleanup(stop_orchestrator=True)
+            self.close_requested.emit()
             event.accept()
