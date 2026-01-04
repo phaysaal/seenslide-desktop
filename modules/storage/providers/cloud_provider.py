@@ -157,7 +157,7 @@ class CloudStorageProvider(IStorageProvider):
         Args:
             session_id: Local session ID
             talk_name: Name of the talk
-            presenter_name: Presenter name
+            presenter_name: Presenter name (ignored by API)
             description: Talk description
 
         Returns:
@@ -168,15 +168,12 @@ class CloudStorageProvider(IStorageProvider):
             return True  # Return success if cloud disabled
 
         try:
-            url = f"{self.api_url}/api/cloud/session/{self.cloud_session_id}/create-talk"
+            url = f"{self.api_url}/api/cloud/session/{self.cloud_session_id}/start-talk"
             headers = {
-                "Authorization": f"Bearer {self.session_token}",
                 "Content-Type": "application/json"
             }
             data = {
-                "local_session_id": session_id,
                 "title": talk_name,
-                "presenter_name": presenter_name or "Unknown",
                 "description": description or ""
             }
 
