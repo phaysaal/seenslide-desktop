@@ -268,15 +268,17 @@ class TalkManagerWindow(QWidget):
                 child.widget().deleteLater()
 
         try:
-            # Check if server is running
-            if not self.server_manager.is_server_running():
-                self._show_empty_state(
-                    "🌐 Server Not Running",
-                    "The admin server is not running.\n\n"
-                    "Start a conference session to manage talks,\n"
-                    "or talks will be shown here after recording."
-                )
-                return
+            # Check if server is running - if not, try to check if it's available
+            if not self.server_manager.is_running():
+                # Server process not managed by us, check if it's available
+                if not self.server_manager.is_server_ready():
+                    self._show_empty_state(
+                        "🌐 Server Not Running",
+                        "The admin server is not running.\n\n"
+                        "Start a conference session to manage talks,\n"
+                        "or talks will be shown here after recording."
+                    )
+                    return
 
             # Get all sessions from API
             base_url = self.server_manager.base_url
