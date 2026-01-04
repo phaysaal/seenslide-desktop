@@ -280,11 +280,28 @@ class TalkManagerWindow(QWidget):
                     )
                     return
 
+            # Auto-login if not already logged in
+            if not self.server_manager.session_token:
+                logger.info("Logging in to admin server...")
+                # Try default credentials
+                if not self.server_manager.login("admin", "admin"):
+                    self._show_empty_state(
+                        "🔒 Authentication Failed",
+                        "Could not login to admin server.\n\n"
+                        "Please check your credentials or start a conference session."
+                    )
+                    return
+
             # Get all sessions from API
             base_url = self.server_manager.base_url
+            cookies = {"session_token": self.server_manager.session_token}
 
             try:
-                response = requests.get(f"{base_url}/api/sessions", timeout=5)
+                response = requests.get(
+                    f"{base_url}/api/sessions",
+                    cookies=cookies,
+                    timeout=5
+                )
                 response.raise_for_status()
                 sessions_data = response.json()
             except requests.exceptions.ConnectionError:
@@ -388,7 +405,12 @@ class TalkManagerWindow(QWidget):
         # Fetch talks for this session from API
         try:
             base_url = self.server_manager.base_url
-            response = requests.get(f"{base_url}/api/sessions/{session_id}/talks", timeout=5)
+            cookies = {"session_token": self.server_manager.session_token}
+            response = requests.get(
+                f"{base_url}/api/sessions/{session_id}/talks",
+                cookies=cookies,
+                timeout=5
+            )
             response.raise_for_status()
             talks = response.json()
         except Exception as e:
@@ -544,6 +566,7 @@ class TalkManagerWindow(QWidget):
                 # Update via API
                 base_url = self.server_manager.base_url
                 talk_id = talk['talk_id']
+                cookies = {"session_token": self.server_manager.session_token}
 
                 response = requests.patch(
                     f"{base_url}/api/sessions/{session_id}/talks/{talk_id}",
@@ -551,6 +574,7 @@ class TalkManagerWindow(QWidget):
                         'title': new_title,
                         'presenter_name': new_presenter
                     },
+                    cookies=cookies,
                     timeout=5
                 )
                 response.raise_for_status()
@@ -587,9 +611,11 @@ class TalkManagerWindow(QWidget):
                 # Delete via API
                 base_url = self.server_manager.base_url
                 talk_id = talk['talk_id']
+                cookies = {"session_token": self.server_manager.session_token}
 
                 response = requests.delete(
                     f"{base_url}/api/sessions/{session_id}/talks/{talk_id}",
+                    cookies=cookies,
                     timeout=5
                 )
                 response.raise_for_status()
