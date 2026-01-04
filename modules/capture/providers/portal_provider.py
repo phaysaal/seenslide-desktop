@@ -255,7 +255,13 @@ class PortalCaptureProvider(ICaptureProvider):
 
             # Call CreateSession
             logger.debug(f"Calling CreateSession with token: {session_token}")
-            request_path = self._screencast_iface.CreateSession(options)
+            try:
+                request_path = self._screencast_iface.CreateSession(options)
+                logger.info(f"✅ CreateSession D-Bus call succeeded: {request_path}")
+            except Exception as dbus_err:
+                logger.error(f"❌ CreateSession D-Bus call failed: {dbus_err}", exc_info=True)
+                logger.error("This usually means xdg-desktop-portal is not running or not responding")
+                raise
 
             logger.debug(f"CreateSession request path: {request_path}")
 
