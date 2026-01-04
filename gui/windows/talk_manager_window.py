@@ -1,6 +1,7 @@
 """Talk Manager window - manage past talks and sessions."""
 
 import logging
+import requests
 from typing import Optional, List, Dict
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -257,8 +258,8 @@ class TalkManagerWindow(QWidget):
         return footer
 
     def _load_talks(self):
-        """Load all sessions and talks from storage."""
-        logger.info("Loading talks from storage...")
+        """Load all sessions and talks from cloud API."""
+        logger.info("Loading talks from cloud API...")
 
         # Clear existing content
         while self.content_layout.count():
@@ -267,52 +268,54 @@ class TalkManagerWindow(QWidget):
                 child.widget().deleteLater()
 
         try:
-            # Get storage path
-            from pathlib import Path
-            storage_path = Path("/tmp/seenslide")
-            db_path = storage_path / "db" / "seenslide.db"
-
-            if not db_path.exists():
+            # Check if server is running
+            if not self.server_manager.is_server_running():
                 self._show_empty_state(
-                    "📭 No Talks Yet",
-                    "No database found. Start a presentation to record your first talk!"
+                    "🌐 Server Not Running",
+                    "The admin server is not running.\n\n"
+                    "Start a conference session to manage talks,\n"
+                    "or talks will be shown here after recording."
                 )
                 return
 
-            # Load sessions from database
-            from modules.storage.providers.sqlite_provider import SQLiteStorageProvider
+            # Get all sessions from API
+            base_url = self.server_manager.base_url
 
-            db_provider = SQLiteStorageProvider()
-            db_provider.initialize({"db_path": str(db_path)})
-
-            # Get all sessions (we need to scan the DB)
-            # Since there's no get_all_sessions, we'll need to read from SQLite directly
-            import sqlite3
-            conn = sqlite3.connect(str(db_path))
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                SELECT DISTINCT session_id, MAX(created_at) as latest_time
-                FROM slides
-                GROUP BY session_id
-                ORDER BY latest_time DESC
-            """)
-
-            session_ids = [row[0] for row in cursor.fetchall()]
-            conn.close()
-
-            if not session_ids:
+            try:
+                response = requests.get(f"{base_url}/api/sessions", timeout=5)
+                response.raise_for_status()
+                sessions_data = response.json()
+            except requests.exceptions.ConnectionError:
                 self._show_empty_state(
-                    "📭 No Talks Yet",
-                    "You haven't recorded any talks yet.\n\n"
+                    "🌐 Cannot Connect to Server",
+                    "Unable to connect to the admin server.\n\n"
+                    "The server might have stopped unexpectedly."
+                )
+                return
+            except requests.exceptions.Timeout:
+                self._show_empty_state(
+                    "⏱️ Server Timeout",
+                    "The admin server is not responding.\n\n"
+                    "Please try again in a moment."
+                )
+                return
+
+            if not sessions_data:
+                self._show_empty_state(
+                    "📭 No Sessions Yet",
+                    "You haven't recorded any sessions yet.\n\n"
                     "Start a presentation from the launcher to see your talks here."
                 )
                 return
 
             # Load talks for each session
             session_count = 0
-            for session_id in session_ids:
-                session_card = self._create_session_card(session_id, db_provider)
+            for session in sessions_data:
+                session_id = session.get('session_id')
+                if not session_id:
+                    continue
+
+                session_card = self._create_session_card(session)
                 if session_card:
                     self.content_layout.addWidget(session_card)
                     session_count += 1
@@ -321,7 +324,7 @@ class TalkManagerWindow(QWidget):
                 self._show_empty_state(
                     "📭 No Talks Found",
                     "Sessions exist but contain no talks.\n\n"
-                    "This might happen if talks were manually deleted from the database."
+                    "This might happen if talks were manually deleted."
                 )
                 return
 
@@ -333,7 +336,7 @@ class TalkManagerWindow(QWidget):
             logger.error(f"Failed to load talks: {e}", exc_info=True)
             self._show_empty_state(
                 "⚠️ Error Loading Talks",
-                f"Failed to load talks from database.\n\n"
+                f"Failed to load talks from server.\n\n"
                 f"Error: {str(e)}\n\n"
                 f"Check logs for more details."
             )
@@ -369,17 +372,27 @@ class TalkManagerWindow(QWidget):
         self.content_layout.addWidget(empty_widget)
         self.content_layout.addStretch()
 
-    def _create_session_card(self, session_id: str, db_provider) -> Optional[QWidget]:
+    def _create_session_card(self, session: Dict) -> Optional[QWidget]:
         """Create a card for a session with its talks.
 
         Args:
-            session_id: Session ID
-            db_provider: Database provider
+            session: Session data from API
 
         Returns:
             QWidget containing session card or None if no talks
         """
-        talks = db_provider.get_talks(session_id)
+        session_id = session.get('session_id', '')
+
+        # Fetch talks for this session from API
+        try:
+            base_url = self.server_manager.base_url
+            response = requests.get(f"{base_url}/api/sessions/{session_id}/talks", timeout=5)
+            response.raise_for_status()
+            talks = response.json()
+        except Exception as e:
+            logger.error(f"Failed to fetch talks for session {session_id}: {e}")
+            return None
+
         if not talks:
             return None
 
@@ -420,18 +433,17 @@ class TalkManagerWindow(QWidget):
 
         # Talk list
         for talk in talks:
-            talk_widget = self._create_talk_item(talk, session_id, db_provider)
+            talk_widget = self._create_talk_item(talk, session_id)
             layout.addWidget(talk_widget)
 
         return card
 
-    def _create_talk_item(self, talk: Dict, session_id: str, db_provider) -> QWidget:
+    def _create_talk_item(self, talk: Dict, session_id: str) -> QWidget:
         """Create a single talk item.
 
         Args:
             talk: Talk data
             session_id: Session ID
-            db_provider: Database provider
 
         Returns:
             QWidget containing talk item
@@ -483,7 +495,7 @@ class TalkManagerWindow(QWidget):
                 background: rgba(0, 212, 255, 0.2);
             }
         """)
-        edit_btn.clicked.connect(lambda: self._edit_talk(talk, session_id, db_provider))
+        edit_btn.clicked.connect(lambda: self._edit_talk(talk, session_id))
         layout.addWidget(edit_btn)
 
         delete_btn = QPushButton("🗑️ Delete")
@@ -501,18 +513,17 @@ class TalkManagerWindow(QWidget):
                 background: rgba(239, 68, 68, 0.2);
             }
         """)
-        delete_btn.clicked.connect(lambda: self._delete_talk(talk, session_id, db_provider))
+        delete_btn.clicked.connect(lambda: self._delete_talk(talk, session_id))
         layout.addWidget(delete_btn)
 
         return item
 
-    def _edit_talk(self, talk: Dict, session_id: str, db_provider):
+    def _edit_talk(self, talk: Dict, session_id: str):
         """Edit a talk's details.
 
         Args:
             talk: Talk data
             session_id: Session ID
-            db_provider: Database provider
         """
         dialog = EditTalkDialog(
             talk.get('title', ''),
@@ -528,31 +539,37 @@ class TalkManagerWindow(QWidget):
                 return
 
             try:
-                # Update in database
-                talk_data = {
-                    'title': new_title,
-                    'presenter_name': new_presenter
-                }
-                success = db_provider.update_talk(talk['talk_id'], talk_data)
+                # Update via API
+                base_url = self.server_manager.base_url
+                talk_id = talk['talk_id']
 
-                if success:
-                    logger.info(f"Updated talk {talk['talk_id']}: {new_title}")
-                    QMessageBox.information(self, "Success", "Talk updated successfully!")
-                    self._load_talks()  # Refresh
-                else:
-                    QMessageBox.critical(self, "Error", "Failed to update talk.")
+                response = requests.patch(
+                    f"{base_url}/api/sessions/{session_id}/talks/{talk_id}",
+                    json={
+                        'title': new_title,
+                        'presenter_name': new_presenter
+                    },
+                    timeout=5
+                )
+                response.raise_for_status()
 
+                logger.info(f"Updated talk {talk_id}: {new_title}")
+                QMessageBox.information(self, "Success", "Talk updated successfully!")
+                self._load_talks()  # Refresh
+
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Failed to update talk via API: {e}")
+                QMessageBox.critical(self, "Error", f"Failed to update talk: {str(e)}")
             except Exception as e:
                 logger.error(f"Failed to update talk: {e}")
                 QMessageBox.critical(self, "Error", f"Failed to update talk: {str(e)}")
 
-    def _delete_talk(self, talk: Dict, session_id: str, db_provider):
+    def _delete_talk(self, talk: Dict, session_id: str):
         """Delete a talk.
 
         Args:
             talk: Talk data
             session_id: Session ID
-            db_provider: Database provider
         """
         reply = QMessageBox.question(
             self,
@@ -565,15 +582,23 @@ class TalkManagerWindow(QWidget):
 
         if reply == QMessageBox.Yes:
             try:
-                success = db_provider.delete_talk(talk['talk_id'])
+                # Delete via API
+                base_url = self.server_manager.base_url
+                talk_id = talk['talk_id']
 
-                if success:
-                    logger.info(f"Deleted talk {talk['talk_id']}")
-                    QMessageBox.information(self, "Success", "Talk deleted successfully!")
-                    self._load_talks()  # Refresh
-                else:
-                    QMessageBox.critical(self, "Error", "Failed to delete talk.")
+                response = requests.delete(
+                    f"{base_url}/api/sessions/{session_id}/talks/{talk_id}",
+                    timeout=5
+                )
+                response.raise_for_status()
 
+                logger.info(f"Deleted talk {talk_id}")
+                QMessageBox.information(self, "Success", "Talk deleted successfully!")
+                self._load_talks()  # Refresh
+
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Failed to delete talk via API: {e}")
+                QMessageBox.critical(self, "Error", f"Failed to delete talk: {str(e)}")
             except Exception as e:
                 logger.error(f"Failed to delete talk: {e}")
                 QMessageBox.critical(self, "Error", f"Failed to delete talk: {str(e)}")
