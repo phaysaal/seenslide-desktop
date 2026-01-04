@@ -272,9 +272,9 @@ class PortalCaptureProvider(ICaptureProvider):
             # Connect to Response signal
             request_iface.connect_to_signal('Response', self._handle_response)
 
-            # Wait for response
+            # Wait for response (give user time to click Share)
             logger.debug("Waiting for CreateSession response...")
-            code, results = self._wait_for_response(timeout=10.0)
+            code, results = self._wait_for_response(timeout=60.0)
 
             if code != 0:
                 logger.error(f"CreateSession failed with code: {code}")
@@ -403,7 +403,7 @@ class PortalCaptureProvider(ICaptureProvider):
 
             # Wait for response
             logger.debug("Waiting for Start response...")
-            code, results = self._wait_for_response(timeout=10.0)
+            code, results = self._wait_for_response(timeout=60.0)
 
             if code != 0:
                 logger.error(f"Start failed with code: {code}")

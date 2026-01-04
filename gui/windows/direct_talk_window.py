@@ -696,7 +696,7 @@ class DirectTalkWindow(QWidget):
         # Stop orchestrator only if requested
         if stop_orchestrator and self.orchestrator:
             try:
-                self.orchestrator.stop()
+                self.orchestrator.stop_session()
                 logger.info("Orchestrator stopped")
             except Exception as e:
                 logger.error(f"Error stopping orchestrator: {e}")
