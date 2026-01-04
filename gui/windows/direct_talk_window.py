@@ -5,9 +5,9 @@ from pathlib import Path
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QTextEdit, QPushButton, QSlider, QComboBox, QGroupBox,
-    QMessageBox, QApplication
+    QMessageBox, QApplication, QProgressDialog
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread
 from PyQt5.QtGui import QFont
 import logging
 
@@ -21,6 +21,69 @@ from gui.utils.portal_session import PortalSessionManager
 from seenslide.orchestrator import SeenSlideOrchestrator, CaptureMode
 
 logger = logging.getLogger(__name__)
+
+
+class OrchestratorStartWorker(QThread):
+    """Worker thread to start orchestrator without blocking GUI."""
+
+    # Signals
+    success = pyqtSignal(object, str, str)  # orchestrator, cloud_session_id, cloud_viewer_url
+    error = pyqtSignal(str)  # error message
+
+    def __init__(self, monitor_id: int, crop_region: dict):
+        super().__init__()
+        self.monitor_id = monitor_id
+        self.crop_region = crop_region
+
+    def run(self):
+        """Start orchestrator in background thread."""
+        try:
+            # Find config file
+            config_paths = [
+                Path.home() / ".config" / "seenslide" / "config.yaml",
+                Path(__file__).parent.parent.parent / "config" / "config.yaml",
+            ]
+
+            config_path = None
+            for path in config_paths:
+                if path.exists():
+                    config_path = path
+                    break
+
+            # Create orchestrator
+            orchestrator = SeenSlideOrchestrator(
+                config_path=str(config_path) if config_path else None
+            )
+
+            # Start in IDLE mode (triggers screen permission)
+            success = orchestrator.start_session(
+                session_name="Direct Talk - Idle",
+                description="Waiting for talk to start",
+                presenter_name="",
+                monitor_id=self.monitor_id,
+                mode=CaptureMode.IDLE,
+                crop_region=self.crop_region
+            )
+
+            if not success:
+                self.error.emit("Failed to start idle capture")
+                return
+
+            logger.info("✅ Orchestrator started in IDLE mode")
+
+            # Get cloud session info
+            cloud_session_id = None
+            cloud_viewer_url = None
+            if orchestrator.storage_manager.cloud_provider.enabled:
+                cloud_session_id = orchestrator.storage_manager.cloud_provider.cloud_session_id
+                api_url = orchestrator.storage_manager.cloud_provider.api_url
+                cloud_viewer_url = f"{api_url}/{cloud_session_id}"
+
+            self.success.emit(orchestrator, cloud_session_id or "", cloud_viewer_url or "")
+
+        except Exception as e:
+            logger.error(f"Failed to start orchestrator: {e}", exc_info=True)
+            self.error.emit(str(e))
 
 
 class DirectTalkWindow(QWidget):
@@ -310,61 +373,68 @@ class DirectTalkWindow(QWidget):
         """Start orchestrator in IDLE mode (no admin server needed)."""
         logger.info("Starting orchestrator in IDLE mode for Direct Talk...")
 
-        try:
-            # Find config file
-            config_paths = [
-                Path.home() / ".config" / "seenslide" / "config.yaml",
-                Path(__file__).parent.parent.parent / "config" / "config.yaml",
-            ]
+        # Show progress dialog (non-modal so it doesn't block)
+        self.progress_dialog = QProgressDialog(
+            "Starting screen capture...\n\n"
+            "Please grant screen sharing permission when prompted.\n"
+            "This may take a moment...",
+            None,  # No cancel button
+            0, 0,  # Indeterminate progress
+            self
+        )
+        self.progress_dialog.setWindowTitle("Initializing")
+        self.progress_dialog.setWindowModality(Qt.WindowModal)
+        self.progress_dialog.setCancelButton(None)
+        self.progress_dialog.show()
 
-            config_path = None
-            for path in config_paths:
-                if path.exists():
-                    config_path = path
-                    break
+        # Start orchestrator in background thread
+        monitor_id = self.monitor_combo.currentData()
+        self.start_worker = OrchestratorStartWorker(monitor_id, self.crop_region)
+        self.start_worker.success.connect(self._on_orchestrator_started)
+        self.start_worker.error.connect(self._on_orchestrator_error)
+        self.start_worker.start()
 
-            # Create orchestrator
-            self.orchestrator = SeenSlideOrchestrator(
-                config_path=str(config_path) if config_path else None
-            )
+    def _on_orchestrator_started(self, orchestrator, cloud_session_id: str, cloud_viewer_url: str):
+        """Handle orchestrator startup success."""
+        logger.info("✅ Orchestrator started successfully")
 
-            # Start in IDLE mode (triggers screen permission)
-            monitor_id = self.monitor_combo.currentData()
-            success = self.orchestrator.start_session(
-                session_name="Direct Talk - Idle",
-                description="Waiting for talk to start",
-                presenter_name="",
-                monitor_id=monitor_id,
-                mode=CaptureMode.IDLE,
-                crop_region=self.crop_region
-            )
+        # Close progress dialog
+        if hasattr(self, 'progress_dialog'):
+            self.progress_dialog.close()
+            del self.progress_dialog
 
-            if not success:
-                raise Exception("Failed to start idle capture")
+        # Store orchestrator and cloud info
+        self.orchestrator = orchestrator
+        self.cloud_session_id = cloud_session_id if cloud_session_id else None
+        self.cloud_viewer_url = cloud_viewer_url if cloud_viewer_url else None
 
-            logger.info("✅ Orchestrator started in IDLE mode")
+        if self.cloud_session_id:
+            logger.info(f"Cloud session: {self.cloud_session_id}")
+            logger.info(f"Cloud viewer: {self.cloud_viewer_url}")
 
-            # Get cloud session info
-            if self.orchestrator.storage_manager.cloud_provider.enabled:
-                self.cloud_session_id = self.orchestrator.storage_manager.cloud_provider.cloud_session_id
-                api_url = self.orchestrator.storage_manager.cloud_provider.api_url
-                self.cloud_viewer_url = f"{api_url}/{self.cloud_session_id}"
-                logger.info(f"Cloud session: {self.cloud_session_id}")
-                logger.info(f"Cloud viewer: {self.cloud_viewer_url}")
+        # Update region display
+        self._update_region_display()
 
-            # Update region display
-            self._update_region_display()
+        # Enable start button
+        self.start_button.setEnabled(True)
 
-        except Exception as e:
-            logger.error(f"Failed to start orchestrator: {e}", exc_info=True)
-            QMessageBox.critical(
-                self,
-                "Startup Failed",
-                f"Could not start orchestrator:\n{str(e)}\n\n"
-                "This is likely a screen capture permission issue.\n"
-                "Please grant permissions when prompted."
-            )
-            self.close_requested.emit()
+    def _on_orchestrator_error(self, error_msg: str):
+        """Handle orchestrator startup error."""
+        logger.error(f"Orchestrator startup failed: {error_msg}")
+
+        # Close progress dialog
+        if hasattr(self, 'progress_dialog'):
+            self.progress_dialog.close()
+            del self.progress_dialog
+
+        QMessageBox.critical(
+            self,
+            "Startup Failed",
+            f"Could not start screen capture:\n{error_msg}\n\n"
+            "This is likely a screen capture permission issue.\n"
+            "Please grant permissions when prompted and try again."
+        )
+        self.close_requested.emit()
 
     def _select_region(self):
         """Open region selector."""
