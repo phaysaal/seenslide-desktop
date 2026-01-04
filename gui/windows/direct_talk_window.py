@@ -588,6 +588,17 @@ class DirectTalkWindow(QWidget):
             if not success:
                 raise Exception("Failed to update orchestrator with session")
 
+            # Create talk in cloud session
+            if self.orchestrator.storage_manager._cloud.enabled:
+                success = self.orchestrator.storage_manager._cloud.create_talk(
+                    session_id=new_session.session_id,
+                    talk_name=talk_name,
+                    presenter_name=presenter or "Unknown",
+                    description=description
+                )
+                if not success:
+                    logger.warning("Failed to create talk in cloud, but continuing locally")
+
             # Update deduplication tolerance
             if 'deduplication' not in self.orchestrator.config:
                 self.orchestrator.config['deduplication'] = {}
