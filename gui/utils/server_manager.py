@@ -62,13 +62,22 @@ class ServerManager:
             python_exec = sys.executable
             logger.info(f"Starting admin server: {python_exec} {admin_script}")
 
+            # Redirect stderr to a log file for debugging
+            log_dir = Path("/tmp/seenslide/logs")
+            log_dir.mkdir(parents=True, exist_ok=True)
+            stderr_log = log_dir / "admin_server.log"
+
+            stderr_file = open(stderr_log, 'w')
+
             self.process = subprocess.Popen(
                 [python_exec, str(admin_script)],
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=stderr_file,
                 start_new_session=True,  # Create new process group
                 cwd=str(project_root)
             )
+
+            logger.info(f"Admin server logs: {stderr_log}")
 
             # Wait for server to become ready
             logger.info(f"Waiting for server to start (timeout: {self.startup_timeout}s)...")

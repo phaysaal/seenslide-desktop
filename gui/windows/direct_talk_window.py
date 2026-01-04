@@ -1,6 +1,7 @@
 """Direct Talk Mode window."""
 
 from typing import Optional, Dict
+from pathlib import Path
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QTextEdit, QPushButton, QSlider, QComboBox, QGroupBox,
@@ -348,18 +349,33 @@ class DirectTalkWindow(QWidget):
                 else:
                     logger.warning(f"Failed to get status on attempt {attempt + 1}")
             else:
-                # All retries failed
+                # All retries failed - try to read server logs
                 status = self.server_manager.get_status()
                 error_msg = (
                     "Idle capture failed to start after 5 seconds.\n\n"
                     "This is likely a screen capture permission issue.\n"
                     "Please check:\n"
                     "• Screen capture permissions are granted\n"
-                    "• Portal dialog was accepted (Wayland)\n"
-                    "• No other errors in the terminal logs\n\n"
+                    "• Portal dialog was accepted (Wayland)\n\n"
                 )
                 if status:
-                    error_msg += f"Server status: {status}"
+                    error_msg += f"Server status: {status}\n\n"
+
+                # Try to read server logs
+                log_file = Path("/tmp/seenslide/logs/admin_server.log")
+                if log_file.exists():
+                    try:
+                        with open(log_file, 'r') as f:
+                            logs = f.read()
+                            # Get last 1000 chars
+                            if len(logs) > 1000:
+                                logs = "..." + logs[-1000:]
+                            error_msg += f"Server logs:\n{logs}"
+                    except Exception as e:
+                        error_msg += f"Could not read logs: {e}"
+                else:
+                    error_msg += "Log file not found"
+
                 raise Exception(error_msg)
 
             self.server_started = True
