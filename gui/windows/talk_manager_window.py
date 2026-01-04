@@ -273,7 +273,10 @@ class TalkManagerWindow(QWidget):
             db_path = storage_path / "db" / "seenslide.db"
 
             if not db_path.exists():
-                self._show_empty_state("No database found. No talks recorded yet.")
+                self._show_empty_state(
+                    "📭 No Talks Yet",
+                    "No database found. Start a presentation to record your first talk!"
+                )
                 return
 
             # Load sessions from database
@@ -299,34 +302,71 @@ class TalkManagerWindow(QWidget):
             conn.close()
 
             if not session_ids:
-                self._show_empty_state("No talks found. Start recording to see them here!")
+                self._show_empty_state(
+                    "📭 No Talks Yet",
+                    "You haven't recorded any talks yet.\n\n"
+                    "Start a presentation from the launcher to see your talks here."
+                )
                 return
 
             # Load talks for each session
+            session_count = 0
             for session_id in session_ids:
                 session_card = self._create_session_card(session_id, db_provider)
                 if session_card:
                     self.content_layout.addWidget(session_card)
+                    session_count += 1
+
+            if session_count == 0:
+                self._show_empty_state(
+                    "📭 No Talks Found",
+                    "Sessions exist but contain no talks.\n\n"
+                    "This might happen if talks were manually deleted from the database."
+                )
+                return
 
             self.content_layout.addStretch()
 
-            logger.info(f"Loaded {len(session_ids)} sessions")
+            logger.info(f"Loaded {session_count} sessions")
 
         except Exception as e:
-            logger.error(f"Failed to load talks: {e}")
-            self._show_empty_state(f"Error loading talks: {str(e)}")
+            logger.error(f"Failed to load talks: {e}", exc_info=True)
+            self._show_empty_state(
+                "⚠️ Error Loading Talks",
+                f"Failed to load talks from database.\n\n"
+                f"Error: {str(e)}\n\n"
+                f"Check logs for more details."
+            )
 
-    def _show_empty_state(self, message: str):
+    def _show_empty_state(self, title: str, message: str):
         """Show empty state message.
 
         Args:
-            message: Message to display
+            title: Title to display (with emoji)
+            message: Detailed message to display
         """
-        empty_label = QLabel(message)
-        empty_label.setFont(QFont("Arial", 13))
-        empty_label.setStyleSheet("color: #8b8b9e; padding: 40px;")
-        empty_label.setAlignment(Qt.AlignCenter)
-        self.content_layout.addWidget(empty_label)
+        empty_widget = QWidget()
+        empty_layout = QVBoxLayout(empty_widget)
+        empty_layout.setContentsMargins(40, 80, 40, 80)
+        empty_layout.setSpacing(15)
+        empty_layout.setAlignment(Qt.AlignCenter)
+
+        # Title with emoji
+        title_label = QLabel(title)
+        title_label.setFont(QFont("Arial", 18, QFont.Bold))
+        title_label.setStyleSheet("color: #ffffff;")
+        title_label.setAlignment(Qt.AlignCenter)
+        empty_layout.addWidget(title_label)
+
+        # Message
+        message_label = QLabel(message)
+        message_label.setFont(QFont("Arial", 13))
+        message_label.setStyleSheet("color: #8b8b9e; line-height: 1.5;")
+        message_label.setAlignment(Qt.AlignCenter)
+        message_label.setWordWrap(True)
+        empty_layout.addWidget(message_label)
+
+        self.content_layout.addWidget(empty_widget)
         self.content_layout.addStretch()
 
     def _create_session_card(self, session_id: str, db_provider) -> Optional[QWidget]:
