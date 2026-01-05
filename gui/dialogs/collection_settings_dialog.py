@@ -297,15 +297,102 @@ class CollectionSettingsDialog(QDialog):
                     )
                     return
 
-        # TODO: Update collection via cloud API
-        # For now, show success message
-        QMessageBox.information(
-            self,
-            "Coming Soon",
-            "Updating collection settings via cloud API will be available soon.\n\n"
-            f"Alias: {alias or '(none)'}\n"
-            f"Password: {'Set' if password_hash else 'Not changed'}"
-        )
+        # Update collection via cloud API
+        try:
+            # Load config to get cloud settings
+            from pathlib import Path
+            import yaml
 
-        # Accept dialog
-        self.accept()
+            config_paths = [
+                Path.home() / ".config" / "seenslide" / "config.yaml",
+                Path(__file__).parent.parent.parent / "config" / "config.yaml",
+            ]
+
+            config = {}
+            for path in config_paths:
+                if path.exists():
+                    with open(path, 'r') as f:
+                        config = yaml.safe_load(f)
+                    break
+
+            # Initialize cloud provider
+            from modules.storage.providers.cloud_provider import CloudStorageProvider
+            from core.session.collection_registry import CollectionRegistry
+            from core.session.credential_manager import CredentialManager
+
+            cloud = CloudStorageProvider()
+            cloud.initialize(config.get('cloud', {}))
+
+            # Update alias if changed
+            if alias != self.collection.alias:
+                logger.info(f"Updating alias: {self.collection.alias} → {alias}")
+                success = cloud.update_collection_alias(
+                    self.collection.cloud_collection_id,
+                    alias if alias else None
+                )
+
+                if success:
+                    # Update local registry
+                    registry = CollectionRegistry()
+                    registry.update_collection(
+                        self.collection.collection_id,
+                        alias=alias if alias else None
+                    )
+                    logger.info("✅ Alias updated locally")
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Partial Success",
+                        "Failed to update alias in cloud. Local changes saved."
+                    )
+
+            # Update password if provided
+            if password_hash:
+                logger.info("Updating collection password")
+                success = cloud.update_collection_password(
+                    self.collection.cloud_collection_id,
+                    self.collection.owner_username,
+                    password_hash
+                )
+
+                if success:
+                    # Update local registry
+                    registry = CollectionRegistry()
+                    registry.update_collection(
+                        self.collection.collection_id,
+                        has_password=True
+                    )
+
+                    # Store password hash locally
+                    cred_manager = CredentialManager()
+                    cred_manager.store_password_hash(
+                        self.collection.cloud_collection_id,
+                        password_hash
+                    )
+
+                    logger.info("✅ Password updated locally")
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Partial Success",
+                        "Failed to update password in cloud. Local changes saved."
+                    )
+
+            QMessageBox.information(
+                self,
+                "Settings Updated",
+                "Collection settings updated successfully!\n\n"
+                f"Alias: {alias or '(none)'}\n"
+                f"Password: {'Updated' if password_hash else 'Not changed'}"
+            )
+
+            # Accept dialog
+            self.accept()
+
+        except Exception as e:
+            logger.error(f"Error updating collection settings: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"An error occurred while updating settings:\n{str(e)}"
+            )

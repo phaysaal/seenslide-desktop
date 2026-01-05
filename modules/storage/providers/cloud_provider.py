@@ -334,6 +334,195 @@ class CloudStorageProvider(IStorageProvider):
             logger.error(f"Failed to verify session: {e}")
             return False
 
+    def update_collection_alias(
+        self,
+        collection_id: str,
+        alias: Optional[str]
+    ) -> bool:
+        """Update collection alias.
+
+        Args:
+            collection_id: Cloud collection ID
+            alias: New alias (None to remove)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.enabled:
+            logger.warning("Cloud disabled, cannot update alias")
+            return False
+
+        try:
+            url = f"{self.api_url}/api/cloud/session/{collection_id}/alias"
+            headers = {
+                "Content-Type": "application/json"
+            }
+            data = {
+                "alias": alias
+            }
+
+            logger.info(f"Updating alias for collection {collection_id}: {alias}")
+            response = requests.post(url, headers=headers, json=data, timeout=10)
+            response.raise_for_status()
+
+            logger.info(f"✅ Alias updated successfully")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to update alias: {e}", exc_info=True)
+            if hasattr(e, 'response'):
+                try:
+                    logger.error(f"Response status: {e.response.status_code}")
+                    logger.error(f"Response body: {e.response.text}")
+                except:
+                    pass
+            return False
+
+    def update_collection_password(
+        self,
+        collection_id: str,
+        admin_username: str,
+        new_password_hash: str
+    ) -> bool:
+        """Update collection password.
+
+        Args:
+            collection_id: Cloud collection ID
+            admin_username: Admin username
+            new_password_hash: New bcrypt password hash
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.enabled:
+            logger.warning("Cloud disabled, cannot update password")
+            return False
+
+        try:
+            url = f"{self.api_url}/api/cloud/session/{collection_id}/password"
+            headers = {
+                "Content-Type": "application/json"
+            }
+            data = {
+                "admin_username": admin_username,
+                "new_password_hash": new_password_hash
+            }
+
+            logger.info(f"Updating password for collection {collection_id}")
+            response = requests.post(url, headers=headers, json=data, timeout=10)
+            response.raise_for_status()
+
+            logger.info(f"✅ Password updated successfully")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to update password: {e}", exc_info=True)
+            if hasattr(e, 'response'):
+                try:
+                    logger.error(f"Response status: {e.response.status_code}")
+                    logger.error(f"Response body: {e.response.text}")
+                except:
+                    pass
+            return False
+
+    def get_collection_info(
+        self,
+        collection_id_or_alias: str
+    ) -> Optional[Dict[str, Any]]:
+        """Get collection information.
+
+        Args:
+            collection_id_or_alias: Cloud collection ID or alias
+
+        Returns:
+            Collection info dict or None
+        """
+        if not self.enabled:
+            logger.warning("Cloud disabled, cannot get collection info")
+            return None
+
+        try:
+            url = f"{self.api_url}/api/cloud/session/{collection_id_or_alias}"
+            headers = {
+                "Content-Type": "application/json"
+            }
+
+            logger.info(f"Getting collection info: {collection_id_or_alias}")
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+
+            result = response.json()
+            logger.info(f"✅ Collection info retrieved")
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to get collection info: {e}", exc_info=True)
+            if hasattr(e, 'response'):
+                try:
+                    logger.error(f"Response status: {e.response.status_code}")
+                    logger.error(f"Response body: {e.response.text}")
+                except:
+                    pass
+            return None
+
+    def verify_collection_password(
+        self,
+        collection_id_or_alias: str,
+        password: str
+    ) -> Optional[Dict[str, Any]]:
+        """Verify collection password and get access.
+
+        Args:
+            collection_id_or_alias: Cloud collection ID or alias
+            password: Plain text password to verify
+
+        Returns:
+            Dict with collection_id, owner_username, and session_token if successful, None otherwise
+        """
+        if not self.enabled:
+            logger.warning("Cloud disabled, cannot verify password")
+            return None
+
+        try:
+            url = f"{self.api_url}/api/cloud/session/{collection_id_or_alias}/verify"
+            headers = {
+                "Content-Type": "application/json"
+            }
+            data = {
+                "password": password
+            }
+
+            logger.info(f"Verifying password for collection: {collection_id_or_alias}")
+            response = requests.post(url, headers=headers, json=data, timeout=10)
+
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("verified"):
+                    logger.info(f"✅ Collection password verified")
+                    return {
+                        "collection_id": result.get("session_id"),
+                        "owner_username": result.get("owner_username"),
+                        "session_token": result.get("session_token"),
+                        "name": result.get("name")
+                    }
+                else:
+                    logger.warning(f"❌ Password verification failed")
+                    return None
+            else:
+                logger.error(f"Password verification failed: {response.status_code}")
+                logger.error(f"Response: {response.text}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Failed to verify password: {e}", exc_info=True)
+            if hasattr(e, 'response'):
+                try:
+                    logger.error(f"Response status: {e.response.status_code}")
+                    logger.error(f"Response body: {e.response.text}")
+                except:
+                    pass
+            return None
+
     def cleanup(self):
         """Cleanup cloud storage."""
         logger.info("Cloud storage cleanup")

@@ -264,17 +264,91 @@ class CollectionManagerWindow(QWidget):
 
             logger.info(f"Joining collection: {join_info['collection_id']}")
 
-            # TODO: Verify and join collection via API
-            # For now, show message
-            QMessageBox.information(
-                self,
-                "Coming Soon",
-                "Joining existing collections will be available soon.\n\n"
-                "This requires cloud API integration for verification."
-            )
+            # Show progress
+            progress = QMessageBox(self)
+            progress.setWindowTitle("Joining Collection")
+            progress.setText("Verifying collection password...")
+            progress.setStandardButtons(QMessageBox.NoButton)
+            progress.show()
+            QApplication.processEvents()
 
-            # Reload list
-            self._load_collections()
+            try:
+                # Load config to get cloud settings
+                from pathlib import Path
+                import yaml
+
+                config_paths = [
+                    Path.home() / ".config" / "seenslide" / "config.yaml",
+                    Path(__file__).parent.parent.parent / "config" / "config.yaml",
+                ]
+
+                config = {}
+                for path in config_paths:
+                    if path.exists():
+                        with open(path, 'r') as f:
+                            config = yaml.safe_load(f)
+                        break
+
+                # Initialize cloud provider
+                from modules.storage.providers.cloud_provider import CloudStorageProvider
+                cloud = CloudStorageProvider()
+                cloud.initialize(config.get('cloud', {}))
+
+                # Verify collection password
+                result = cloud.verify_collection_password(
+                    join_info['collection_id'],
+                    join_info['password']
+                )
+
+                progress.close()
+
+                if result:
+                    # Successfully verified - add to registry
+                    collection = self.collection_registry.add_collection(
+                        cloud_collection_id=result['collection_id'],
+                        name=result.get('name', 'Unknown Collection'),
+                        owner_username=result['owner_username'],
+                        is_owner=False,  # Joining as contributor
+                        access_level="contributor",
+                        has_password=True
+                    )
+
+                    # Store session token
+                    if result.get('session_token'):
+                        self.credential_manager.store_session_token(
+                            result['collection_id'],
+                            result['session_token']
+                        )
+
+                    logger.info(f"✅ Successfully joined collection: {result['collection_id']}")
+
+                    QMessageBox.information(
+                        self,
+                        "Collection Joined",
+                        f"Successfully joined collection: {result.get('name', 'Unknown')}\n\n"
+                        f"You can now add talks to this collection."
+                    )
+
+                    # Reload list
+                    self._load_collections()
+                else:
+                    QMessageBox.critical(
+                        self,
+                        "Join Failed",
+                        "Failed to join collection. Please check:\n\n"
+                        "• Collection ID/alias is correct\n"
+                        "• Password is correct\n"
+                        "• Collection exists and is accessible"
+                    )
+
+            except Exception as e:
+                progress.close()
+                logger.error(f"Error joining collection: {e}", exc_info=True)
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"An error occurred while joining the collection:\n{str(e)}"
+                )
 
     def _on_switch_clicked(self):
         """Handle switch to collection button click."""
