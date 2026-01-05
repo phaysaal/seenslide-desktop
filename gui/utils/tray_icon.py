@@ -41,12 +41,21 @@ class TrayIcon(QObject):
         logger.info("TrayIcon initialized")
 
     def _create_icon(self) -> QIcon:
-        """Create application icon.
+        """Create application icon from logo.png.
 
         Returns:
             QIcon for system tray
         """
-        # Create a simple icon (32x32 with "SS" text)
+        from pathlib import Path
+
+        # Try to load logo.png
+        logo_path = Path(__file__).parent.parent / "resources" / "icons" / "logo.png"
+
+        if logo_path.exists():
+            return QIcon(str(logo_path))
+
+        # Fallback: create simple icon if logo not found
+        logger.warning(f"Logo not found at {logo_path}, using fallback icon")
         pixmap = QPixmap(32, 32)
         pixmap.fill(QColor(76, 175, 80))  # Green background
 

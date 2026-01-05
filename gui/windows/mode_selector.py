@@ -805,8 +805,8 @@ class ModeSelector(QWidget):
             QPixmap with logo, or None if not found
         """
         possible_paths = [
-            Path(__file__).parent.parent / "resources" / "icons" / "seenslide_logo.png",
-            Path.home() / ".config" / "seenslide" / "seenslide_logo.png",
+            Path(__file__).parent.parent / "resources" / "icons" / "logo.png",
+            Path.home() / ".config" / "seenslide" / "logo.png",
         ]
 
         for logo_path in possible_paths:
