@@ -158,6 +158,11 @@ class DirectTalkWindow(QWidget):
         region_info = self._create_region_info()
         main_layout.addWidget(region_info)
 
+        # Cloud session display (shown after orchestrator starts)
+        self.cloud_session_group = self._create_cloud_session_group()
+        self.cloud_session_group.setVisible(False)
+        main_layout.addWidget(self.cloud_session_group)
+
         # Countdown widget (hidden initially)
         self.countdown_widget = CountdownWidget(duration=10, title="Talk starting in...")
         self.countdown_widget.countdown_finished.connect(self._start_talk)
@@ -340,6 +345,43 @@ class DirectTalkWindow(QWidget):
         group.setLayout(layout)
         return group
 
+    def _create_cloud_session_group(self) -> QGroupBox:
+        """Create cloud session info display.
+
+        Returns:
+            QGroupBox with cloud session information
+        """
+        group = QGroupBox("Cloud Session", self)
+        layout = QVBoxLayout()
+
+        # Session ID display
+        self.cloud_session_display = QLabel("Initializing...", self)
+        self.cloud_session_display.setStyleSheet("""
+            QLabel {
+                background-color: #e3f2fd;
+                padding: 15px;
+                border: 2px solid #2196F3;
+                border-radius: 5px;
+                color: #1565C0;
+                font-size: 14px;
+                font-weight: bold;
+            }
+        """)
+        self.cloud_session_display.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(self.cloud_session_display)
+
+        # Help text
+        help_label = QLabel(
+            "Share this session ID with viewers to access your talk online.",
+            self
+        )
+        help_label.setStyleSheet("color: #666; font-size: 11px;")
+        help_label.setWordWrap(True)
+        layout.addWidget(help_label)
+
+        group.setLayout(layout)
+        return group
+
     def _create_status_group(self) -> QGroupBox:
         """Create status display group.
 
@@ -411,6 +453,16 @@ class DirectTalkWindow(QWidget):
         if self.cloud_session_id:
             logger.info(f"Cloud session: {self.cloud_session_id}")
             logger.info(f"Cloud viewer: {self.cloud_viewer_url}")
+
+            # Show and update cloud session display
+            self.cloud_session_group.setVisible(True)
+            session_text = f"🌐 Session ID: {self.cloud_session_id}\n"
+            if self.cloud_viewer_url:
+                session_text += f"📺 Viewer URL: {self.cloud_viewer_url}"
+            self.cloud_session_display.setText(session_text)
+        else:
+            # Cloud disabled
+            self.cloud_session_group.setVisible(False)
 
         # Update region display
         self._update_region_display()
@@ -644,18 +696,16 @@ class DirectTalkWindow(QWidget):
         """
         status_text = f"✅ Talk Active\n\n"
         status_text += f"Talk: {self.talk_name}\n"
-        status_text += f"Presenter: {self.presenter_name}\n"
+        status_text += f"Presenter: {self.presenter_name}\n\n"
 
-        # Show cloud session ID (like LBQ-4462)
+        # Show cloud session ID prominently
         if self.cloud_session_id:
-            status_text += f"Cloud Session: {self.cloud_session_id}\n"
+            status_text += f"🌐 Cloud Session ID: {self.cloud_session_id}\n"
+            if self.cloud_viewer_url:
+                status_text += f"📺 Viewer URL: {self.cloud_viewer_url}\n"
+            status_text += "\n"
 
-        status_text += f"Talk Session: {self.session_id[:8]}...\n\n"
-
-        # Show cloud viewer URL
-        if self.cloud_viewer_url:
-            status_text += f"📺 Viewer: {self.cloud_viewer_url}\n\n"
-
+        status_text += f"💾 Local Session: {self.session_id[:8]}...\n\n"
         status_text += f"📊 Slides captured: {slides_count}"
 
         self.status_label.setText(status_text)
