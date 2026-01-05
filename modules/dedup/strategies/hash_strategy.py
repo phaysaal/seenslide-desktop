@@ -84,7 +84,7 @@ class HashDeduplicationStrategy(IDeduplicationStrategy):
             current_img = current.image
             previous_img = previous.image
 
-            logger.info(f"  🔍 Hash Comparison ({self._algorithm.upper()}):")
+            logger.info(f"  🔍 Hash Comparison ({self._hash_algorithm.upper()}):")
             logger.info(f"     Original image size: {current_img.size}")
 
             # Crop if region specified
@@ -103,7 +103,7 @@ class HashDeduplicationStrategy(IDeduplicationStrategy):
                 logger.info(f"     No cropping (comparing full images)")
 
             # Compute hashes
-            logger.info(f"     Computing {self._algorithm.upper()} hashes...")
+            logger.info(f"     Computing {self._hash_algorithm.upper()} hashes...")
             current_hash = self._compute_hash(current_img)
             previous_hash = self._compute_hash(previous_img)
 
