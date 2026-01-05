@@ -206,8 +206,15 @@ class DirectTalkWindow(QWidget):
         main_layout.addWidget(metadata_group)
 
         # Capture settings group
-        settings_group = self._create_settings_group()
-        main_layout.addWidget(settings_group)
+        self.settings_group = self._create_settings_group()
+        main_layout.addWidget(self.settings_group)
+
+        # Countdown widget (hidden initially)
+        self.countdown_widget = CountdownWidget(duration=10, title="Talk starting in...")
+        self.countdown_widget.countdown_finished.connect(self._start_talk)
+        self.countdown_widget.countdown_cancelled.connect(self._on_countdown_cancelled)
+        self.countdown_widget.setVisible(False)
+        main_layout.addWidget(self.countdown_widget)
 
         # Region info (no manual selection - using 50% default)
         #region_info = self._create_region_info()
@@ -218,12 +225,7 @@ class DirectTalkWindow(QWidget):
         self.cloud_session_group.setVisible(False)
         main_layout.addWidget(self.cloud_session_group)
 
-        # Countdown widget (hidden initially)
-        self.countdown_widget = CountdownWidget(duration=10, title="Talk starting in...")
-        self.countdown_widget.countdown_finished.connect(self._start_talk)
-        self.countdown_widget.countdown_cancelled.connect(self._on_countdown_cancelled)
-        self.countdown_widget.setVisible(False)
-        main_layout.addWidget(self.countdown_widget)
+        
 
         # Status display (hidden initially)
         self.status_group = self._create_status_group()
@@ -660,6 +662,7 @@ class DirectTalkWindow(QWidget):
         # Hide form, show countdown
         self.start_button.setEnabled(False)
         self.countdown_widget.setVisible(True)
+        self.settings_group.setVisible(False)
         self.countdown_widget.start()
 
         logger.info(f"Starting countdown for talk: {talk_name}")
@@ -698,7 +701,7 @@ class DirectTalkWindow(QWidget):
             from core.models.session import Session
             new_session = Session(
                 user_id="direct-talk-user",
-                cloud_session_id=self.cloud_session_id,
+                cloud_session_id=self.cloud_collection_id,
                 name=talk_name,
                 description=description,
                 presenter_name=presenter or "Unknown",
