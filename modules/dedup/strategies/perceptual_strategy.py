@@ -95,6 +95,9 @@ class PerceptualDeduplicationStrategy(IDeduplicationStrategy):
             current_img = current.image
             previous_img = previous.image
 
+            logger.info(f"  🔍 Perceptual Hash Comparison:")
+            logger.info(f"     Original image size: {current_img.size}")
+
             # Crop if region specified
             if crop_region:
                 x = crop_region['x']
@@ -106,11 +109,17 @@ class PerceptualDeduplicationStrategy(IDeduplicationStrategy):
                 current_img = current_img.crop((x, y, x + w, y + h))
                 previous_img = previous_img.crop((x, y, x + w, y + h))
 
-                logger.debug(f"Cropped images to region: x={x}, y={y}, w={w}, h={h}")
+                logger.info(f"     Cropped to: {current_img.size} (region: x={x}, y={y}, w={w}, h={h})")
+            else:
+                logger.info(f"     No cropping (comparing full images)")
 
             # Compute perceptual hashes
+            logger.info(f"     Computing perceptual hashes (hash_size={self._hash_size}x{self._hash_size})...")
             current_hash = imagehash.phash(current_img, hash_size=self._hash_size)
             previous_hash = imagehash.phash(previous_img, hash_size=self._hash_size)
+
+            logger.info(f"     Current hash:  {current_hash}")
+            logger.info(f"     Previous hash: {previous_hash}")
 
             # Compute similarity
             # imagehash returns Hamming distance (0 = identical)
@@ -118,6 +127,10 @@ class PerceptualDeduplicationStrategy(IDeduplicationStrategy):
             max_distance = self._hash_size * self._hash_size
             hamming_distance = current_hash - previous_hash
             similarity = 1.0 - (hamming_distance / max_distance)
+
+            logger.info(f"     Hamming distance: {hamming_distance} (out of {max_distance} bits)")
+            logger.info(f"     Similarity score: {similarity:.6f} (1.0 = identical, 0.0 = completely different)")
+            logger.info(f"     Threshold: {self._threshold}")
 
             self._last_similarity_score = similarity
 
@@ -130,16 +143,16 @@ class PerceptualDeduplicationStrategy(IDeduplicationStrategy):
             if len(self._processing_times) > self._max_history:
                 self._processing_times.pop(0)
 
-            logger.debug(
-                f"Perceptual comparison: {is_dup} "
-                f"(similarity: {similarity:.4f}, threshold: {self._threshold}, "
-                f"time: {processing_time:.2f}ms)"
-            )
+            if is_dup:
+                logger.info(f"     ✅ Images ARE similar (similarity {similarity:.6f} >= threshold {self._threshold})")
+            else:
+                logger.info(f"     ❌ Images are NOT similar (similarity {similarity:.6f} < threshold {self._threshold})")
+            logger.info(f"     Processing time: {processing_time:.2f}ms")
 
             return is_dup
 
         except Exception as e:
-            logger.error(f"Perceptual comparison failed: {e}")
+            logger.error(f"❌ Perceptual comparison failed: {e}", exc_info=True)
             raise DeduplicationError(f"Perceptual comparison failed: {e}")
 
     def get_similarity_score(self) -> float:

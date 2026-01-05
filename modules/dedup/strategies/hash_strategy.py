@@ -84,6 +84,9 @@ class HashDeduplicationStrategy(IDeduplicationStrategy):
             current_img = current.image
             previous_img = previous.image
 
+            logger.info(f"  🔍 Hash Comparison ({self._algorithm.upper()}):")
+            logger.info(f"     Original image size: {current_img.size}")
+
             # Crop if region specified
             if crop_region:
                 x = crop_region['x']
@@ -95,11 +98,17 @@ class HashDeduplicationStrategy(IDeduplicationStrategy):
                 current_img = current_img.crop((x, y, x + w, y + h))
                 previous_img = previous_img.crop((x, y, x + w, y + h))
 
-                logger.debug(f"Cropped images to region: x={x}, y={y}, w={w}, h={h}")
+                logger.info(f"     Cropped to: {current_img.size} (region: x={x}, y={y}, w={w}, h={h})")
+            else:
+                logger.info(f"     No cropping (comparing full images)")
 
             # Compute hashes
+            logger.info(f"     Computing {self._algorithm.upper()} hashes...")
             current_hash = self._compute_hash(current_img)
             previous_hash = self._compute_hash(previous_img)
+
+            logger.info(f"     Current hash:  {current_hash[:16]}...{current_hash[-16:]}")
+            logger.info(f"     Previous hash: {previous_hash[:16]}...{previous_hash[-16:]}")
 
             # Compare hashes
             is_dup = current_hash == previous_hash
@@ -113,16 +122,16 @@ class HashDeduplicationStrategy(IDeduplicationStrategy):
             if len(self._processing_times) > self._max_history:
                 self._processing_times.pop(0)
 
-            logger.debug(
-                f"Hash comparison: {is_dup} "
-                f"(score: {self._last_similarity_score}, "
-                f"time: {processing_time:.2f}ms)"
-            )
+            if is_dup:
+                logger.info(f"     ✅ Hashes MATCH (images are pixel-perfect identical)")
+            else:
+                logger.info(f"     ❌ Hashes DIFFER (images have at least one pixel difference)")
+            logger.info(f"     Processing time: {processing_time:.2f}ms")
 
             return is_dup
 
         except Exception as e:
-            logger.error(f"Hash comparison failed: {e}")
+            logger.error(f"❌ Hash comparison failed: {e}", exc_info=True)
             raise DeduplicationError(f"Hash comparison failed: {e}")
 
     def get_similarity_score(self) -> float:

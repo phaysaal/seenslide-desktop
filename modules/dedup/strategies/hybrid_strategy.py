@@ -110,15 +110,23 @@ class HybridDeduplicationStrategy(IDeduplicationStrategy):
             is_dup = False
             matched_stage = None
 
+            logger.info(f"  🔍 Hybrid Multi-Stage Comparison:")
+            logger.info(f"     Stages to check: {' → '.join(self._stages)}")
+
             # Try each stage in order
-            for stage in self._stages:
+            for stage_idx, stage in enumerate(self._stages, 1):
+                logger.info(f"     Stage {stage_idx}/{len(self._stages)}: {stage.upper()}")
+
                 if stage == 'hash':
                     is_dup = self._hash_strategy.is_duplicate(current, previous, crop_region)
                     if is_dup:
                         matched_stage = 'hash'
                         self._hash_matches += 1
                         self._last_similarity_score = 1.0
+                        logger.info(f"     ✅ MATCH on stage '{stage}' - Exact hash match, skipping remaining stages")
                         break  # Exact match found, no need to check further
+                    else:
+                        logger.info(f"     ❌ No match on stage '{stage}' - Continuing to next stage")
 
                 elif stage == 'perceptual':
                     is_dup = self._perceptual_strategy.is_duplicate(current, previous, crop_region)
@@ -128,7 +136,10 @@ class HybridDeduplicationStrategy(IDeduplicationStrategy):
                         self._last_similarity_score = (
                             self._perceptual_strategy.get_similarity_score()
                         )
+                        logger.info(f"     ✅ MATCH on stage '{stage}' - Perceptually similar")
                         break
+                    else:
+                        logger.info(f"     ❌ No match on stage '{stage}'")
 
             if not is_dup:
                 self._no_matches += 1
@@ -139,6 +150,9 @@ class HybridDeduplicationStrategy(IDeduplicationStrategy):
                     )
                 else:
                     self._last_similarity_score = 0.0
+                logger.info(f"     Final result: NOT duplicate (no stage matched)")
+            else:
+                logger.info(f"     Final result: DUPLICATE (matched at stage '{matched_stage}')")
 
             # Track processing time
             processing_time = (time.time() - start_time) * 1000  # ms
@@ -146,17 +160,14 @@ class HybridDeduplicationStrategy(IDeduplicationStrategy):
             if len(self._processing_times) > self._max_history:
                 self._processing_times.pop(0)
 
-            logger.debug(
-                f"Hybrid comparison: {is_dup} "
-                f"(matched: {matched_stage}, "
-                f"similarity: {self._last_similarity_score:.4f}, "
-                f"time: {processing_time:.2f}ms)"
-            )
+            logger.info(f"     Total processing time: {processing_time:.2f}ms")
+            logger.info(f"     Match statistics: hash={self._hash_matches}, "
+                       f"perceptual={self._perceptual_matches}, unique={self._no_matches}")
 
             return is_dup
 
         except Exception as e:
-            logger.error(f"Hybrid comparison failed: {e}")
+            logger.error(f"❌ Hybrid comparison failed: {e}", exc_info=True)
             raise DeduplicationError(f"Hybrid comparison failed: {e}")
 
     def get_similarity_score(self) -> float:

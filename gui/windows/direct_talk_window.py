@@ -210,8 +210,8 @@ class DirectTalkWindow(QWidget):
         main_layout.addWidget(settings_group)
 
         # Region info (no manual selection - using 50% default)
-        region_info = self._create_region_info()
-        main_layout.addWidget(region_info)
+        #region_info = self._create_region_info()
+        #main_layout.addWidget(region_info)
 
         # Cloud session display (shown after orchestrator starts)
         self.cloud_session_group = self._create_cloud_session_group()
@@ -616,7 +616,7 @@ class DirectTalkWindow(QWidget):
             self.cloud_session_group.setVisible(False)
 
         # Update region display
-        self._update_region_display()
+        #self._update_region_display()
 
         # Enable start button
         self.start_button.setEnabled(True)
@@ -638,84 +638,6 @@ class DirectTalkWindow(QWidget):
             "Please grant permissions when prompted and try again."
         )
         self.close_requested.emit()
-
-    def _select_region(self):
-        """Open region selector."""
-        logger.info("Opening region selector...")
-
-        if not self.server_started:
-            QMessageBox.warning(
-                self,
-                "Server Not Ready",
-                "Please wait for the server to start before selecting a region."
-            )
-            return
-
-        # Capture screenshot (will trigger portal dialog if needed)
-        monitor_id = self.monitor_combo.currentData()
-        screenshot = capture_screenshot(monitor_id)
-
-        if screenshot is None:
-            logger.warning("Failed to capture screenshot for region selection")
-
-            reply = QMessageBox.warning(
-                self,
-                "Screenshot Failed",
-                "Could not capture screenshot for region selection.\n\n"
-                "This could be due to:\n"
-                "• Screen capture permission denied\n"
-                "• X11/Wayland configuration issues\n"
-                "• Display server problems\n\n"
-                "Would you like to use the default region (50% center) instead?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
-            )
-
-            if reply == QMessageBox.Yes:
-                # Set default region
-                width, height = get_primary_screen_size()
-                self.crop_region = calculate_default_region(width, height, 0.5)
-                self._update_region_display()
-                logger.info(f"Using default crop region: {self.crop_region}")
-            return
-
-        # Calculate default region (50% center)
-        width, height = screenshot.width, screenshot.height
-        default_region = self.crop_region or calculate_default_region(width, height, 0.5)
-
-        # Create and show region selector
-        selector = RegionSelector(
-            screenshot=screenshot,
-            default_region=default_region,
-            parent=self
-        )
-
-        def on_confirmed(region):
-            self.crop_region = region
-            self._update_region_display()
-            logger.info(f"Region selected: {region}")
-
-            # Update server's crop region
-            if self.server_started:
-                success = self.server_manager.set_crop_region(region)
-                if not success:
-                    logger.warning("Failed to update crop region on server")
-                else:
-                    logger.info("Updated crop region on server")
-
-        selector.region_confirmed.connect(on_confirmed)
-        selector.show()
-
-    def _update_region_display(self):
-        """Update region display label."""
-        if self.crop_region:
-            text = (
-                f"Position: ({self.crop_region['x']}, {self.crop_region['y']})  |  "
-                f"Size: {self.crop_region['width']}x{self.crop_region['height']}"
-            )
-            self.region_display.setText(text)
-        else:
-            self.region_display.setText("No region selected (will use default 50% center)")
 
     def _on_start_clicked(self):
         """Handle start button click."""

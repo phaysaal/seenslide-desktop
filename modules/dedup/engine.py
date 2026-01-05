@@ -2,6 +2,8 @@
 
 import logging
 from typing import Optional, Dict, Any
+from pathlib import Path
+from datetime import datetime
 
 from core.bus.event_bus import EventBus
 from core.interfaces.events import Event, EventType
@@ -50,11 +52,17 @@ class DeduplicationEngine:
         self._unique_slides = 0
         self._duplicate_slides = 0
 
-        region_info = f" with crop region {crop_region}" if crop_region else ""
-        logger.info(
-            f"DeduplicationEngine initialized for session: {session.session_id} "
-            f"with strategy: {strategy.name}{region_info}"
-        )
+        # Create rejected/duplicates folder for debugging
+        self._rejected_folder = Path("/tmp/seenslide") / "rejected" / session.session_id
+        self._rejected_folder.mkdir(parents=True, exist_ok=True)
+
+        region_info = f" with crop region {crop_region}" if crop_region else " (full image comparison)"
+        logger.info("=" * 80)
+        logger.info(f"DeduplicationEngine initialized for session: {session.session_id}")
+        logger.info(f"  Strategy: {strategy.name}")
+        logger.info(f"  Crop region: {crop_region if crop_region else 'None'}{region_info}")
+        logger.info(f"  Rejected folder: {self._rejected_folder}")
+        logger.info("=" * 80)
 
     def start(self) -> bool:
         """Start the deduplication engine.
@@ -148,22 +156,47 @@ class DeduplicationEngine:
             # Extract capture from event data
             capture: RawCapture = event.data.get("capture")
             if not capture:
-                logger.error("No capture in SLIDE_CAPTURED event")
+                logger.error("❌ No capture in SLIDE_CAPTURED event")
                 return
 
             # Only process captures for our session
             session_id = event.data.get("session_id")
             if session_id != self._session.session_id:
-                logger.debug(f"Ignoring capture from different session: {session_id}")
+                logger.debug(f"⏭️  Ignoring capture from different session: {session_id}")
                 return
 
             self._total_captures += 1
 
+            # Log capture details
+            timestamp_str = datetime.fromtimestamp(capture.timestamp).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            logger.info("=" * 80)
+            logger.info(f"📸 SCREEN CAPTURE #{self._total_captures}")
+            logger.info(f"  Capture ID: {capture.capture_id}")
+            logger.info(f"  Timestamp: {timestamp_str}")
+            logger.info(f"  Image size: {capture.width}x{capture.height}")
+            logger.info(f"  Monitor: {capture.monitor_id}")
+
+            if self._crop_region:
+                logger.info(f"  Crop region: x={self._crop_region['x']}, y={self._crop_region['y']}, "
+                          f"w={self._crop_region['width']}, h={self._crop_region['height']}")
+                crop_area = self._crop_region['width'] * self._crop_region['height']
+                full_area = capture.width * capture.height
+                crop_pct = (crop_area / full_area * 100) if full_area > 0 else 0
+                logger.info(f"  Crop area: {crop_pct:.1f}% of full image")
+            else:
+                logger.info(f"  Crop region: None (comparing full images)")
+
             # First capture is always unique
             if self._previous_capture is None:
+                logger.info("  Decision: UNIQUE (first capture)")
+                logger.info("  Reason: This is the first screenshot captured")
                 self._mark_as_unique(capture, event)
                 self._previous_capture = capture
                 return
+
+            # Log comparison details
+            logger.info(f"  Comparing with previous capture: {self._previous_capture.capture_id}")
+            logger.info(f"  Strategy: {self._strategy.name}")
 
             # Compare with previous (using crop region if specified)
             is_duplicate = self._strategy.is_duplicate(
@@ -173,14 +206,23 @@ class DeduplicationEngine:
             )
             similarity_score = self._strategy.get_similarity_score()
 
+            # Log decision with reasoning
             if is_duplicate:
+                logger.info(f"  Similarity score: {similarity_score:.4f}")
+                logger.info(f"  Decision: DUPLICATE ❌")
+                logger.info(f"  Reason: Similarity {similarity_score:.4f} >= threshold (too similar to previous)")
                 self._mark_as_duplicate(capture, event, similarity_score)
             else:
+                logger.info(f"  Similarity score: {similarity_score:.4f}")
+                logger.info(f"  Decision: UNIQUE ✅")
+                logger.info(f"  Reason: Similarity {similarity_score:.4f} < threshold (sufficiently different)")
                 self._mark_as_unique(capture, event, similarity_score)
                 self._previous_capture = capture
 
+            logger.info("=" * 80)
+
         except Exception as e:
-            logger.error(f"Error handling slide capture: {e}", exc_info=True)
+            logger.error(f"❌ Error handling slide capture: {e}", exc_info=True)
 
             # Publish error event
             self._event_bus.publish(Event(
@@ -243,6 +285,32 @@ class DeduplicationEngine:
         """
         self._duplicate_slides += 1
 
+        # Save rejected screenshot for debugging
+        try:
+            timestamp_str = datetime.fromtimestamp(capture.timestamp).strftime("%Y%m%d_%H%M%S_%f")[:-3]
+            filename = f"rejected_{timestamp_str}_{capture.capture_id[:8]}_sim{similarity_score:.4f}.png"
+            rejected_path = self._rejected_folder / filename
+
+            # Save full screenshot
+            capture.image.save(rejected_path, "PNG")
+            logger.info(f"  💾 Saved rejected screenshot: {rejected_path}")
+
+            # Also save cropped region if applicable
+            if self._crop_region:
+                x = self._crop_region['x']
+                y = self._crop_region['y']
+                w = self._crop_region['width']
+                h = self._crop_region['height']
+                cropped = capture.image.crop((x, y, x + w, y + h))
+
+                crop_filename = f"rejected_CROP_{timestamp_str}_{capture.capture_id[:8]}_sim{similarity_score:.4f}.png"
+                crop_path = self._rejected_folder / crop_filename
+                cropped.save(crop_path, "PNG")
+                logger.info(f"  💾 Saved cropped region: {crop_path}")
+
+        except Exception as e:
+            logger.error(f"  ⚠️  Failed to save rejected screenshot: {e}")
+
         # Publish SLIDE_DUPLICATE event
         self._event_bus.publish(Event(
             type=EventType.SLIDE_DUPLICATE,
@@ -256,7 +324,7 @@ class DeduplicationEngine:
             source="dedup_engine"
         ))
 
-        logger.debug(
-            f"Slide marked as DUPLICATE: {capture.capture_id} "
-            f"(similarity: {similarity_score:.4f})"
+        logger.info(
+            f"  📊 Stats: {self._unique_slides} unique, {self._duplicate_slides} duplicates, "
+            f"{self._duplicate_slides / self._total_captures * 100:.1f}% rejection rate"
         )
