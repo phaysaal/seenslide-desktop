@@ -671,6 +671,7 @@ class DirectTalkWindow(QWidget):
         """Handle countdown cancellation."""
         logger.info("Countdown cancelled, resetting UI")
         self.countdown_widget.setVisible(False)
+        self.settings_group.setVisible(True)
         self.start_button.setEnabled(True)
 
     def _start_talk(self):
@@ -679,7 +680,8 @@ class DirectTalkWindow(QWidget):
 
         # Hide countdown
         self.countdown_widget.setVisible(False)
-
+        self.settings_group.setVisible(True)
+        
         # Show status
         self.status_label.setText("Switching to active mode and starting talk...")
         self.status_group.setVisible(True)

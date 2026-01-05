@@ -1,4 +1,4 @@
-// SeenSlide Web Client JavaScript
+// SeenSlide Cloud Viewer JavaScript
 
 class SeenSlideClient {
     constructor() {
@@ -27,9 +27,53 @@ class SeenSlideClient {
             this.nextSlide();
         });
 
+        // Fullscreen button
+        document.getElementById('btn-fullscreen').addEventListener('click', () => {
+            this.toggleFullscreen();
+        });
+
+        // Theme toggle button
+        document.getElementById('theme-toggle').addEventListener('click', () => {
+            this.toggleTheme();
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                this.previousSlide();
+            } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                e.preventDefault();
+                this.nextSlide();
+            } else if (e.key.toLowerCase() === 'f') {
+                e.preventDefault();
+                this.toggleFullscreen();
+            }
+        });
+
         // Initial load
         this.loadSessions();
         this.connectWebSocket();
+    }
+
+    toggleTheme() {
+        const html = document.documentElement;
+        const currentTheme = html.getAttribute('data-theme');
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        html.setAttribute('data-theme', newTheme);
+    }
+
+    async toggleFullscreen() {
+        const slideFrame = document.getElementById('slide-frame');
+        try {
+            if (!document.fullscreenElement) {
+                await slideFrame.requestFullscreen();
+            } else {
+                await document.exitFullscreen();
+            }
+        } catch (e) {
+            console.error('Fullscreen not available:', e);
+        }
     }
 
     connectWebSocket() {
@@ -69,12 +113,14 @@ class SeenSlideClient {
 
     updateConnectionStatus(connected) {
         const statusElement = document.getElementById('connection-status');
+        const dotElement = document.getElementById('connection-dot');
+
         if (connected) {
             statusElement.textContent = 'Connected';
-            statusElement.className = 'status-indicator connected';
+            dotElement.className = 'dot ok';
         } else {
             statusElement.textContent = 'Disconnected';
-            statusElement.className = 'status-indicator disconnected';
+            dotElement.className = 'dot bad';
         }
     }
 
@@ -85,8 +131,9 @@ class SeenSlideClient {
         switch (message.type) {
             case 'slide.stored':
                 if (this.currentSession && message.data.session_id === this.currentSession.session_id) {
-                    // Reload slides when new slide is stored
-                    this.loadSlides(this.currentSession.session_id);
+                    // NEW: Don't reload slides and auto-jump to first slide
+                    // Just update the thumbnail list quietly
+                    this.loadSlidesQuietly(this.currentSession.session_id);
                 }
                 break;
             case 'session.created':
@@ -106,6 +153,7 @@ class SeenSlideClient {
             const sessions = await response.json();
 
             const select = document.getElementById('session-select');
+            const currentValue = select.value;
             select.innerHTML = '<option value="">Select a session...</option>';
 
             sessions.forEach(session => {
@@ -114,6 +162,11 @@ class SeenSlideClient {
                 option.textContent = `${session.name} (${session.total_slides} slides)`;
                 select.appendChild(option);
             });
+
+            // Restore previous selection if it exists
+            if (currentValue) {
+                select.value = currentValue;
+            }
         } catch (error) {
             console.error('Error loading sessions:', error);
         }
@@ -155,13 +208,46 @@ class SeenSlideClient {
             // Render thumbnails
             this.renderThumbnails();
 
-            // Show first slide
+            // Show first slide (initial load only)
             if (this.slides.length > 0) {
                 this.currentSlideIndex = 0;
                 this.showSlide(0);
             }
         } catch (error) {
             console.error('Error loading slides:', error);
+        }
+    }
+
+    async loadSlidesQuietly(sessionId) {
+        // Load slides but DON'T auto-jump to first slide
+        // Only update thumbnails if user is viewing a different slide
+        try {
+            const response = await fetch(`/api/slides/${sessionId}`);
+            const newSlides = await response.json();
+
+            // Check if new slides were added
+            const hadNewSlides = newSlides.length > this.slides.length;
+            this.slides = newSlides;
+
+            // Update slide count
+            document.getElementById('session-slide-count').textContent = this.slides.length;
+            document.getElementById('total-slides').textContent = this.slides.length;
+
+            // Re-render thumbnails to show new slides
+            this.renderThumbnails();
+
+            // DON'T call showSlide() - let user stay on current slide
+            // Just update the current slide index if it's out of bounds
+            if (this.currentSlideIndex >= this.slides.length) {
+                this.currentSlideIndex = Math.max(0, this.slides.length - 1);
+                this.showSlide(this.currentSlideIndex);
+            }
+
+            if (hadNewSlides) {
+                console.log(`New slides added. Total: ${this.slides.length}. Staying on slide ${this.currentSlideIndex + 1}.`);
+            }
+        } catch (error) {
+            console.error('Error loading slides quietly:', error);
         }
     }
 
@@ -177,7 +263,7 @@ class SeenSlideClient {
 
         this.slides.forEach((slide, index) => {
             const item = document.createElement('div');
-            item.className = 'thumbnail-item';
+            item.className = 'thumb-item';
             if (index === this.currentSlideIndex) {
                 item.classList.add('active');
             }
@@ -185,10 +271,11 @@ class SeenSlideClient {
             const img = document.createElement('img');
             img.src = `/api/slides/thumbnail/${slide.slide_id}`;
             img.alt = `Slide ${slide.sequence_number}`;
+            img.loading = 'lazy'; // Lazy load thumbnails for performance
 
             const label = document.createElement('div');
-            label.className = 'thumbnail-label';
-            label.textContent = `#${slide.sequence_number}`;
+            label.className = 'thumb-label';
+            label.textContent = `Slide ${slide.sequence_number}`;
 
             item.appendChild(img);
             item.appendChild(label);
@@ -223,7 +310,7 @@ class SeenSlideClient {
         document.getElementById('next-slide').disabled = (index === this.slides.length - 1);
 
         // Update thumbnail selection
-        const thumbnails = document.querySelectorAll('.thumbnail-item');
+        const thumbnails = document.querySelectorAll('.thumb-item');
         thumbnails.forEach((item, i) => {
             if (i === index) {
                 item.classList.add('active');
@@ -231,6 +318,11 @@ class SeenSlideClient {
                 item.classList.remove('active');
             }
         });
+
+        // Scroll thumbnail into view
+        if (thumbnails[index]) {
+            thumbnails[index].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
     }
 
     previousSlide() {
