@@ -74,31 +74,35 @@ class OrchestratorStartWorker(QThread):
                     config_path = path
                     break
 
-            # Load config and modify cloud settings
+            # Load config file to get cloud settings
             import yaml
+            loaded_config = {}
             if config_path:
                 with open(config_path, 'r') as f:
-                    config = yaml.safe_load(f)
-            else:
-                config = {}
+                    loaded_config = yaml.safe_load(f) or {}
+
+            # Create orchestrator with config path (it will load config internally)
+            orchestrator = SeenSlideOrchestrator(config_path=str(config_path) if config_path else None)
+
+            # Inject cloud settings into orchestrator's config
+            if 'cloud' not in orchestrator.config:
+                orchestrator.config['cloud'] = {}
+
+            # Copy cloud settings from loaded config first
+            cloud_config = loaded_config.get('cloud', {})
+            orchestrator.config['cloud'].update(cloud_config)
 
             # If collection exists, use its cloud ID
             if self.collection:
-                if 'cloud' not in config:
-                    config['cloud'] = {}
-
                 # Set existing cloud session ID to reuse
-                config['cloud']['existing_session_id'] = self.collection.cloud_collection_id
+                orchestrator.config['cloud']['existing_session_id'] = self.collection.cloud_collection_id
                 logger.info(f"Reusing existing collection: {self.collection.cloud_collection_id}")
             else:
                 # Create new collection with username/password
-                if self.username and 'cloud' in config:
-                    config['cloud']['admin_username'] = self.username
-                    config['cloud']['admin_password_hash'] = self.password_hash
+                if self.username:
+                    orchestrator.config['cloud']['admin_username'] = self.username
+                    orchestrator.config['cloud']['admin_password_hash'] = self.password_hash
                     logger.info(f"Creating new collection for user: {self.username}")
-
-            # Create orchestrator with modified config
-            orchestrator = SeenSlideOrchestrator(config=config)
 
             # Start in IDLE mode (triggers screen permission)
             session_name = self.collection.name if self.collection else "My Presentations 2026"
