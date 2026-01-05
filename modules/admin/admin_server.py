@@ -29,6 +29,7 @@ from modules.storage.user_storage import UserStorage
 from modules.storage.providers.sqlite_provider import SQLiteStorageProvider
 from modules.storage.providers.cloud_provider import CloudStorageProvider
 from seenslide.orchestrator import SeenSlideOrchestrator
+from modules.admin.cloud_api import get_cloud_router
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,10 @@ class AdminServer:
             allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
             allow_headers=["Content-Type", "Authorization", "Cookie"],
         )
+
+        # Mount cloud API router
+        self.app.include_router(get_cloud_router())
+        logger.info("Mounted cloud API router at /api/cloud")
 
         # Initialize storage
         self.user_storage = UserStorage(
