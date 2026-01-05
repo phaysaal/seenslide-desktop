@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SeenSlide Launcher (Redesign)</title>
+  <style>
+    :root{
+      --bg:#f6f7fb;
+      --card:#ffffff;
+      --text:#0f172a;
+      --muted:#64748b;
+      --border:rgba(15,23,42,.12);
+      --shadow:0 18px 45px rgba(2,6,23,.12);
+      --primary:#2563eb;
+      --primary-ink:#ffffff;
+      --secondary:#0f172a;
+      --secondary-ink:#ffffff;
+      --focus:rgba(37,99,235,.35);
+      --divider:rgba(15,23,42,.08);
+      --radius:18px;
+    }
+
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      background: radial-gradient(900px 500px at 20% 0%, rgba(37,99,235,.10), transparent 60%),
+                  radial-gradient(800px 500px at 85% 30%, rgba(99,102,241,.10), transparent 55%),
+                  var(--bg);
+      min-height:100vh;
+      display:grid;
+      place-items:center;
+      padding:24px;
+      color:var(--text);
+    }
+
+    .window {
+      width:min(520px, 96vw);
+      border:1px solid var(--border);
+      background:var(--card);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      overflow:hidden;
+    }
+
+    .titlebar{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      padding:12px 14px;
+      border-bottom:1px solid var(--divider);
+      background:linear-gradient(to bottom, rgba(2,6,23,.03), transparent);
+      user-select:none;
+    }
+    .titlebar .left{
+      display:flex; align-items:center; gap:10px;
+      font-weight:600;
+    }
+    .dot{
+      width:10px;height:10px;border-radius:999px;background:#e2e8f0;border:1px solid rgba(2,6,23,.10);
+    }
+    .dots{display:flex; gap:7px}
+    .titlebar .right{
+      font-size:12px; color:var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .content{
+      padding:22px 22px 18px;
+    }
+
+    .brand{
+      display:flex;
+      align-items:flex-start;
+      gap:14px;
+      margin-bottom:18px;
+    }
+
+    .logo{
+      width:46px;height:46px;border-radius:14px;
+      background:linear-gradient(135deg, #2563eb, #7c3aed);
+      display:grid; place-items:center;
+      box-shadow:0 10px 24px rgba(37,99,235,.25);
+      flex:0 0 auto;
+    }
+    .logo svg{width:26px;height:26px; fill:none; stroke:white; stroke-width:2}
+
+    h1{
+      margin:0;
+      font-size:20px;
+      line-height:1.1;
+      letter-spacing:-0.01em;
+    }
+    .subtitle{
+      margin-top:6px;
+      color:var(--muted);
+      font-size:14px;
+    }
+
+    .section{
+      margin-top:18px;
+      padding:16px;
+      border:1px solid var(--border);
+      border-radius:16px;
+      background:rgba(2,6,23,.015);
+    }
+
+    .section-header{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:10px;
+    }
+
+    .mode-title{
+      font-weight:700;
+      font-size:14px;
+      letter-spacing:.01em;
+    }
+    .mode-meta{
+      margin-top:4px;
+      font-size:12px;
+      color:var(--muted);
+    }
+
+    .pill{
+      font-size:11px;
+      color:#1d4ed8;
+      background:rgba(37,99,235,.10);
+      border:1px solid rgba(37,99,235,.18);
+      padding:4px 8px;
+      border-radius:999px;
+      white-space:nowrap;
+    }
+
+    .actions{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      margin-top:12px;
+    }
+
+    button{
+      appearance:none;
+      border:1px solid transparent;
+      border-radius:12px;
+      padding:12px 14px;
+      font-weight:700;
+      font-size:14px;
+      cursor:pointer;
+      transition:transform .05s ease, box-shadow .15s ease, background .15s ease, border-color .15s ease;
+    }
+    button:active{transform:translateY(1px)}
+    button:focus-visible{
+      outline:none;
+      box-shadow:0 0 0 4px var(--focus);
+    }
+
+    .primary{
+      background:var(--primary);
+      color:var(--primary-ink);
+      box-shadow:0 10px 22px rgba(37,99,235,.25);
+    }
+    .primary:hover{filter:brightness(1.02)}
+    .secondary{
+      background:var(--secondary);
+      color:var(--secondary-ink);
+      opacity:.92;
+    }
+    .secondary:hover{opacity:1}
+
+    .hint{
+      margin-top:10px;
+      font-size:12px;
+      color:var(--muted);
+      line-height:1.35;
+    }
+
+    .divider{
+      height:1px;
+      background:var(--divider);
+      margin:14px 0;
+    }
+
+    .footer{
+      padding:12px 18px 14px;
+      border-top:1px solid var(--divider);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      color:var(--muted);
+      font-size:12px;
+    }
+
+    .kbd{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size:11px;
+      padding:2px 6px;
+      border:1px solid var(--border);
+      border-bottom-color:rgba(2,6,23,.18);
+      border-radius:6px;
+      background:rgba(2,6,23,.02);
+      color:var(--muted);
+      margin-right:6px;
+    }
+
+    .toast{
+      position:fixed;
+      left:50%;
+      transform:translateX(-50%);
+      bottom:22px;
+      background:rgba(15,23,42,.92);
+      color:white;
+      padding:10px 12px;
+      border-radius:12px;
+      font-size:13px;
+      opacity:0;
+      pointer-events:none;
+      transition:opacity .18s ease, transform .18s ease;
+      box-shadow:0 18px 45px rgba(2,6,23,.35);
+    }
+    .toast.show{
+      opacity:1;
+      transform:translateX(-50%) translateY(-4px);
+    }
+  </style>
+</head>
+<body>
+  <div class="window" role="application" aria-label="SeenSlide launcher">
+    <div class="titlebar" aria-hidden="true">
+      <div class="left">
+        <div class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+        <span>SeenSlide</span>
+      </div>
+      <div class="right">v0.3.0</div>
+    </div>
+
+    <div class="content">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M5 7h14M5 12h14M5 17h9"/>
+            <path d="M18 16.5a2.5 2.5 0 1 0 0 0.01Z" />
+          </svg>
+        </div>
+        <div>
+          <h1>SeenSlide</h1>
+          <div class="subtitle">Control slides already on screen</div>
+        </div>
+      </div>
+
+      <div class="section" id="local">
+        <div class="section-header">
+          <div>
+            <div class="mode-title">Local Mode</div>
+            <div class="mode-meta">Instant · No internet · One presenter</div>
+          </div>
+          <div class="pill">Default</div>
+        </div>
+
+        <div class="actions">
+          <button class="primary" id="startPresenting" title="Enter">
+            Start Presenting
+          </button>
+        </div>
+
+        <div class="hint">
+          Tip: use arrow keys / clicker. Press <span class="kbd">Esc</span> to quit.
+        </div>
+      </div>
+
+      <div class="divider" role="separator" aria-hidden="true"></div>
+
+      <div class="section" id="conference">
+        <div class="section-header">
+          <div>
+            <div class="mode-title">Conference Mode</div>
+            <div class="mode-meta">Share live navigation with audience</div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="secondary" id="setupConference" title="C">
+            Set up conference…
+          </button>
+        </div>
+
+        <div class="hint">
+          Internet required · Audience joins via link or QR code.
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div>
+        <span class="kbd">Enter</span>Start
+        <span style="margin-left:10px;"></span>
+        <span class="kbd">C</span>Conference
+        <span style="margin-left:10px;"></span>
+        <span class="kbd">Esc</span>Quit
+      </div>
+      <div>SeenSlide Launcher</div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const toast = document.getElementById('toast');
+
+    function showToast(msg){
+      toast.textContent = msg;
+      toast.classList.add('show');
+      clearTimeout(showToast._t);
+      showToast._t = setTimeout(()=>toast.classList.remove('show'), 1200);
+    }
+
+    function startPresenting(){
+      showToast('Starting Local Mode…');
+      console.log('Start: Local Mode');
+      // Hook your real launcher action here.
+    }
+
+    function setupConference(){
+      showToast('Opening Conference Setup…');
+      console.log('Setup: Conference Mode');
+      // Hook your real launcher action here.
+    }
+
+    document.getElementById('startPresenting').addEventListener('click', startPresenting);
+    document.getElementById('setupConference').addEventListener('click', setupConference);
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') startPresenting();
+      if (e.key === 'c' || e.key === 'C') setupConference();
+      if (e.key === 'Escape') showToast('Quit (Esc)');
+    });
+  </script>
+</body>
+</html>

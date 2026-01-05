@@ -5,7 +5,7 @@ from pathlib import Path
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QTextEdit, QPushButton, QSlider, QComboBox, QGroupBox,
-    QMessageBox, QApplication, QProgressDialog
+    QMessageBox, QApplication, QProgressDialog, QDialog
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread
 from PyQt5.QtGui import QFont
@@ -16,9 +16,14 @@ from gui.widgets.region_selector import RegionSelector
 from gui.utils.screenshot_util import capture_screenshot, get_primary_screen_size, get_monitor_count
 from gui.utils.region_utils import calculate_default_region
 from gui.utils.portal_session import PortalSessionManager
+from gui.dialogs.first_collection_dialog import FirstCollectionDialog
 
 # Import orchestrator directly
 from seenslide.orchestrator import SeenSlideOrchestrator, CaptureMode
+
+# Import collection management
+from core.session.collection_registry import CollectionRegistry, Collection
+from core.session.credential_manager import CredentialManager
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +32,32 @@ class OrchestratorStartWorker(QThread):
     """Worker thread to start orchestrator without blocking GUI."""
 
     # Signals
-    success = pyqtSignal(object, str, str)  # orchestrator, cloud_session_id, cloud_viewer_url
+    success = pyqtSignal(object, str, str)  # orchestrator, cloud_collection_id, cloud_viewer_url
     error = pyqtSignal(str)  # error message
 
-    def __init__(self, monitor_id: int, crop_region: dict):
+    def __init__(
+        self,
+        monitor_id: int,
+        crop_region: dict,
+        collection: Optional[Collection] = None,
+        username: Optional[str] = None,
+        password_hash: Optional[str] = None
+    ):
+        """Initialize worker.
+
+        Args:
+            monitor_id: Monitor to capture
+            crop_region: Crop region for deduplication
+            collection: Existing collection to use (None = create new)
+            username: Username for new collection creation
+            password_hash: Password hash for new collection
+        """
         super().__init__()
         self.monitor_id = monitor_id
         self.crop_region = crop_region
+        self.collection = collection
+        self.username = username
+        self.password_hash = password_hash
 
     def run(self):
         """Start orchestrator in background thread."""
@@ -50,14 +74,36 @@ class OrchestratorStartWorker(QThread):
                     config_path = path
                     break
 
-            # Create orchestrator
-            orchestrator = SeenSlideOrchestrator(
-                config_path=str(config_path) if config_path else None
-            )
+            # Load config and modify cloud settings
+            import yaml
+            if config_path:
+                with open(config_path, 'r') as f:
+                    config = yaml.safe_load(f)
+            else:
+                config = {}
+
+            # If collection exists, use its cloud ID
+            if self.collection:
+                if 'cloud' not in config:
+                    config['cloud'] = {}
+
+                # Set existing cloud session ID to reuse
+                config['cloud']['existing_session_id'] = self.collection.cloud_collection_id
+                logger.info(f"Reusing existing collection: {self.collection.cloud_collection_id}")
+            else:
+                # Create new collection with username/password
+                if self.username and 'cloud' in config:
+                    config['cloud']['admin_username'] = self.username
+                    config['cloud']['admin_password_hash'] = self.password_hash
+                    logger.info(f"Creating new collection for user: {self.username}")
+
+            # Create orchestrator with modified config
+            orchestrator = SeenSlideOrchestrator(config=config)
 
             # Start in IDLE mode (triggers screen permission)
+            session_name = self.collection.name if self.collection else "My Presentations 2026"
             success = orchestrator.start_session(
-                session_name="Direct Talk - Idle",
+                session_name=f"{session_name} - Idle",
                 description="Waiting for talk to start",
                 presenter_name="",
                 monitor_id=self.monitor_id,
@@ -71,15 +117,15 @@ class OrchestratorStartWorker(QThread):
 
             logger.info("✅ Orchestrator started in IDLE mode")
 
-            # Get cloud session info
-            cloud_session_id = None
+            # Get cloud collection info
+            cloud_collection_id = None
             cloud_viewer_url = None
             if orchestrator.storage_manager._cloud.enabled:
-                cloud_session_id = orchestrator.storage_manager._cloud.cloud_session_id
+                cloud_collection_id = orchestrator.storage_manager._cloud.cloud_session_id
                 api_url = orchestrator.storage_manager._cloud.api_url
-                cloud_viewer_url = f"{api_url}/{cloud_session_id}"
+                cloud_viewer_url = f"{api_url}/{cloud_collection_id}"
 
-            self.success.emit(orchestrator, cloud_session_id or "", cloud_viewer_url or "")
+            self.success.emit(orchestrator, cloud_collection_id or "", cloud_viewer_url or "")
 
         except Exception as e:
             logger.error(f"Failed to start orchestrator: {e}", exc_info=True)
@@ -103,6 +149,11 @@ class DirectTalkWindow(QWidget):
         """
         super().__init__(parent)
 
+        # Collection management
+        self.collection_registry = CollectionRegistry()
+        self.credential_manager = CredentialManager()
+        self.current_collection: Optional[Collection] = None
+
         # Orchestrator (run directly, no admin server)
         self.orchestrator: Optional[SeenSlideOrchestrator] = None
 
@@ -114,7 +165,7 @@ class DirectTalkWindow(QWidget):
         self.session_id: Optional[str] = None
         self.talk_name: Optional[str] = None
         self.presenter_name: Optional[str] = None
-        self.cloud_session_id: Optional[str] = None
+        self.cloud_collection_id: Optional[str] = None
         self.cloud_viewer_url: Optional[str] = None
         self.is_active = False
 
@@ -125,8 +176,8 @@ class DirectTalkWindow(QWidget):
         # Setup UI
         self._setup_ui()
 
-        # Start idle orchestrator after window shows
-        QTimer.singleShot(500, self._start_idle_orchestrator)
+        # Check for collections and start orchestrator
+        QTimer.singleShot(500, self._initialize_collection)
 
         logger.info("DirectTalkWindow initialized")
 
@@ -346,12 +397,12 @@ class DirectTalkWindow(QWidget):
         return group
 
     def _create_cloud_session_group(self) -> QGroupBox:
-        """Create cloud session info display.
+        """Create cloud collection info display.
 
         Returns:
-            QGroupBox with cloud session information
+            QGroupBox with cloud collection information
         """
-        group = QGroupBox("Cloud Session", self)
+        group = QGroupBox("Cloud Collection", self)
         layout = QVBoxLayout()
 
         # Session ID display
@@ -372,7 +423,7 @@ class DirectTalkWindow(QWidget):
 
         # Help text
         help_label = QLabel(
-            "Share this session ID with viewers to access your talk online.",
+            "Share this collection ID with viewers to access your talks online.",
             self
         )
         help_label.setStyleSheet("color: #666; font-size: 11px;")
@@ -411,6 +462,60 @@ class DirectTalkWindow(QWidget):
         """
         self.tolerance_value_label.setText(f"{value}%")
 
+    def _initialize_collection(self):
+        """Initialize collection (check for existing or create first collection)."""
+        logger.info("Initializing collection...")
+
+        # Check if collections exist
+        if not self.collection_registry.has_collections():
+            logger.info("No collections found, showing first collection dialog")
+
+            # Show first collection dialog
+            dialog = FirstCollectionDialog(self)
+            if dialog.exec_() == QDialog.Accepted:
+                collection_name, username, password_hash, has_password = dialog.get_collection_info()
+
+                # Store for orchestrator creation
+                self.new_collection_name = collection_name
+                self.new_collection_username = username
+                self.new_collection_password_hash = password_hash
+                self.new_collection_has_password = has_password
+
+                logger.info(f"First collection will be created: {collection_name} ({username})")
+
+                # Start orchestrator (will create collection)
+                self._start_idle_orchestrator()
+            else:
+                # User cancelled
+                logger.info("User cancelled first collection creation")
+                QMessageBox.information(
+                    self,
+                    "Collection Required",
+                    "A collection is required to use SeenSlide.\n\n"
+                    "The application will now close."
+                )
+                self.close_requested.emit()
+        else:
+            # Load current collection
+            self.current_collection = self.collection_registry.get_current_collection()
+
+            if self.current_collection:
+                logger.info(f"Loaded current collection: {self.current_collection.name} "
+                           f"({self.current_collection.cloud_collection_id})")
+
+                # Start orchestrator with existing collection
+                self._start_idle_orchestrator()
+            else:
+                # No current collection (shouldn't happen)
+                logger.error("Collections exist but no current collection set")
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    "Failed to load current collection.\n\n"
+                    "Please restart the application."
+                )
+                self.close_requested.emit()
+
     def _start_idle_orchestrator(self):
         """Start orchestrator in IDLE mode (no admin server needed)."""
         logger.info("Starting orchestrator in IDLE mode for Direct Talk...")
@@ -431,12 +536,29 @@ class DirectTalkWindow(QWidget):
 
         # Start orchestrator in background thread
         monitor_id = self.monitor_combo.currentData()
-        self.start_worker = OrchestratorStartWorker(monitor_id, self.crop_region)
+
+        # Pass collection or new collection info
+        if self.current_collection:
+            # Existing collection
+            self.start_worker = OrchestratorStartWorker(
+                monitor_id,
+                self.crop_region,
+                collection=self.current_collection
+            )
+        else:
+            # New collection (first time)
+            self.start_worker = OrchestratorStartWorker(
+                monitor_id,
+                self.crop_region,
+                username=self.new_collection_username,
+                password_hash=self.new_collection_password_hash
+            )
+
         self.start_worker.success.connect(self._on_orchestrator_started)
         self.start_worker.error.connect(self._on_orchestrator_error)
         self.start_worker.start()
 
-    def _on_orchestrator_started(self, orchestrator, cloud_session_id: str, cloud_viewer_url: str):
+    def _on_orchestrator_started(self, orchestrator, cloud_collection_id: str, cloud_viewer_url: str):
         """Handle orchestrator startup success."""
         logger.info("✅ Orchestrator started successfully")
 
@@ -447,18 +569,43 @@ class DirectTalkWindow(QWidget):
 
         # Store orchestrator and cloud info
         self.orchestrator = orchestrator
-        self.cloud_session_id = cloud_session_id if cloud_session_id else None
+        self.cloud_collection_id = cloud_collection_id if cloud_collection_id else None
         self.cloud_viewer_url = cloud_viewer_url if cloud_viewer_url else None
 
-        if self.cloud_session_id:
-            logger.info(f"Cloud session: {self.cloud_session_id}")
+        # If this was a new collection, save it to registry
+        if not self.current_collection and cloud_collection_id:
+            logger.info("Saving new collection to registry...")
+
+            # Add to collection registry
+            self.current_collection = self.collection_registry.add_collection(
+                cloud_collection_id=cloud_collection_id,
+                name=self.new_collection_name,
+                owner_username=self.new_collection_username,
+                is_owner=True,
+                access_level="owner",
+                has_password=self.new_collection_has_password
+            )
+
+            # Store password hash if provided
+            if self.new_collection_password_hash:
+                self.credential_manager.store_password_hash(
+                    cloud_collection_id,
+                    self.new_collection_password_hash
+                )
+
+            logger.info(f"✅ Collection created and saved: {self.current_collection.collection_id}")
+
+        if self.cloud_collection_id:
+            logger.info(f"Cloud collection: {self.cloud_collection_id}")
             logger.info(f"Cloud viewer: {self.cloud_viewer_url}")
 
             # Show and update cloud session display
             self.cloud_session_group.setVisible(True)
-            session_text = f"🌐 Session ID: {self.cloud_session_id}\n"
+            collection_name = self.current_collection.name if self.current_collection else "Collection"
+            session_text = f"📚 {collection_name}\n"
+            session_text += f"🌐 ID: {self.cloud_collection_id}\n"
             if self.cloud_viewer_url:
-                session_text += f"📺 Viewer URL: {self.cloud_viewer_url}"
+                session_text += f"📺 {self.cloud_viewer_url}"
             self.cloud_session_display.setText(session_text)
         else:
             # Cloud disabled
@@ -689,7 +836,7 @@ class DirectTalkWindow(QWidget):
             self.start_button.setEnabled(True)
 
     def _update_status_display(self, slides_count: int):
-        """Update the status display with session info and stats.
+        """Update the status display with collection and talk stats.
 
         Args:
             slides_count: Number of unique slides captured
@@ -698,14 +845,16 @@ class DirectTalkWindow(QWidget):
         status_text += f"Talk: {self.talk_name}\n"
         status_text += f"Presenter: {self.presenter_name}\n\n"
 
-        # Show cloud session ID prominently
-        if self.cloud_session_id:
-            status_text += f"🌐 Cloud Session ID: {self.cloud_session_id}\n"
+        # Show cloud collection ID prominently
+        if self.cloud_collection_id:
+            collection_name = self.current_collection.name if self.current_collection else "Collection"
+            status_text += f"📚 Collection: {collection_name}\n"
+            status_text += f"🌐 Collection ID: {self.cloud_collection_id}\n"
             if self.cloud_viewer_url:
                 status_text += f"📺 Viewer URL: {self.cloud_viewer_url}\n"
             status_text += "\n"
 
-        status_text += f"💾 Local Session: {self.session_id[:8]}...\n\n"
+        status_text += f"💾 Local Talk ID: {self.session_id[:8]}...\n\n"
         status_text += f"📊 Slides captured: {slides_count}"
 
         self.status_label.setText(status_text)

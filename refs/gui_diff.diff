@@ -1,0 +1,174 @@
+diff --git a/mode_selector.py b/mode_selector.py
+index 1111111..2222222 100644
+--- a/mode_selector.py
++++ b/mode_selector.py
+@@ -1,4 +1,4 @@
+-"""Mode selector window - choose between modes."""
++"""Launcher window - start instantly, explain progressively."""
+ 
+ import os
+ from typing import Optional
+@@ class ModeSelector(QWidget):
+     def _setup_ui(self):
+         """Setup the UI components."""
+         self.setWindowTitle("SeenSlide")
+-        self.setFixedSize(520, 620)
++        # Launcher should be compact (no scrolling, no “menu” feel)
++        self.setFixedSize(520, 520)
+ 
+         # Light background with subtle gradient
+         palette = QPalette()
+         palette.setColor(QPalette.Window, QColor("#f6f7fb"))
+@@
+     def _create_content(self) -> QWidget:
+         """Create main content area.
+ 
+         Returns:
+             QWidget containing content
+         """
+         content = QWidget()
+         layout = QVBoxLayout(content)
+         layout.setContentsMargins(22, 22, 22, 18)
+         layout.setSpacing(0)
+ 
+         # Brand section
+         brand = self._create_brand()
+         layout.addWidget(brand)
+ 
+-        # Just One Talk section
++        # Local Mode (default)
+         layout.addSpacing(18)
+         single_section = self._create_section(
+-            "Just One Talk",
+-            "Quick setup · Closes when done",
+-            "RECOMMENDED",
+-            "Start one presentation. Window closes automatically when finished.",
+-            "▶ Start Presenting",
++            "Local Mode",
++            "Instant · No internet · One presenter",
++            "Default",
++            "Start presenting immediately on this machine.",
++            "Start Presenting",
+             self._on_direct_talk_clicked,
+             True
+         )
+         layout.addWidget(single_section)
+ 
+         # Divider
+         layout.addSpacing(14)
+         divider = QFrame()
+         divider.setFrameShape(QFrame.HLine)
+         divider.setStyleSheet("background: rgba(15, 23, 42, 0.08); max-height: 1px;")
+         layout.addWidget(divider)
+         layout.addSpacing(14)
+ 
+-        # Multiple Talks section
++        # Conference Mode (optional setup)
+         multiple_section = self._create_section(
+-            "Multiple Talks",
+-            "Conference & event mode · Stays running",
++            "Conference Mode",
++            "Share live navigation with audience",
+             None,
+-            "Manage multiple sessions in sequence. Admin panel runs in background.",
+-            "⚙ Set up conference…",
++            "Internet required · Audience joins via link or QR code.",
++            "Set up conference…",
+             self._on_conference_clicked,
+             False
+         )
+         layout.addWidget(multiple_section)
+ 
+-        # Divider
+-        layout.addSpacing(14)
+-        divider2 = QFrame()
+-        divider2.setFrameShape(QFrame.HLine)
+-        divider2.setStyleSheet("background: rgba(15, 23, 42, 0.08); max-height: 1px;")
+-        layout.addWidget(divider2)
+-        layout.addSpacing(14)
+-
+-        # Manage Talks section
+-        manage_section = self._create_section(
+-            "Manage Past Talks",
+-            "Edit or delete recorded sessions",
+-            None,
+-            "View, rename, or delete previously recorded talks and presentations.",
+-            "📋 Manage talks…",
+-            self._on_manage_talks_clicked,
+-            False
+-        )
+-        layout.addWidget(manage_section)
+-
+         return content
+ 
+@@
+     def _create_footer(self) -> QWidget:
+         """Create footer with shortcuts.
+ 
+         Returns:
+             QWidget containing footer
+         """
+         footer = QWidget()
+         footer.setStyleSheet("""
+             background: transparent;
+             border-top: 1px solid rgba(15, 23, 42, 0.08);
+             padding: 12px 18px 14px;
+         """)
+ 
+         layout = QHBoxLayout(footer)
+         layout.setContentsMargins(18, 12, 18, 14)
+         layout.setSpacing(10)
+ 
+         # Shortcuts
+         shortcuts = QWidget()
+         shortcuts_layout = QHBoxLayout(shortcuts)
+         shortcuts_layout.setContentsMargins(0, 0, 0, 0)
+         shortcuts_layout.setSpacing(0)
+ 
+-        for key, action in [("Enter", "Start"), ("C", "Conference"), ("M", "Manage"), ("Esc", "Quit")]:
++        for key, action in [("Enter", "Start"), ("C", "Conference"), ("Esc", "Quit")]:
+             key_label = QLabel(key)
+             key_label.setFont(QFont("Courier", 11))
+             key_label.setStyleSheet("""
+                 color: #64748b;
+                 background: rgba(2, 6, 23, 0.02);
+                 border: 1px solid rgba(15, 23, 42, 0.12);
+                 border-bottom-color: rgba(2, 6, 23, 0.18);
+                 border-radius: 6px;
+                 padding: 2px 6px;
+                 margin-right: 6px;
+             """)
+             shortcuts_layout.addWidget(key_label)
+ 
+             action_label = QLabel(action)
+             action_label.setFont(QFont("Arial", 12))
+             action_label.setStyleSheet("color: #64748b; margin-right: 10px;")
+             shortcuts_layout.addWidget(action_label)
+ 
+         layout.addWidget(shortcuts)
+         layout.addStretch()
+ 
+-        # Footer text
+-        footer_text = QLabel("SeenSlide Launcher")
++        # Footer text (keep it minimal / tool-like)
++        footer_text = QLabel("SeenSlide Launcher")
+         footer_text.setFont(QFont("Arial", 12))
+         footer_text.setStyleSheet("color: #64748b;")
+         layout.addWidget(footer_text)
+ 
+         return footer
+ 
+@@
+     def _setup_shortcuts(self):
+         """Setup keyboard shortcuts."""
+         from PyQt5.QtWidgets import QShortcut
+         from PyQt5.QtGui import QKeySequence
+ 
+         QShortcut(QKeySequence("Return"), self, self._on_direct_talk_clicked)
+         QShortcut(QKeySequence("Enter"), self, self._on_direct_talk_clicked)
+         QShortcut(QKeySequence("C"), self, self._on_conference_clicked)
+-        QShortcut(QKeySequence("M"), self, self._on_manage_talks_clicked)
+         QShortcut(QKeySequence("Escape"), self, self.close)
+ 
+-        logger.info("Keyboard shortcuts: Enter=Start, C=Conference, M=Manage, Esc=Quit")
++        logger.info("Keyboard shortcuts: Enter=Start, C=Conference, Esc=Quit")
