@@ -128,13 +128,14 @@ def setup_initial_admin(
         return False, None, None
 
 
-def setup_session_id(storage_path: str, admin_username: str, admin_password_hash: str) -> bool:
+def setup_session_id(storage_path: str, admin_username: str, admin_password_hash: str, skip_interactive: bool = False) -> bool:
     """Setup session ID for cloud registration.
 
     Args:
         storage_path: Path to storage directory
         admin_username: Admin username
         admin_password_hash: Admin password hash
+        skip_interactive: Skip interactive prompts (for subprocess mode)
 
     Returns:
         True if successful, False otherwise
@@ -145,8 +146,16 @@ def setup_session_id(storage_path: str, admin_username: str, admin_password_hash
     existing_session_id = local_session_manager.load_session_id()
 
     if existing_session_id:
-        print(f"\n✓ Found existing session ID: {existing_session_id}")
-        print("  This session will be used for cloud registration.")
+        logger.info(f"Found existing session ID: {existing_session_id}")
+        if not skip_interactive:
+            print(f"\n✓ Found existing session ID: {existing_session_id}")
+            print("  This session will be used for cloud registration.")
+        return True
+
+    # If skip_interactive is set (subprocess mode), just skip session setup
+    # Admin server will create a new session automatically
+    if skip_interactive:
+        logger.info("Skipping session ID setup (will be created automatically)")
         return True
 
     # No local session ID found - prompt user
@@ -230,6 +239,9 @@ def main():
 
     args = parser.parse_args()
 
+    # Determine if running in non-interactive mode (subprocess)
+    non_interactive = bool(args.admin_username and args.admin_password)
+
     # Setup initial admin if needed
     success, admin_username, admin_password_hash = setup_initial_admin(
         args.storage,
@@ -240,8 +252,8 @@ def main():
         logger.error("Failed to setup admin user")
         sys.exit(1)
 
-    # Setup session ID
-    if not setup_session_id(args.storage, admin_username, admin_password_hash):
+    # Setup session ID (skip interactive prompts if running as subprocess)
+    if not setup_session_id(args.storage, admin_username, admin_password_hash, skip_interactive=non_interactive):
         logger.error("Failed to setup session ID")
         sys.exit(1)
 
