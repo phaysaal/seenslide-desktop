@@ -28,11 +28,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def setup_initial_admin(storage_path: str) -> Tuple[bool, Optional[str], Optional[str]]:
+def setup_initial_admin(
+    storage_path: str,
+    non_interactive_username: Optional[str] = None,
+    non_interactive_password: Optional[str] = None
+) -> Tuple[bool, Optional[str], Optional[str]]:
     """Setup initial admin user if none exists.
 
     Args:
         storage_path: Path to storage directory
+        non_interactive_username: Username for non-interactive mode (optional)
+        non_interactive_password: Password for non-interactive mode (optional)
 
     Returns:
         Tuple of (success, username, password_hash)
@@ -49,7 +55,32 @@ def setup_initial_admin(storage_path: str) -> Tuple[bool, Optional[str], Optiona
         first_admin = users[0]
         return True, first_admin.username, first_admin.password_hash
 
-    # Prompt for initial admin setup
+    # Non-interactive mode
+    if non_interactive_username and non_interactive_password:
+        logger.info(f"Creating admin user in non-interactive mode: {non_interactive_username}")
+
+        # Validate password strength
+        is_valid, error_msg = AuthUtils.validate_password_strength(non_interactive_password)
+        if not is_valid:
+            logger.error(f"Password validation failed: {error_msg}")
+            return False, None, None
+
+        password_hash = AuthUtils.hash_password(non_interactive_password)
+
+        admin_user = User(
+            username=non_interactive_username,
+            password_hash=password_hash,
+            role="admin"
+        )
+
+        if user_storage.create_user(admin_user):
+            logger.info(f"✓ Admin user '{non_interactive_username}' created successfully")
+            return True, non_interactive_username, password_hash
+        else:
+            logger.error("Failed to create admin user")
+            return False, None, None
+
+    # Interactive mode (prompt for credentials)
     print("\n" + "="*70)
     print("INITIAL ADMIN SETUP")
     print("="*70)
@@ -188,11 +219,23 @@ def main():
         default="/tmp/seenslide",
         help="Storage path (default: /tmp/seenslide)"
     )
+    parser.add_argument(
+        "--admin-username",
+        help="Admin username for non-interactive setup"
+    )
+    parser.add_argument(
+        "--admin-password",
+        help="Admin password for non-interactive setup"
+    )
 
     args = parser.parse_args()
 
     # Setup initial admin if needed
-    success, admin_username, admin_password_hash = setup_initial_admin(args.storage)
+    success, admin_username, admin_password_hash = setup_initial_admin(
+        args.storage,
+        non_interactive_username=args.admin_username,
+        non_interactive_password=args.admin_password
+    )
     if not success:
         logger.error("Failed to setup admin user")
         sys.exit(1)

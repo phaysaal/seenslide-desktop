@@ -66,6 +66,10 @@ class ServerManager:
                 logger.error(f"Admin script not found: {admin_script}")
                 return False
 
+            # Generate admin credentials for non-interactive setup
+            admin_username = "admin"
+            admin_password = "Admin123!"  # Meets requirements: 8 chars, uppercase, lowercase, digit
+
             # Start server process
             python_exec = sys.executable
             logger.info(f"Starting admin server: {python_exec} {admin_script}")
@@ -77,8 +81,16 @@ class ServerManager:
 
             stderr_file = open(stderr_log, 'w')
 
+            # Pass admin credentials for non-interactive setup
+            cmd = [
+                python_exec,
+                str(admin_script),
+                "--admin-username", admin_username,
+                "--admin-password", admin_password
+            ]
+
             self.process = subprocess.Popen(
-                [python_exec, str(admin_script)],
+                cmd,
                 stdout=subprocess.PIPE,
                 stderr=stderr_file,
                 start_new_session=True,  # Create new process group
