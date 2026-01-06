@@ -244,9 +244,10 @@ class StorageManager:
             # Upload to cloud if enabled
             try:
                 import io
-                # Convert image to JPEG bytes for cloud upload
+                # Convert image to JPEG bytes for cloud upload with compression
+                # Quality 70 provides good compression for faster loading while maintaining acceptable quality
                 img_byte_arr = io.BytesIO()
-                capture.image.convert('RGB').save(img_byte_arr, format='JPEG', quality=85)
+                capture.image.convert('RGB').save(img_byte_arr, format='JPEG', quality=70, optimize=True)
                 img_byte_arr.seek(0)
                 self._cloud.save_slide(slide, img_byte_arr.getvalue())
             except Exception as e:
