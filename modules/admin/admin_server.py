@@ -185,24 +185,32 @@ class AdminServer:
         Returns:
             Configuration dictionary
         """
-        # Try user config first, then dev config, then defaults
-        config_path = Path.home() / ".config" / "seenslide" / "config.yaml"
-        if not config_path.exists():
-            config_path = Path(__file__).parent.parent.parent / "dev" / "config_wayland.yaml"
-            if not config_path.exists():
-                config_path = None
+        # Try config locations in order of preference
+        config_paths = [
+            Path.home() / ".config" / "seenslide" / "config.yaml",  # User config
+            Path(__file__).parent.parent.parent / "config" / "config.yaml",  # Project config
+            Path(__file__).parent.parent.parent / "dev" / "config_wayland.yaml"  # Dev config
+        ]
 
-        if config_path and config_path.exists():
-            try:
-                with open(config_path, 'r') as f:
-                    config = yaml.safe_load(f)
-                    logger.info(f"Loaded config from: {config_path}")
-                    return config
-            except Exception as e:
-                logger.error(f"Failed to load config: {e}")
+        for config_path in config_paths:
+            if config_path.exists():
+                try:
+                    with open(config_path, 'r') as f:
+                        config = yaml.safe_load(f)
+                        logger.info(f"Loaded config from: {config_path}")
+                        return config
+                except Exception as e:
+                    logger.error(f"Failed to load config from {config_path}: {e}")
+                    continue
 
-        # Return defaults
-        return {}
+        # Return defaults with minimal cloud config
+        logger.warning("No config file found, using defaults")
+        return {
+            'cloud': {
+                'enabled': True,
+                'api_url': 'https://seenslide.com'
+            }
+        }
 
     def _load_or_create_cloud_session(self) -> None:
         """Load existing cloud session or create new one - with local persistence."""
