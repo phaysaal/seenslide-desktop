@@ -84,9 +84,20 @@ class StorageManager:
             # Use existing cloud session if provided, otherwise create new one
             existing_cloud_session_id = cloud_config.get("existing_session_id")
             if existing_cloud_session_id and self._cloud.enabled:
-                # Use existing persistent cloud session
-                self._cloud.cloud_session_id = existing_cloud_session_id
-                logger.info(f"Using existing cloud session: {existing_cloud_session_id}")
+                # Verify the session still exists in the cloud
+                if self._cloud.session_exists(existing_cloud_session_id):
+                    # Use existing persistent cloud session
+                    self._cloud.cloud_session_id = existing_cloud_session_id
+                    logger.info(f"Using existing cloud session: {existing_cloud_session_id}")
+                else:
+                    # Session no longer exists in cloud - create a new one
+                    logger.warning(f"Cloud session {existing_cloud_session_id} not found, creating new session")
+                    self._cloud.start_session(
+                        session_id=self._session.session_id,
+                        session_name=self._session.name,
+                        description=self._session.description,
+                        presenter_name=self._session.presenter_name
+                    )
             elif self._cloud.enabled:
                 # Create new cloud session (legacy behavior)
                 self._cloud.start_session(

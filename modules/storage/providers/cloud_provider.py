@@ -523,6 +523,36 @@ class CloudStorageProvider(IStorageProvider):
                     pass
             return None
 
+    def session_exists(self, session_id: str) -> bool:
+        """Check if a session exists in the cloud.
+
+        Args:
+            session_id: Session ID to check
+
+        Returns:
+            True if session exists, False otherwise
+        """
+        if not self.enabled:
+            return True  # Assume exists if cloud disabled
+
+        try:
+            url = f"{self.api_url}/api/cloud/session/{session_id}"
+            response = requests.get(url, timeout=10)
+
+            if response.status_code == 200:
+                logger.info(f"✅ Session {session_id} exists in cloud")
+                return True
+            elif response.status_code == 404:
+                logger.warning(f"❌ Session {session_id} not found in cloud")
+                return False
+            else:
+                logger.error(f"Failed to check session: {response.status_code}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Failed to check session existence: {e}")
+            return False
+
     def cleanup(self):
         """Cleanup cloud storage."""
         logger.info("Cloud storage cleanup")
