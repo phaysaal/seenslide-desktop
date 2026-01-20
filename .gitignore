@@ -4,6 +4,7 @@
 
 # Test scripts
 *.sh
+!packaging/*.sh
 test_*.py
 check_cloud_config.py
 
@@ -45,3 +46,10 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+
+# Build artifacts
+packaging/build/
+packaging/dist/
+build/
+dist/
+*.spec
