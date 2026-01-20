@@ -94,12 +94,26 @@ Keywords=presentation;slides;capture;screen;
 StartupNotify=true
 EOF
 
-# Create simple icon (green square with S)
-if command -v convert &> /dev/null; then
-    convert -size 256x256 xc:'#10b981' -gravity center \
-        -fill white -font DejaVu-Sans-Bold -pointsize 120 \
-        -annotate 0 'S' \
-        "$DEB_ROOT/usr/share/icons/hicolor/256x256/apps/seenslide.png" 2>/dev/null || true
+# Copy and resize the SeenSlide logo
+LOGO_SRC="$PROJECT_DIR/gui/resources/icons/logo.png"
+if [ -f "$LOGO_SRC" ]; then
+    echo "[INFO] Using SeenSlide logo from $LOGO_SRC"
+    if command -v convert &> /dev/null; then
+        # Resize to 256x256 for the icon
+        convert "$LOGO_SRC" -resize 256x256 \
+            "$DEB_ROOT/usr/share/icons/hicolor/256x256/apps/seenslide.png"
+    else
+        # Fallback: copy as-is if ImageMagick not available
+        cp "$LOGO_SRC" "$DEB_ROOT/usr/share/icons/hicolor/256x256/apps/seenslide.png"
+    fi
+else
+    echo "[WARN] Logo not found at $LOGO_SRC, creating placeholder"
+    if command -v convert &> /dev/null; then
+        convert -size 256x256 xc:'#10b981' -gravity center \
+            -fill white -font DejaVu-Sans-Bold -pointsize 120 \
+            -annotate 0 'S' \
+            "$DEB_ROOT/usr/share/icons/hicolor/256x256/apps/seenslide.png" 2>/dev/null || true
+    fi
 fi
 
 # Create control file
