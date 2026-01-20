@@ -123,7 +123,8 @@ Version: $APP_VERSION
 Section: utils
 Priority: optional
 Architecture: $ARCH
-Depends: libxcb-xinerama0, libxcb-cursor0, libgl1
+Depends: libxcb-xinerama0, libgl1
+Recommends: libxcb-cursor0
 Maintainer: $APP_MAINTAINER
 Description: $APP_DESCRIPTION
  SeenSlide captures presentation slides in real-time and syncs
