@@ -229,6 +229,11 @@ class CloudStorageProvider(IStorageProvider):
 
         except Exception as e:
             logger.error(f"Failed to upload slide {slide.sequence_number}: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    logger.error(f"Response body: {e.response.text}")
+                except Exception:
+                    pass
             # Don't disable on single slide failure
             return slide.slide_id
 
@@ -279,6 +284,26 @@ class CloudStorageProvider(IStorageProvider):
 
         except Exception as e:
             logger.error(f"Failed to delete slide from cloud: {e}")
+            return False
+
+    def session_exists(self, session_id: str) -> bool:
+        """Check if a cloud session exists by doing a GET request.
+
+        Args:
+            session_id: Session ID to check
+
+        Returns:
+            True if session exists on the cloud server
+        """
+        if not self.enabled:
+            return False
+
+        try:
+            url = f"{self.api_url}/api/cloud/session/{session_id}"
+            response = requests.get(url, timeout=5)
+            return response.status_code == 200
+        except Exception as e:
+            logger.warning(f"Failed to check if session exists: {e}")
             return False
 
     def verify_session(

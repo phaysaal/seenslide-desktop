@@ -219,13 +219,15 @@ class AdminServer:
             local_session_id = self.local_session_manager.load_session_id()
 
             if local_session_id:
-                # Local session ID found - trust it and reuse
-                # Note: Session verification with cloud is disabled until cloud API supports it
-                # TODO: Enable verification once /api/cloud/session/verify endpoint is implemented
-                self.cloud_session_id = local_session_id
-                self.cloud_provider.cloud_session_id = local_session_id
-                logger.info(f"✅ Loaded existing cloud session: {local_session_id}")
-                logger.info(f"📺 Viewer URL: {self.cloud_provider.api_url}/{local_session_id}")
+                # Verify the session still exists on the cloud
+                if self.cloud_provider.session_exists(local_session_id):
+                    self.cloud_session_id = local_session_id
+                    self.cloud_provider.cloud_session_id = local_session_id
+                    logger.info(f"✅ Loaded existing cloud session: {local_session_id}")
+                    logger.info(f"📺 Viewer URL: {self.cloud_provider.api_url}/{local_session_id}")
+                else:
+                    logger.warning(f"Cloud session {local_session_id} no longer exists, creating new one")
+                    local_session_id = None  # Fall through to create new session
 
             if not local_session_id:
                 # No local session or verification failed - create new one

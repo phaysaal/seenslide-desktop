@@ -45,6 +45,7 @@ class DeduplicationEngine:
         self._crop_region = crop_region
 
         self._previous_capture: Optional[RawCapture] = None
+        self._unique_history: list = []  # All unique captures for full dedup
         self._running = False
 
         # Statistics
@@ -187,37 +188,55 @@ class DeduplicationEngine:
                 logger.info(f"  Crop region: None (comparing full images)")
 
             # First capture is always unique
-            if self._previous_capture is None:
+            if not self._unique_history:
                 logger.info("  Decision: UNIQUE (first capture)")
                 logger.info("  Reason: This is the first screenshot captured")
                 self._mark_as_unique(capture, event)
                 self._previous_capture = capture
+                self._unique_history.append(capture)
                 return
 
-            # Log comparison details
-            logger.info(f"  Comparing with previous capture: {self._previous_capture.capture_id}")
+            # Compare against ALL previous unique captures (not just the last one)
+            logger.info(f"  Comparing with {len(self._unique_history)} previous unique capture(s)")
             logger.info(f"  Strategy: {self._strategy.name}")
 
-            # Compare with previous (using crop region if specified)
-            is_duplicate = self._strategy.is_duplicate(
-                capture,
-                self._previous_capture,
-                crop_region=self._crop_region
-            )
-            similarity_score = self._strategy.get_similarity_score()
+            best_match_score = 0.0
+            best_match_id = None
+            is_duplicate = False
+
+            for prev_capture in self._unique_history:
+                dup = self._strategy.is_duplicate(
+                    capture,
+                    prev_capture,
+                    crop_region=self._crop_region
+                )
+                score = self._strategy.get_similarity_score()
+
+                if score > best_match_score:
+                    best_match_score = score
+                    best_match_id = prev_capture.capture_id
+
+                if dup:
+                    is_duplicate = True
+                    best_match_score = score
+                    best_match_id = prev_capture.capture_id
+                    break  # Found a duplicate, no need to check more
+
+            similarity_score = best_match_score
 
             # Log decision with reasoning
             if is_duplicate:
-                logger.info(f"  Similarity score: {similarity_score:.4f}")
+                logger.info(f"  Similarity score: {similarity_score:.4f} (matched {best_match_id})")
                 logger.info(f"  Decision: DUPLICATE ❌")
-                logger.info(f"  Reason: Similarity {similarity_score:.4f} >= threshold (too similar to previous)")
+                logger.info(f"  Reason: Similarity {similarity_score:.4f} >= threshold (matches existing slide)")
                 self._mark_as_duplicate(capture, event, similarity_score)
             else:
-                logger.info(f"  Similarity score: {similarity_score:.4f}")
+                logger.info(f"  Similarity score: {similarity_score:.4f} (closest: {best_match_id})")
                 logger.info(f"  Decision: UNIQUE ✅")
-                logger.info(f"  Reason: Similarity {similarity_score:.4f} < threshold (sufficiently different)")
+                logger.info(f"  Reason: Similarity {similarity_score:.4f} < threshold (different from all {len(self._unique_history)} previous)")
                 self._mark_as_unique(capture, event, similarity_score)
                 self._previous_capture = capture
+                self._unique_history.append(capture)
 
             logger.info("=" * 80)
 

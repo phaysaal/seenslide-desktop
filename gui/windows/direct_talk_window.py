@@ -188,11 +188,11 @@ class DirectTalkWindow(QWidget):
     def _setup_ui(self):
         """Setup the UI components."""
         self.setWindowTitle("SeenSlide - Direct Talk Mode")
-        self.setMinimumSize(600, 700)
+        self.setMinimumSize(600, 820)
 
         # Main layout
         main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(15)
+        main_layout.setSpacing(12)
         main_layout.setContentsMargins(20, 20, 20, 20)
 
         # Title
@@ -200,6 +200,10 @@ class DirectTalkWindow(QWidget):
         title.setFont(QFont("Arial", 20, QFont.Bold))
         title.setAlignment(Qt.AlignCenter)
         main_layout.addWidget(title)
+
+        # Collection selector group
+        collection_group = self._create_collection_group()
+        main_layout.addWidget(collection_group)
 
         # Talk metadata group
         metadata_group = self._create_metadata_group()
@@ -226,11 +230,6 @@ class DirectTalkWindow(QWidget):
         main_layout.addWidget(self.cloud_session_group)
 
         
-
-        # Status display (hidden initially)
-        self.status_group = self._create_status_group()
-        self.status_group.setVisible(False)
-        main_layout.addWidget(self.status_group)
 
         # Action buttons
         button_layout = QHBoxLayout()
@@ -282,6 +281,157 @@ class DirectTalkWindow(QWidget):
 
         self.setLayout(main_layout)
 
+    def _create_collection_group(self) -> QGroupBox:
+        """Create collection selector group.
+
+        Returns:
+            QGroupBox with collection selector
+        """
+        group = QGroupBox("Collection", self)
+        layout = QVBoxLayout()
+
+        # Collection selector row
+        selector_layout = QHBoxLayout()
+        selector_layout.addWidget(QLabel("Active Collection:", self))
+
+        self.collection_combo = QComboBox(self)
+        self.collection_combo.setMinimumWidth(250)
+        self.collection_combo.setFixedHeight(36)
+        self.collection_combo.setStyleSheet("""
+            QComboBox {
+                padding: 6px 10px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+            }
+        """)
+        self.collection_combo.currentIndexChanged.connect(self._on_collection_changed)
+        selector_layout.addWidget(self.collection_combo)
+
+        # New collection button
+        self.new_collection_btn = QPushButton("+ New", self)
+        self.new_collection_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                padding: 5px 15px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+        """)
+        self.new_collection_btn.clicked.connect(self._on_new_collection_clicked)
+        selector_layout.addWidget(self.new_collection_btn)
+
+        selector_layout.addStretch()
+        layout.addLayout(selector_layout)
+
+        # Collection info display
+        self.collection_info_label = QLabel("Loading...", self)
+        self.collection_info_label.setStyleSheet("""
+            QLabel {
+                color: #666;
+                font-size: 11px;
+                padding: 5px;
+            }
+        """)
+        layout.addWidget(self.collection_info_label)
+
+        group.setLayout(layout)
+        return group
+
+    def _populate_collection_combo(self):
+        """Populate the collection dropdown with available collections."""
+        self.collection_combo.blockSignals(True)
+        self.collection_combo.clear()
+
+        collections = self.collection_registry.list_collections()
+        current = self.collection_registry.get_current_collection()
+
+        for collection in collections:
+            display_name = f"{collection.name} ({collection.cloud_collection_id})"
+            self.collection_combo.addItem(display_name, collection.collection_id)
+
+            # Select current collection
+            if current and collection.collection_id == current.collection_id:
+                self.collection_combo.setCurrentIndex(self.collection_combo.count() - 1)
+
+        self.collection_combo.blockSignals(False)
+
+        # Update info label
+        if current:
+            self.collection_info_label.setText(
+                f"Cloud ID: {current.cloud_collection_id} | "
+                f"Owner: {current.owner_username} | "
+                f"Talks will be added to this collection"
+            )
+        else:
+            self.collection_info_label.setText("No collection selected")
+
+    def _on_collection_changed(self, index: int):
+        """Handle collection selection change."""
+        if index < 0:
+            return
+
+        collection_id = self.collection_combo.currentData()
+        if not collection_id:
+            return
+
+        # Don't change if already current
+        current = self.collection_registry.get_current_collection()
+        if current and current.collection_id == collection_id:
+            return
+
+        logger.info(f"Switching to collection: {collection_id}")
+
+        # Set as current collection
+        self.collection_registry.set_current_collection(collection_id)
+        self.current_collection = self.collection_registry.get_current_collection()
+
+        # Update info label
+        if self.current_collection:
+            self.collection_info_label.setText(
+                f"Cloud ID: {self.current_collection.cloud_collection_id} | "
+                f"Owner: {self.current_collection.owner_username} | "
+                f"Talks will be added to this collection"
+            )
+
+            # Update cloud session display if visible
+            if self.cloud_session_group.isVisible():
+                session_text = f"📚 {self.current_collection.name}\n"
+                session_text += f"🌐 ID: {self.current_collection.cloud_collection_id}\n"
+                api_url = self.orchestrator.config.get('cloud', {}).get('api_url', '') if self.orchestrator else ''
+                if api_url:
+                    session_text += f"📺 {api_url}/{self.current_collection.cloud_collection_id}"
+                self.cloud_session_display.setText(session_text)
+
+        # Need to restart orchestrator with new collection
+        QMessageBox.information(
+            self,
+            "Collection Changed",
+            f"Switched to collection: {self.current_collection.name}\n\n"
+            "New talks will be added to this collection."
+        )
+
+    def _on_new_collection_clicked(self):
+        """Handle new collection button click."""
+        from gui.dialogs.first_collection_dialog import FirstCollectionDialog
+
+        dialog = FirstCollectionDialog(self)
+        dialog.setWindowTitle("Create New Collection")
+
+        if dialog.exec_() == QDialog.Accepted:
+            collection_name, username, password_hash, has_password = dialog.get_collection_info()
+
+            # For now, just show a message - actual creation requires cloud API
+            QMessageBox.information(
+                self,
+                "Create Collection",
+                f"To create a new collection '{collection_name}', please restart the app.\n\n"
+                "Collection creation on-the-fly will be available in a future update."
+            )
+
     def _create_metadata_group(self) -> QGroupBox:
         """Create talk metadata group.
 
@@ -291,19 +441,37 @@ class DirectTalkWindow(QWidget):
         group = QGroupBox("Talk Information", self)
         layout = QVBoxLayout()
 
+        # Standard input style
+        input_style = """
+            QLineEdit {
+                padding: 6px 10px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                min-height: 24px;
+            }
+        """
+
         # Talk name
         name_layout = QHBoxLayout()
-        name_layout.addWidget(QLabel("Talk Title:", self))
+        name_label = QLabel("Talk Title:", self)
+        name_label.setMinimumWidth(100)
+        name_layout.addWidget(name_label)
         self.talk_name_input = QLineEdit(self)
         self.talk_name_input.setPlaceholderText("e.g., Machine Learning Basics")
+        self.talk_name_input.setFixedHeight(36)
+        self.talk_name_input.setStyleSheet(input_style)
         name_layout.addWidget(self.talk_name_input)
         layout.addLayout(name_layout)
 
         # Presenter name
         presenter_layout = QHBoxLayout()
-        presenter_layout.addWidget(QLabel("Presenter:", self))
+        presenter_label = QLabel("Presenter:", self)
+        presenter_label.setMinimumWidth(100)
+        presenter_layout.addWidget(presenter_label)
         self.presenter_input = QLineEdit(self)
         self.presenter_input.setPlaceholderText("e.g., John Doe")
+        self.presenter_input.setFixedHeight(36)
+        self.presenter_input.setStyleSheet(input_style)
         presenter_layout.addWidget(self.presenter_input)
         layout.addLayout(presenter_layout)
 
@@ -311,7 +479,14 @@ class DirectTalkWindow(QWidget):
         layout.addWidget(QLabel("Description (optional):", self))
         self.description_input = QTextEdit(self)
         self.description_input.setPlaceholderText("Brief description of the talk...")
-        self.description_input.setMaximumHeight(80)
+        self.description_input.setFixedHeight(70)
+        self.description_input.setStyleSheet("""
+            QTextEdit {
+                padding: 6px 10px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+            }
+        """)
         layout.addWidget(self.description_input)
 
         group.setLayout(layout)
@@ -328,8 +503,19 @@ class DirectTalkWindow(QWidget):
 
         # Monitor selection
         monitor_layout = QHBoxLayout()
-        monitor_layout.addWidget(QLabel("Monitor:", self))
+        monitor_label = QLabel("Monitor:", self)
+        monitor_label.setMinimumWidth(100)
+        monitor_layout.addWidget(monitor_label)
         self.monitor_combo = QComboBox(self)
+        self.monitor_combo.setFixedHeight(36)
+        self.monitor_combo.setMinimumWidth(150)
+        self.monitor_combo.setStyleSheet("""
+            QComboBox {
+                padding: 6px 10px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+            }
+        """)
 
         # Populate monitors
         monitor_count = get_monitor_count()
@@ -439,26 +625,6 @@ class DirectTalkWindow(QWidget):
         group.setLayout(layout)
         return group
 
-    def _create_status_group(self) -> QGroupBox:
-        """Create status display group.
-
-        Returns:
-            QGroupBox with live statistics
-        """
-        group = QGroupBox("Live Statistics", self)
-        layout = QVBoxLayout()
-
-        self.status_label = QLabel("Initializing...", self)
-        self.status_label.setStyleSheet("""
-            QLabel {
-                font-size: 14px;
-                padding: 10px;
-            }
-        """)
-        layout.addWidget(self.status_label)
-
-        group.setLayout(layout)
-        return group
 
     def _on_tolerance_changed(self, value: int):
         """Handle tolerance slider change.
@@ -508,6 +674,9 @@ class DirectTalkWindow(QWidget):
             if self.current_collection:
                 logger.info(f"Loaded current collection: {self.current_collection.name} "
                            f"({self.current_collection.cloud_collection_id})")
+
+                # Populate collection dropdown
+                self._populate_collection_combo()
 
                 # Start orchestrator with existing collection
                 self._start_idle_orchestrator()
@@ -601,6 +770,22 @@ class DirectTalkWindow(QWidget):
 
             logger.info(f"✅ Collection created and saved: {self.current_collection.collection_id}")
 
+            # Populate collection dropdown with the new collection
+            self._populate_collection_combo()
+
+        # If existing collection's cloud ID changed (stale session was replaced),
+        # update the registry so the new ID persists
+        elif self.current_collection and cloud_collection_id:
+            if self.current_collection.cloud_collection_id != cloud_collection_id:
+                logger.info(
+                    f"Cloud session changed: {self.current_collection.cloud_collection_id} → {cloud_collection_id}"
+                )
+                self.collection_registry.update_collection(
+                    self.current_collection.collection_id,
+                    cloud_collection_id=cloud_collection_id
+                )
+                self.current_collection.cloud_collection_id = cloud_collection_id
+
         if self.cloud_collection_id:
             logger.info(f"Cloud collection: {self.cloud_collection_id}")
             logger.info(f"Cloud viewer: {self.cloud_viewer_url}")
@@ -682,10 +867,6 @@ class DirectTalkWindow(QWidget):
         self.countdown_widget.setVisible(False)
         self.settings_group.setVisible(True)
         
-        # Show status
-        self.status_label.setText("Switching to active mode and starting talk...")
-        self.status_group.setVisible(True)
-
         # Process events to update UI
         QApplication.processEvents()
 
@@ -745,8 +926,6 @@ class DirectTalkWindow(QWidget):
             self.presenter_name = presenter
             self.is_active = True
 
-            # Update UI with session info
-            self._update_status_display(0)  # Start with 0 slides
             self.stop_button.setVisible(True)
 
             # Start status polling
@@ -763,32 +942,7 @@ class DirectTalkWindow(QWidget):
             )
 
             # Reset UI
-            self.status_group.setVisible(False)
             self.start_button.setEnabled(True)
-
-    def _update_status_display(self, slides_count: int):
-        """Update the status display with collection and talk stats.
-
-        Args:
-            slides_count: Number of unique slides captured
-        """
-        status_text = f"✅ Talk Active\n\n"
-        status_text += f"Talk: {self.talk_name}\n"
-        status_text += f"Presenter: {self.presenter_name}\n\n"
-
-        # Show cloud collection ID prominently
-        if self.cloud_collection_id:
-            collection_name = self.current_collection.name if self.current_collection else "Collection"
-            status_text += f"📚 Collection: {collection_name}\n"
-            status_text += f"🌐 Collection ID: {self.cloud_collection_id}\n"
-            if self.cloud_viewer_url:
-                status_text += f"📺 Viewer URL: {self.cloud_viewer_url}\n"
-            status_text += "\n"
-
-        status_text += f"💾 Local Talk ID: {self.session_id[:8]}...\n\n"
-        status_text += f"📊 Slides captured: {slides_count}"
-
-        self.status_label.setText(status_text)
 
     def _poll_status(self):
         """Poll orchestrator for live statistics."""
@@ -796,7 +950,6 @@ class DirectTalkWindow(QWidget):
             return
 
         try:
-            # Get stats directly from orchestrator
             stats = self.orchestrator.get_statistics()
 
             if stats and 'deduplication' in stats:
@@ -805,9 +958,6 @@ class DirectTalkWindow(QWidget):
                 slides_count = 0
 
             logger.debug(f"Status poll: slides={slides_count}")
-
-            # Update display with current slide count
-            self._update_status_display(slides_count)
 
         except Exception as e:
             logger.warning(f"Failed to poll status: {e}", exc_info=True)
@@ -870,7 +1020,6 @@ class DirectTalkWindow(QWidget):
                 self.talk_stopped.emit()
 
                 # Reset UI to allow starting another talk
-                self.status_group.setVisible(False)
                 self.stop_button.setVisible(False)
                 self.start_button.setEnabled(True)
 
@@ -889,7 +1038,6 @@ class DirectTalkWindow(QWidget):
         self.talk_stopped.emit()
 
         # Reset UI to allow starting another talk
-        self.status_group.setVisible(False)
         self.stop_button.setVisible(False)
         self.start_button.setEnabled(True)
 

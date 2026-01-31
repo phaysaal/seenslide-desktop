@@ -16,7 +16,7 @@ class CountdownCircle(QWidget):
         super().__init__(parent)
         self.remaining = 10
         self.duration = 10
-        self.setFixedSize(200, 200)
+        self.setFixedSize(120, 120)
 
     def paintEvent(self, event):
         """Paint the countdown circle."""
@@ -38,12 +38,12 @@ class CountdownCircle(QWidget):
         rect = QRectF(x + 10, y + 10, size - 20, size - 20)
 
         # Draw background circle (gray)
-        pen = QPen(QColor(200, 200, 200), 8)
+        pen = QPen(QColor(200, 200, 200), 6)
         painter.setPen(pen)
         painter.drawEllipse(rect)
 
         # Draw progress arc (green)
-        pen = QPen(QColor(76, 175, 80), 8)  # Green color
+        pen = QPen(QColor(76, 175, 80), 6)  # Green color
         painter.setPen(pen)
 
         # Arc spans 360 degrees, starts at top (90 degrees)
@@ -52,7 +52,7 @@ class CountdownCircle(QWidget):
         painter.drawArc(rect, start_angle, span_angle)
 
         # Draw remaining seconds in center
-        font = QFont("Arial", 48, QFont.Bold)
+        font = QFont("Arial", 32, QFont.Bold)
         painter.setFont(font)
         painter.setPen(QColor(51, 51, 51))  # Dark gray text
         painter.drawText(rect, Qt.AlignCenter, str(self.remaining))
@@ -114,10 +114,10 @@ class CountdownWidget(QWidget):
         self.title_label.setAlignment(Qt.AlignCenter)
         self.title_label.setStyleSheet("""
             QLabel {
-                font-size: 18px;
+                font-size: 16px;
                 font-weight: bold;
                 color: #333;
-                margin-bottom: 20px;
+                margin-bottom: 8px;
             }
         """)
         layout.addWidget(self.title_label)
@@ -133,11 +133,11 @@ class CountdownWidget(QWidget):
                 background-color: #f44336;
                 color: white;
                 border: none;
-                padding: 10px 30px;
-                font-size: 14px;
-                border-radius: 5px;
-                margin-top: 20px;
-                min-width: 120px;
+                padding: 6px 20px;
+                font-size: 12px;
+                border-radius: 4px;
+                margin-top: 6px;
+                min-width: 80px;
             }
             QPushButton:hover {
                 background-color: #da190b;

@@ -262,7 +262,8 @@ class CollectionRegistry:
         collection_id: str,
         name: Optional[str] = None,
         alias: Optional[str] = None,
-        has_password: Optional[bool] = None
+        has_password: Optional[bool] = None,
+        cloud_collection_id: Optional[str] = None
     ) -> bool:
         """Update collection metadata.
 
@@ -271,6 +272,7 @@ class CollectionRegistry:
             name: New name (optional)
             alias: New alias (optional)
             has_password: Whether password is set (optional)
+            cloud_collection_id: New cloud collection ID (optional)
 
         Returns:
             True if successful, False otherwise
@@ -288,6 +290,8 @@ class CollectionRegistry:
                 collection.alias = alias
             if has_password is not None:
                 collection.has_password = has_password
+            if cloud_collection_id is not None:
+                collection.cloud_collection_id = cloud_collection_id
 
             collection.last_accessed = datetime.utcnow().isoformat() + 'Z'
 

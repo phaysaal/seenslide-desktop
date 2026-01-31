@@ -83,28 +83,30 @@ class StorageManager:
 
             # Use existing cloud session if provided, otherwise create new one
             existing_cloud_session_id = cloud_config.get("existing_session_id")
+            admin_username = cloud_config.get("admin_username")
+            admin_password_hash = cloud_config.get("admin_password_hash")
+
             if existing_cloud_session_id and self._cloud.enabled:
-                # Verify the session still exists in the cloud
+                # Verify the session still exists on the cloud
                 if self._cloud.session_exists(existing_cloud_session_id):
-                    # Use existing persistent cloud session
                     self._cloud.cloud_session_id = existing_cloud_session_id
-                    logger.info(f"Using existing cloud session: {existing_cloud_session_id}")
+                    logger.info(f"Using existing cloud collection: {existing_cloud_session_id}")
                 else:
-                    # Session no longer exists in cloud - create a new one
-                    logger.warning(f"Cloud session {existing_cloud_session_id} not found, creating new session")
-                    self._cloud.start_session(
-                        session_id=self._session.session_id,
-                        session_name=self._session.name,
-                        description=self._session.description,
-                        presenter_name=self._session.presenter_name
+                    logger.warning(
+                        f"Cloud session {existing_cloud_session_id} no longer exists, creating new one"
                     )
-            elif self._cloud.enabled:
-                # Create new cloud session (legacy behavior)
+                    existing_cloud_session_id = None  # Fall through to create new
+
+            if not existing_cloud_session_id and self._cloud.enabled:
+                # Create new cloud session only if no existing session ID
+                logger.info("Creating new cloud session...")
                 self._cloud.start_session(
                     session_id=self._session.session_id,
                     session_name=self._session.name,
                     description=self._session.description,
-                    presenter_name=self._session.presenter_name
+                    presenter_name=self._session.presenter_name,
+                    admin_username=admin_username,
+                    admin_password_hash=admin_password_hash
                 )
 
             # Subscribe to SLIDE_UNIQUE events
