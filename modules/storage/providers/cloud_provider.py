@@ -109,7 +109,7 @@ class CloudStorageProvider(IStorageProvider):
                 "presenter_name": presenter_name or "Unknown",
                 "description": description,
                 "is_private": False,
-                "max_slides": 100
+                "max_slides": 50
             }
 
             # Add admin credentials if provided (for device portability)
