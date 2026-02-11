@@ -605,7 +605,7 @@ class TalkManagerWindow(QWidget):
                 }
 
                 response = requests.patch(
-                    f"{self.api_url}/api/cloud/session/{session_id}/talk/{talk_id}",
+                    f"{self.api_url}/api/cloud/talk/{talk_id}",
                     headers=headers,
                     json={
                         'title': new_title,
@@ -651,7 +651,7 @@ class TalkManagerWindow(QWidget):
                 }
 
                 response = requests.delete(
-                    f"{self.api_url}/api/cloud/session/{session_id}/talk/{talk_id}",
+                    f"{self.api_url}/api/cloud/talk/{talk_id}",
                     headers=headers,
                     timeout=10
                 )
