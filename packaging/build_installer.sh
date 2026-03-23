@@ -229,19 +229,19 @@ create_icon() {
     done
 
     # Check if icon exists in project
-    if [ -f "$PROJECT_DIR/gui/assets/icon.png" ]; then
+    if [ -f "$PROJECT_DIR/gui/resources/icons/logo.png" ]; then
         # Resize icon for different sizes
         for size in 16 32 48 64 128 256; do
             if command -v convert &> /dev/null; then
-                convert "$PROJECT_DIR/gui/assets/icon.png" -resize ${size}x${size} \
+                convert "$PROJECT_DIR/gui/resources/icons/logo.png" -resize ${size}x${size} \
                     "$PACKAGE_DIR/usr/share/icons/hicolor/${size}x${size}/apps/seenslide.png"
             else
-                cp "$PROJECT_DIR/gui/assets/icon.png" \
+                cp "$PROJECT_DIR/gui/resources/icons/logo.png" \
                     "$PACKAGE_DIR/usr/share/icons/hicolor/${size}x${size}/apps/seenslide.png"
             fi
         done
     else
-        log_warn "No icon found at gui/assets/icon.png - using placeholder"
+        log_warn "No icon found at gui/resources/icons/logo.png - using placeholder"
         # Create a simple placeholder icon (requires ImageMagick)
         if command -v convert &> /dev/null; then
             convert -size 256x256 xc:'#10b981' -gravity center \
