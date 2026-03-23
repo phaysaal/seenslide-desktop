@@ -3,7 +3,7 @@ name: Build & Release
 on:
   push:
     tags:
-      - 'v*'          # Triggered by: git tag v1.0.3 && git push --tags
+      - 'v*'
   workflow_dispatch:
     inputs:
       version:
@@ -13,6 +13,7 @@ on:
 env:
   APP_NAME: seenslide
   PYTHON_VERSION: '3.12'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   # -------------------------------------------------------------------
@@ -41,7 +42,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ruby ruby-dev build-essential \
             libxcb-xinerama0 libxcb-cursor0 libgl1 \
-            libfuse2  # Required for AppImage
+            libfuse2
           sudo gem install fpm
 
       - name: Install Python dependencies
@@ -64,20 +65,20 @@ jobs:
         with:
           name: linux-rpm
           path: packaging/dist/*.rpm
-        if: hashFiles('packaging/dist/*.rpm') != ''
+        continue-on-error: true
 
       - name: Upload AppImage
         uses: actions/upload-artifact@v4
         with:
           name: linux-appimage
           path: packaging/dist/*.AppImage
-        if: hashFiles('packaging/dist/*.AppImage') != ''
+        continue-on-error: true
 
   # -------------------------------------------------------------------
   # macOS (.dmg)
   # -------------------------------------------------------------------
   build-macos:
-    runs-on: macos-13     # Intel — broadest compatibility
+    runs-on: macos-14     # Apple Silicon (M1) — current default
     steps:
       - uses: actions/checkout@v4
 
@@ -113,7 +114,7 @@ jobs:
           path: packaging/dist/macos/*.dmg
 
   # -------------------------------------------------------------------
-  # Windows (.exe installer via Inno Setup)
+  # Windows (.exe)
   # -------------------------------------------------------------------
   build-windows:
     runs-on: windows-latest
@@ -143,28 +144,35 @@ jobs:
       - name: Build with PyInstaller
         run: packaging\build_windows.bat
 
-      - name: Create Windows installer with Inno Setup
+      - name: Create Windows ZIP
         shell: bash
         run: |
           VERSION=${{ steps.version.outputs.version }}
-          cat > packaging/dist/installer.iss << INNO_EOF
+          cd packaging/dist/windows
+          7z a "../SeenSlide-${VERSION}-Windows.zip" SeenSlide/
+
+      - name: Create Windows installer with Inno Setup
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $VERSION = "${{ steps.version.outputs.version }}"
+          $issContent = @"
           [Setup]
           AppName=SeenSlide
-          AppVersion=${VERSION}
+          AppVersion=$VERSION
           AppPublisher=SeenSlide Team
           AppPublisherURL=https://seenslide.com
           DefaultDirName={autopf}\SeenSlide
           DefaultGroupName=SeenSlide
-          OutputDir=.
-          OutputBaseFilename=SeenSlide-${VERSION}-Setup
+          OutputDir=..
+          OutputBaseFilename=SeenSlide-$VERSION-Setup
           Compression=lzma2/max
           SolidCompression=yes
-          SetupIconFile=..\..\gui\resources\icons\logo.ico
           UninstallDisplayIcon={app}\SeenSlide.exe
           ArchitecturesInstallIn64BitMode=x64compatible
 
           [Files]
-          Source: "windows\SeenSlide\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
+          Source: "SeenSlide\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 
           [Icons]
           Name: "{group}\SeenSlide"; Filename: "{app}\SeenSlide.exe"
@@ -175,20 +183,16 @@ jobs:
 
           [Run]
           Filename: "{app}\SeenSlide.exe"; Description: "Launch SeenSlide"; Flags: nowait postinstall skipifsilent
-          INNO_EOF
+          "@
+          $issContent | Out-File -FilePath "packaging/dist/windows/installer.iss" -Encoding UTF8
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (Test-Path $iscc) {
+            & $iscc "packaging/dist/windows/installer.iss"
+          } else {
+            Write-Host "Inno Setup not found — ZIP will be used instead"
+          }
 
-          # Inno Setup is pre-installed on windows-latest runners
-          iscc="C:/Program Files (x86)/Inno Setup 6/ISCC.exe"
-          if [ ! -f "$iscc" ]; then
-            echo "Inno Setup not found, skipping installer creation"
-            # Fall back: zip the folder instead
-            cd packaging/dist/windows
-            7z a "../SeenSlide-${VERSION}-Windows.zip" SeenSlide/
-          else
-            "$iscc" packaging/dist/installer.iss
-          fi
-
-      - name: Upload Windows installer
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
