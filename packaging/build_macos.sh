@@ -167,7 +167,11 @@ python3 -m PyInstaller --noconfirm --clean \
     --hidden-import requests \
     --hidden-import yaml \
     --hidden-import bcrypt \
+    --hidden-import jwt \
     --hidden-import keyring \
+    --hidden-import sounddevice \
+    --hidden-import soundfile \
+    --hidden-import fitz \
     --hidden-import cv2 \
     --distpath "$BUILD_DIR" \
     gui/main.py

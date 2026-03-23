@@ -67,6 +67,13 @@ pyinstaller --noconfirm --clean ^
     --hidden-import requests ^
     --hidden-import yaml ^
     --hidden-import bcrypt ^
+    --hidden-import jwt ^
+    --hidden-import keyring ^
+    --hidden-import sounddevice ^
+    --hidden-import soundfile ^
+    --hidden-import fitz ^
+    --hidden-import cv2 ^
+    --add-data "seenslide;seenslide" ^
     --distpath "%BUILD_DIR%" ^
     gui\main.py
 

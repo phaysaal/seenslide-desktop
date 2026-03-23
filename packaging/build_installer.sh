@@ -115,6 +115,7 @@ datas = [
     (str(project_dir / 'gui'), 'gui'),
     (str(project_dir / 'core'), 'core'),
     (str(project_dir / 'modules'), 'modules'),
+    (str(project_dir / 'seenslide'), 'seenslide'),
 ]
 
 # Hidden imports that PyInstaller might miss
@@ -136,6 +137,13 @@ hiddenimports = [
     'qrcode',
     'yaml',
     'dotenv',
+    'bcrypt',
+    'jwt',
+    'keyring',
+    'sounddevice',
+    'soundfile',
+    'fitz',
+    'cv2',
 ]
 
 a = Analysis(
