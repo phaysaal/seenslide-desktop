@@ -1,21 +1,3 @@
-# Documentation and guides
-*.md
-!README.md
-
-# Test scripts
-*.sh
-!packaging/*.sh
-test_*.py
-check_cloud_config.py
-
-# Viewer experiments
-viewer_*.html
-
-# Sample and testing directories
-sample/
-sample_gui/
-testing_scripts/
-
 # Python cache
 __pycache__/
 *.pyc
@@ -42,6 +24,7 @@ ENV/
 
 # Logs
 *.log
+logs/
 
 # OS
 .DS_Store
@@ -50,6 +33,58 @@ Thumbs.db
 # Build artifacts
 packaging/build/
 packaging/dist/
+packaging/package/
+packaging/*.spec
+packaging/postinst
+packaging/appimagetool
+packaging/SeenSlide.AppDir/
 build/
 dist/
 *.spec
+
+# Local scratch
+notes/
+sample/
+sample_gui/
+testing_scripts/
+tools/
+
+# Test scripts
+test_*.py
+check_cloud_config.py
+
+# Viewer experiments
+viewer_*.html
+
+# Packaging docs (keep README.md at root)
+packaging/README.md
+build/README.md
+
+# Credentials (never commit)
+.env
+*.credentials.json
+.jwt_secret
+
+# Old guide/scratch markdown files (keep only README.md)
+ADAPTIVE_DEDUP_DESIGN.md
+CLOUD_SYNC_TEST.md
+COMPLETE_IMPLEMENTATION_GUIDE.md
+DESKTOP_SETUP_COMPLETE.md
+DESKTOP_TESTING_GUIDE.md
+FIXES_APPLIED.md
+IDLE_MODE_IMPLEMENTATION_STATUS.md
+PERSISTENT_SESSION_GUIDE.md
+PHASE_*.md
+QUICK_REFERENCE.md
+SESSION_FIX_COMPLETE.md
+START_HERE.md
+
+# Old scratch shell scripts (keep release.sh and packaging/*.sh)
+capture.sh
+reset_local_db.sh
+setup_testing.sh
+start.sh
+start_admin_with_cloud.sh
+test_admin.sh
+test_local.sh
+test_remote_viewer.sh
