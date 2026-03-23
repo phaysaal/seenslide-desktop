@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SeenSlide Admin</title>
+    <link rel="icon" type="image/png" href="/static/logo.png">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="loginScreen" class="login-screen">
+        <div class="login-box">
+            <img src="/static/logo.png" alt="SeenSlide" class="login-logo">
+            <h1>SeenSlide Admin</h1>
+            <p class="subtitle">Sign in to manage your presentation capture</p>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username" required autofocus>
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Sign In</button>
+                <div id="loginError" class="error-message"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="dashboard" class="dashboard" style="display: none;">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <img src="/static/logo.png" alt="SeenSlide" class="header-logo">
+                <div>
+                    <h1>SeenSlide Admin</h1>
+                    <span id="userInfo" class="user-info"></span>
+                </div>
+            </div>
+            <div class="header-right">
+                <button id="logoutBtn" class="btn btn-secondary">Logout</button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="container">
+            <!-- Current Session Info -->
+            <div class="status-cards">
+                <div class="status-card" style="grid-column: 1 / -1;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h3>Current Session</h3>
+                        <button id="resetSessionBtn" class="btn btn-secondary btn-small">New Session</button>
+                    </div>
+                    <div id="persistentSessionInfo" class="status-info">
+                        <div><strong>Session ID:</strong> <span id="persistentSessionId">Loading...</span></div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <strong>Session Name:</strong>
+                            <span id="persistentSessionName">Loading...</span>
+                            <button id="editSessionNameBtn" class="btn btn-small" style="padding: 2px 6px; font-size: 12px;" title="Edit session name">✎</button>
+                        </div>
+                        <div><strong>Cloud Status:</strong> <span id="cloudStatus">Checking...</span></div>
+                    </div>
+                    <div id="qrCodeContainer" class="qr-container" style="margin-top: 16px;">
+                        <img id="qrCode" src="" alt="QR Code" style="display:none;">
+                        <p id="viewerUrl" class="viewer-url"></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Server Status Cards -->
+            <div class="status-cards">
+                <div class="status-card">
+                    <h3>Talk Status</h3>
+                    <div class="status-indicator">
+                        <span id="captureStatus" class="status-badge inactive">Inactive</span>
+                    </div>
+                    <div id="captureInfo" class="status-info"></div>
+                </div>
+
+                <div class="status-card">
+                    <h3>Viewer Server</h3>
+                    <div class="status-indicator">
+                        <span id="viewerStatus" class="status-badge inactive">Inactive</span>
+                    </div>
+                    <div id="viewerInfo" class="status-info"></div>
+                </div>
+            </div>
+
+            <!-- Server Controls -->
+            <div class="control-panel">
+                <h2>Server Controls</h2>
+                <div class="controls-grid">
+                    <div class="control-section">
+                        <h3>Viewer Server</h3>
+                        <div class="button-group">
+                            <button id="startViewerBtn" class="btn btn-success">Start Viewer</button>
+                            <button id="stopViewerBtn" class="btn btn-danger" disabled>Stop Viewer</button>
+                        </div>
+                    </div>
+
+                    <div class="control-section">
+                        <h3>Start New Talk</h3>
+                        <div id="captureControlsForm">
+                            <div class="form-inline">
+                                <input type="text" id="talkTitle" placeholder="Talk Title (e.g., 'Introduction to AI')" required>
+                                <input type="text" id="presenterName" placeholder="Presenter Name">
+                                <select id="monitorId">
+                                    <option value="1">Monitor 1</option>
+                                    <option value="2">Monitor 2</option>
+                                    <option value="3">Monitor 3</option>
+                                </select>
+                            </div>
+                            <textarea id="talkDescription" placeholder="Description (optional)" rows="2"></textarea>
+
+                            <!-- Deduplication Tolerance Control -->
+                            <div class="tolerance-control">
+                                <label for="dedupTolerance">
+                                    Deduplication Tolerance: <span id="toleranceValue">50</span>%
+                                    <small style="display:block; color: #6b7280; margin-top: 4px;">
+                                        0-80%: Detect 10-50% changes | 80-95%: Detect 50-90% changes | 95-100%: Only complete window changes
+                                    </small>
+                                </label>
+                                <input type="range" id="dedupTolerance" min="0" max="100" value="50" step="5">
+                                <div style="display:flex; justify-content: space-between; font-size: 12px; color: #9ca3af; margin-top: 4px;">
+                                    <span>Strict (0%) - Catch small changes</span>
+                                    <span>Lenient (100%) - Ignore small changes</span>
+                                </div>
+                            </div>
+
+                            <div class="button-group">
+                                <button id="startCaptureBtn" class="btn btn-success">Start Talk</button>
+                                <button id="stopCaptureBtn" class="btn btn-danger" disabled>Stop Talk</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Talks List -->
+            <div class="sessions-panel">
+                <div class="panel-header">
+                    <h2>Talks in Current Session</h2>
+                    <button id="refreshTalksBtn" class="btn btn-secondary">Refresh</button>
+                </div>
+                <div id="talksList" class="sessions-list">
+                    <p style="color: #9ca3af; padding: 16px;">Loading talks...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Modal Dialog -->
+    <div id="modalOverlay" class="modal-overlay">
+        <div class="modal-box">
+            <h3 id="modalTitle">Modal Title</h3>
+            <div id="modalContent">
+                <!-- Dynamic content -->
+            </div>
+            <div id="modalActions" class="modal-actions">
+                <!-- Dynamic buttons -->
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

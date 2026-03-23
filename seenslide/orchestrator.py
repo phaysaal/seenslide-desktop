@@ -1,6 +1,7 @@
 """Main orchestrator for SeenSlide system."""
 
 import logging
+import threading
 from typing import Optional, Dict
 import time
 
@@ -16,6 +17,9 @@ from modules.dedup.strategies.perceptual_strategy import PerceptualDeduplication
 from modules.dedup.strategies.hybrid_strategy import HybridDeduplicationStrategy
 from modules.dedup.strategies.adaptive_strategy import AdaptiveDeduplicationStrategy
 from modules.storage.manager import StorageManager
+from modules.voice.recorder import VoiceRecorder
+from modules.voice.cloud_uploader import VoiceCloudUploader
+from core.interfaces.events import EventType
 
 # Import plugins to register providers
 import modules.capture.plugin
@@ -51,7 +55,11 @@ class SeenSlideOrchestrator:
         self.capture_daemon: Optional[CaptureDaemon] = None
         self.dedup_engine: Optional[DeduplicationEngine] = None
         self.storage_manager: Optional[StorageManager] = None
+        self.voice_recorder: Optional[VoiceRecorder] = None
+        self._voice_cloud_uploader: Optional[VoiceCloudUploader] = None
+        self._voice_auto_chunk_timer: Optional[threading.Timer] = None
 
+        self._voice_enabled = False
         self._running = False
 
         logger.info("SeenSlide orchestrator initialized")
@@ -166,6 +174,9 @@ class SeenSlideOrchestrator:
             return False
 
         try:
+            # Stop voice recording first (before other components)
+            self.stop_voice_recording()
+
             # Stop all components
             if self.capture_daemon:
                 self.capture_daemon.stop()
@@ -177,12 +188,179 @@ class SeenSlideOrchestrator:
                 self.storage_manager.stop()
 
             self._running = False
-            logger.info(f"Stopped session: {self.session.session_id}")
+            session_id = self.session.session_id if self.session else "unknown"
+            logger.info(f"Stopped session: {session_id}")
             return True
 
         except Exception as e:
             logger.error(f"Failed to stop session: {e}")
             return False
+
+    # ------------------------------------------------------------------
+    # Voice recording
+    # ------------------------------------------------------------------
+
+    def set_voice_enabled(self, enabled: bool, device: int = None):
+        """Enable or disable voice recording for subsequent talks.
+
+        Args:
+            enabled: Whether to record audio during talks.
+            device: Audio input device index (None = system default).
+        """
+        self._voice_enabled = enabled
+        self._voice_device = device
+        logger.info(f"Voice recording {'enabled' if enabled else 'disabled'}")
+
+    def start_voice_recording(self) -> bool:
+        """Start recording voice (call after talk has started).
+
+        Starts local WAV recording and, if cloud is configured,
+        starts a cloud recording + subscribes to SLIDE_UNIQUE for
+        semi-live chunk uploads.
+
+        Returns:
+            True if recording started successfully.
+        """
+        if not self._voice_enabled:
+            return False
+
+        if not self._running or not self.session:
+            logger.warning("Cannot record voice: no active session")
+            return False
+
+        # Determine output directory (next to slides)
+        storage_cfg = self.config.get("storage", {})
+        base = storage_cfg.get("base_path", "~/.local/share/seenslide")
+        from pathlib import Path
+        output_dir = Path(base).expanduser() / "voice"
+
+        self.voice_recorder = VoiceRecorder(
+            event_bus=self.event_bus,
+            output_dir=str(output_dir),
+            session_id=self.session.session_id,
+            device=getattr(self, '_voice_device', None),
+        )
+
+        if not self.voice_recorder.start():
+            return False
+
+        # Start cloud voice upload if cloud is configured
+        cloud_cfg = self.config.get("cloud", {})
+        api_url = cloud_cfg.get("api_url", "").rstrip("/")
+        cloud_session_id = getattr(self.session, 'cloud_session_id', None)
+
+        if api_url and cloud_session_id:
+            self._voice_cloud_uploader = VoiceCloudUploader(
+                api_url=api_url,
+                session_token=cloud_cfg.get("session_token", ""),
+            )
+            ok = self._voice_cloud_uploader.start_cloud_recording(cloud_session_id)
+            if ok:
+                # Subscribe to slide events for chunk uploads
+                self.event_bus.subscribe(
+                    EventType.SLIDE_UNIQUE, self._on_slide_for_voice_upload
+                )
+                # Start 60-second auto-chunk timer (uploads even without slide changes)
+                self._start_auto_chunk_timer()
+                logger.info("Voice cloud upload enabled (semi-live, 60s auto-chunk)")
+            else:
+                logger.warning("Cloud voice recording failed to start — recording locally only")
+                self._voice_cloud_uploader = None
+
+        return True
+
+    def _on_slide_for_voice_upload(self, event):
+        """Flush audio chunk and upload to cloud on each new slide."""
+        self._flush_and_upload_voice()
+        # Reset auto-chunk timer since we just uploaded
+        self._restart_auto_chunk_timer()
+
+    def _flush_and_upload_voice(self):
+        """Flush accumulated audio and upload to cloud."""
+        if not self.voice_recorder or not self._voice_cloud_uploader:
+            return
+
+        chunk = self.voice_recorder.flush_chunk()
+        if not chunk:
+            return
+
+        markers = self.voice_recorder.markers
+        slide_num = markers[-1].slide_number if markers else 0
+        ts = markers[-1].timestamp_seconds if markers else 0.0
+
+        self._voice_cloud_uploader.upload_chunk(chunk, slide_num, ts)
+
+    # --- 60-second auto-chunk timer ---
+
+    _AUTO_CHUNK_INTERVAL = 60  # seconds
+
+    def _start_auto_chunk_timer(self):
+        """Start repeating timer that uploads audio every 60s."""
+        self._voice_auto_chunk_timer = threading.Timer(
+            self._AUTO_CHUNK_INTERVAL, self._auto_chunk_tick
+        )
+        self._voice_auto_chunk_timer.daemon = True
+        self._voice_auto_chunk_timer.start()
+
+    def _restart_auto_chunk_timer(self):
+        """Reset the timer (called after each slide-triggered upload)."""
+        self._stop_auto_chunk_timer()
+        if self.voice_recorder and self.voice_recorder.is_recording:
+            self._start_auto_chunk_timer()
+
+    def _stop_auto_chunk_timer(self):
+        if self._voice_auto_chunk_timer:
+            self._voice_auto_chunk_timer.cancel()
+            self._voice_auto_chunk_timer = None
+
+    def _auto_chunk_tick(self):
+        """Timer callback: upload audio even if no new slide appeared."""
+        if self.voice_recorder and self.voice_recorder.is_recording:
+            logger.debug("Auto-chunk: uploading audio (no slide change in 60s)")
+            self._flush_and_upload_voice()
+            # Re-schedule
+            self._start_auto_chunk_timer()
+
+    def stop_voice_recording(self) -> Optional[str]:
+        """Stop voice recording and return the WAV file path.
+
+        Also uploads any remaining audio chunk and stops the cloud recording.
+        """
+        # Stop auto-chunk timer
+        self._stop_auto_chunk_timer()
+
+        path = None
+
+        if self.voice_recorder and self.voice_recorder.is_recording:
+            # Flush final chunk to cloud before stopping
+            if self._voice_cloud_uploader:
+                final_chunk = self.voice_recorder.flush_chunk()
+                if final_chunk:
+                    markers = self.voice_recorder.markers
+                    slide_num = markers[-1].slide_number if markers else 0
+                    ts = markers[-1].timestamp_seconds if markers else 0.0
+                    self._voice_cloud_uploader.upload_chunk(final_chunk, slide_num, ts)
+
+            duration = self.voice_recorder.duration_seconds
+            path = self.voice_recorder.stop()
+
+            # Finalize cloud recording
+            if self._voice_cloud_uploader:
+                self._voice_cloud_uploader.stop_cloud_recording(duration)
+                self._voice_cloud_uploader = None
+
+                # Unsubscribe from slide events
+                self.event_bus.unsubscribe(
+                    EventType.SLIDE_UNIQUE, self._on_slide_for_voice_upload
+                )
+
+        return path
+
+    def get_voice_stats(self) -> Optional[dict]:
+        """Get voice recording statistics."""
+        if self.voice_recorder:
+            return self.voice_recorder.get_stats()
+        return None
 
     def pause_capture(self) -> bool:
         """Pause capture without stopping the session.
@@ -314,7 +492,8 @@ class SeenSlideOrchestrator:
             "session": None,
             "capture": None,
             "deduplication": None,
-            "storage": None
+            "storage": None,
+            "voice": None,
         }
 
         if self.session:
@@ -332,6 +511,9 @@ class SeenSlideOrchestrator:
 
         if self.storage_manager:
             stats["storage"] = self.storage_manager.get_statistics()
+
+        if self.voice_recorder:
+            stats["voice"] = self.voice_recorder.get_stats()
 
         return stats
 

@@ -17,10 +17,14 @@ from gui.windows.mode_selector import ModeSelector
 from gui.windows.direct_talk_window import DirectTalkWindow
 from gui.windows.conference_launcher import ConferenceLauncher
 from gui.windows.talk_manager_window import TalkManagerWindow
+from gui.windows.slide_deck_window import SlideDeckWindow
 from gui.widgets.region_selector import RegionSelector
 from gui.utils.screenshot_util import capture_screenshot, get_primary_screen_size
 from gui.utils.region_utils import calculate_default_region
 from gui.utils.portal_session import PortalSessionManager
+
+from seenslide import __version__
+from core.updater import UpdateChecker, UpdateDownloader
 
 
 # Setup logging
@@ -46,10 +50,14 @@ class SeenSlideApp:
         self.direct_talk_window: Optional[DirectTalkWindow] = None
         self.conference_launcher: Optional[ConferenceLauncher] = None
         self.talk_manager: Optional[TalkManagerWindow] = None
-
+        self.slide_deck_window: Optional[SlideDeckWindow] = None
 
         # Selected crop region (None = use default)
         self.crop_region: Optional[dict] = None
+
+        # Auto-update
+        self._update_checker: Optional[UpdateChecker] = None
+        self._update_downloader: Optional[UpdateDownloader] = None
 
         logger.info("SeenSlide application initialized")
 
@@ -75,7 +83,72 @@ class SeenSlideApp:
         self.mode_selector.direct_talk_selected.connect(self._on_direct_talk_selected)
         self.mode_selector.conference_mode_selected.connect(self._on_conference_mode_selected)
         self.mode_selector.manage_talks_selected.connect(self._on_manage_talks_selected)
+        self.mode_selector.upload_slides_selected.connect(self._on_upload_slides_selected)
+
+        # Wire update banner signals
+        banner = self.mode_selector.update_banner
+        banner.download_requested.connect(self._on_download_requested)
+        banner.install_requested.connect(self._on_install_requested)
+        banner.dismiss_requested.connect(self._on_message_dismissed)
+
         self.mode_selector.show()
+
+        # Start background update check
+        self._start_update_check()
+
+    # ------------------------------------------------------------------
+    # Auto-update
+    # ------------------------------------------------------------------
+
+    def _start_update_check(self):
+        """Launch background thread to check for updates and messages."""
+        self._update_checker = UpdateChecker(current_version=__version__)
+        self._update_checker.update_available.connect(self._on_update_available)
+        self._update_checker.message_available.connect(self._on_message_available)
+        self._update_checker.start()
+
+    def _on_update_available(self, info: dict):
+        """A newer version was found on the server."""
+        if self.mode_selector:
+            self.mode_selector.update_banner.show_update(info)
+
+    def _on_message_available(self, msg: dict):
+        """A broadcast message arrived (shown only if no update banner is visible)."""
+        if self.mode_selector:
+            banner = self.mode_selector.update_banner
+            # Don't replace an update notification with a regular message
+            if banner.isHidden():
+                banner.show_message(msg)
+
+    def _on_download_requested(self, info: dict):
+        """User clicked Download on the update banner."""
+        url = info.get("download_url", "")
+        if not url:
+            logger.warning("No download URL in update info")
+            return
+
+        banner = self.mode_selector.update_banner if self.mode_selector else None
+
+        self._update_downloader = UpdateDownloader(
+            url=url,
+            expected_sha256=info.get("sha256", ""),
+        )
+        if banner:
+            self._update_downloader.progress.connect(banner.set_download_progress)
+            self._update_downloader.download_complete.connect(banner.set_download_complete)
+            self._update_downloader.download_failed.connect(banner.set_download_failed)
+        self._update_downloader.start()
+
+    @staticmethod
+    def _on_install_requested(file_path: str):
+        """User clicked Install & Restart."""
+        from gui.widgets.update_banner import UpdateBanner
+        UpdateBanner.launch_installer(file_path)
+
+    @staticmethod
+    def _on_message_dismissed(msg_id: str):
+        """User dismissed a broadcast message."""
+        UpdateChecker.dismiss_message(msg_id)
 
     def _on_direct_talk_selected(self):
         """Handle Direct Talk mode selection."""
@@ -116,6 +189,22 @@ class SeenSlideApp:
         self.talk_manager = TalkManagerWindow()
         self.talk_manager.close_requested.connect(self._on_talk_manager_closed)
         self.talk_manager.show()
+
+    def _on_upload_slides_selected(self):
+        """Handle Upload Slides selection."""
+        logger.info("User selected Upload Slides")
+
+        if self.mode_selector:
+            self.mode_selector.hide()
+
+        self.slide_deck_window = SlideDeckWindow()
+        self.slide_deck_window.close_requested.connect(self._on_slide_deck_closed)
+        self.slide_deck_window.show()
+
+    def _on_slide_deck_closed(self):
+        """Handle slide deck window closed."""
+        logger.info("Slide deck window closed")
+        self.show_mode_selector()
 
     def _on_talk_manager_closed(self):
         """Handle talk manager window closed."""

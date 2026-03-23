@@ -2,7 +2,6 @@
 # Python 3.10+ required
 
 # GUI Framework
-customtkinter>=5.2.0
 PyQt5>=5.15.0
 PyQt5-Qt5>=5.15.2
 
@@ -36,3 +35,10 @@ requests>=2.31.0
 
 # QR Code Generation
 qrcode[pil]>=7.4.2
+
+# Voice Recording
+sounddevice>=0.4.6
+soundfile>=0.12.1
+
+# Slide File Conversion (PDF → images)
+PyMuPDF>=1.23.0

@@ -1,0 +1,200 @@
+"""Countdown widget with progress circle animation."""
+
+from typing import Optional
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QRectF
+from PyQt5.QtGui import QPainter, QColor, QPen, QFont
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class CountdownCircle(QWidget):
+    """Custom widget to draw countdown circle."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.remaining = 10
+        self.duration = 10
+        self.setFixedSize(120, 120)
+
+    def paintEvent(self, event):
+        """Paint the countdown circle."""
+        # Calculate progress (0.0 to 1.0)
+        progress = 1.0 - (self.remaining / self.duration) if self.duration > 0 else 1.0
+
+        # Create painter
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # Get widget dimensions
+        width = self.width()
+        height = self.height()
+        size = min(width, height)
+
+        # Center the circle
+        x = (width - size) // 2
+        y = (height - size) // 2
+        rect = QRectF(x + 10, y + 10, size - 20, size - 20)
+
+        # Draw background circle (gray)
+        pen = QPen(QColor(200, 200, 200), 6)
+        painter.setPen(pen)
+        painter.drawEllipse(rect)
+
+        # Draw progress arc (green)
+        pen = QPen(QColor(76, 175, 80), 6)  # Green color
+        painter.setPen(pen)
+
+        # Arc spans 360 degrees, starts at top (90 degrees)
+        start_angle = 90 * 16  # Qt uses 1/16th degree units
+        span_angle = -int(progress * 360 * 16)  # Negative for clockwise
+        painter.drawArc(rect, start_angle, span_angle)
+
+        # Draw remaining seconds in center
+        font = QFont("Arial", 32, QFont.Bold)
+        painter.setFont(font)
+        painter.setPen(QColor(51, 51, 51))  # Dark gray text
+        painter.drawText(rect, Qt.AlignCenter, str(self.remaining))
+
+        painter.end()
+
+    def set_countdown(self, remaining: int, duration: int):
+        """Update countdown values and trigger repaint."""
+        self.remaining = remaining
+        self.duration = duration
+        self.update()
+
+
+class CountdownWidget(QWidget):
+    """Widget displaying countdown timer with circular progress."""
+
+    # Signal emitted when countdown completes
+    countdown_finished = pyqtSignal()
+
+    # Signal emitted when countdown is cancelled
+    countdown_cancelled = pyqtSignal()
+
+    def __init__(
+        self,
+        duration: int = 10,
+        title: str = "Starting in...",
+        parent: Optional[QWidget] = None
+    ):
+        """Initialize countdown widget.
+
+        Args:
+            duration: Countdown duration in seconds (default: 10)
+            title: Title text to display (default: "Starting in...")
+            parent: Parent widget
+        """
+        super().__init__(parent)
+
+        self.duration = duration
+        self.remaining = duration
+        self.title_text = title
+
+        # Timer for countdown
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._on_timer_tick)
+
+        # Setup UI
+        self._setup_ui()
+
+        logger.info(f"CountdownWidget initialized: {duration}s")
+
+    def _setup_ui(self):
+        """Setup the UI components."""
+        # Main layout
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignCenter)
+
+        # Title label
+        self.title_label = QLabel(self.title_text, self)
+        self.title_label.setAlignment(Qt.AlignCenter)
+        self.title_label.setStyleSheet("""
+            QLabel {
+                font-size: 16px;
+                font-weight: bold;
+                color: #333;
+                margin-bottom: 8px;
+            }
+        """)
+        layout.addWidget(self.title_label)
+
+        # Countdown display (custom widget with its own paintEvent)
+        self.countdown_display = CountdownCircle(self)
+        layout.addWidget(self.countdown_display, alignment=Qt.AlignCenter)
+
+        # Cancel button
+        self.cancel_button = QPushButton("Cancel", self)
+        self.cancel_button.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                border: none;
+                padding: 6px 20px;
+                font-size: 12px;
+                border-radius: 4px;
+                margin-top: 6px;
+                min-width: 80px;
+            }
+            QPushButton:hover {
+                background-color: #da190b;
+            }
+        """)
+        self.cancel_button.clicked.connect(self._on_cancel)
+        layout.addWidget(self.cancel_button, alignment=Qt.AlignCenter)
+
+        self.setLayout(layout)
+
+    def start(self):
+        """Start the countdown."""
+        logger.info(f"Starting countdown: {self.duration}s")
+        self.remaining = self.duration
+        self.timer.start(1000)  # Tick every second
+        if hasattr(self, 'countdown_display'):
+            self.countdown_display.set_countdown(self.remaining, self.duration)
+
+    def stop(self):
+        """Stop the countdown."""
+        logger.info("Stopping countdown")
+        self.timer.stop()
+
+    def _on_timer_tick(self):
+        """Handle timer tick (every second)."""
+        self.remaining -= 1
+        logger.debug(f"Countdown: {self.remaining}s remaining")
+
+        # Update display
+        if hasattr(self, 'countdown_display'):
+            self.countdown_display.set_countdown(self.remaining, self.duration)
+
+        # Check if finished
+        if self.remaining <= 0:
+            self.timer.stop()
+            logger.info("Countdown finished")
+            self.countdown_finished.emit()
+
+    def _on_cancel(self):
+        """Handle cancel button click."""
+        logger.info("Countdown cancelled by user")
+        self.stop()
+        self.countdown_cancelled.emit()
+
+    def set_title(self, title: str):
+        """Update the title text.
+
+        Args:
+            title: New title text
+        """
+        self.title_text = title
+        if hasattr(self, 'title_label'):
+            self.title_label.setText(title)
+
+    def reset(self):
+        """Reset countdown to initial duration."""
+        self.stop()
+        self.remaining = self.duration
+        if hasattr(self, 'countdown_display'):
+            self.countdown_display.set_countdown(self.remaining, self.duration)

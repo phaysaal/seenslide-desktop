@@ -1,0 +1,246 @@
+  Deduplication Strategies
+
+  1. Hash Strategy (Default)
+
+  - Computes MD5/SHA256 hash of raw image bytes
+  - Only matches pixel-perfect identical images
+  - Fast but strict - any pixel change breaks the match
+
+  2. Perceptual Strategy
+
+  - Uses perceptual hashing (pHash) via imagehash library
+  - Computes visual similarity, not exact pixels
+  - Calculates Hamming distance between 64-bit hashes
+  - Default threshold: 0.95 (95% similar = duplicate)
+  - Tolerates minor changes (cursor, small animations)
+
+  3. Hybrid Strategy
+
+  - Multi-stage pipeline: tries hash first, then perceptual
+  - Fast exact matching with tolerant fallback
+  - Tracks statistics on which stage caught duplicates
+
+  4. Adaptive Strategy (Most Sophisticated)
+
+  - Solves the problem of embedded videos/webcams/animations
+  - Region Profiling: Every 30 seconds, samples 20 frames to detect static regions
+  - Uses motion analysis to find areas that don't change
+  - Only compares the static slide region, ignoring dynamic content
+  - Threshold: 0.92
+
+  Processing Flow
+
+  Screenshot Captured
+         ↓
+  First capture? → YES → Mark UNIQUE
+         ↓ NO
+  Compare with previous using strategy
+         ↓
+  Similarity >= threshold? → YES → Mark DUPLICATE (save to /tmp/seenslide/rejected/)
+         ↓ NO
+  Mark UNIQUE → Update "previous" reference
+
+  Key Config (config/config.yaml)
+
+  deduplication:
+    strategy: "hash"           # hash, perceptual, hybrid, adaptive
+    perceptual_threshold: 0.95
+    dedup_threshold: 0.92      # for adaptive
+    adaptive:
+      sampling_interval: 30    # resample every 30s
+      min_region_ratio: 0.5    # region must be ≥50% of screen
+
+  Similarity Scores
+  ┌───────────┬─────────────────────────────────┐
+  │   Score   │             Meaning             │
+  ├───────────┼─────────────────────────────────┤
+  │ 1.0       │ Pixel-perfect identical         │
+  ├───────────┼─────────────────────────────────┤
+  │ 0.95-0.99 │ Nearly identical (cursor moved) │
+  ├───────────┼─────────────────────────────────┤
+  │ 0.90-0.94 │ Same slide, minor changes       │
+  ├───────────┼─────────────────────────────────┤
+  │ < 0.80    │ Different slide                 │
+  └───────────┴─────────────────────────────────┘
+  The default hash strategy is fastest but strictest. For presentations with animations or cursor movement, perceptual or hybrid works better. For screens with embedded videos, adaptive is best.
+  
+  Adaptive Strategy Algorithm - Detailed Breakdown
+
+  The Adaptive Strategy solves the problem of embedded videos, webcams, and animations that cause false "unique slide" detections. It works in two phases:
+
+  ---
+  Phase 1: Region Profiling (Every 30 seconds)
+
+  The goal is to find the static slide area and ignore dynamic content.
+
+  Step 1: Capture Samples
+
+  Capture 20 screenshots at 10 fps (2 seconds of data)
+
+  Step 2: Build Change Frequency Map
+
+  For each pixel, count how many times it changed across consecutive frames:
+
+  # Convert all frames to grayscale
+  np_frames = [np.array(frame.convert('L')) for frame in frames]
+
+  # Initialize change counter (same size as image)
+  change_freq = np.zeros((height, width), dtype=np.float32)
+
+  # Compare consecutive frames
+  for i in range(num_frames - 1):
+      # Pixel-wise absolute difference
+      diff = cv2.absdiff(np_frames[i], np_frames[i+1])
+
+      # Threshold: if diff > 25, pixel changed
+      binary_diff = (diff > 25)  # 1 = changed, 0 = same
+
+      # Accumulate changes
+      change_freq += binary_diff
+
+  Result: A 2D array where each cell = number of times that pixel changed.
+
+  Step 3: Identify Static Pixels
+
+  # Max allowed changes = 10% of frame pairs
+  # For 20 frames → 19 pairs → max 1-2 changes allowed
+  max_allowed_changes = int(19 * 0.1) = 1
+
+  # Pixels that changed ≤ 1 time are "static"
+  static_mask = (change_freq <= max_allowed_changes)
+
+  Visual Example:
+  Original Screen:                    Static Mask:
+  ┌──────────────────────┐           ┌──────────────────────┐
+  │  [SLIDE CONTENT]     │           │  ████████████████    │
+  │                      │           │  ████████████████    │
+  │                      │           │  ████████████████    │
+  ├──────────────────────┤    →      ├──────────────────────┤
+  │  [VIDEO PLAYING]     │           │  ░░░░░░░░░░░░░░░░    │
+  │  (pixels changing)   │           │  ░░░░░░░░░░░░░░░░    │
+  └──────────────────────┘           └──────────────────────┘
+                                     █ = static (compare these)
+                                     ░ = dynamic (ignore these)
+
+  Step 4: Find Largest Rectangles (Histogram Algorithm)
+
+  This is an O(n×m) algorithm to find the largest rectangle of "static" pixels:
+
+  def _find_max_rectangle(mask):
+      heights = np.zeros(width)  # Running histogram
+      max_area = 0
+      best_rect = (0, 0, 0, 0)
+
+      for row in range(height):
+          # Update histogram: if pixel is static, increase height
+          # if pixel is dynamic, reset height to 0
+          heights[mask[row] == 255] += 1
+          heights[mask[row] == 0] = 0
+
+          # Find largest rectangle in this histogram using stack
+          # (standard "largest rectangle in histogram" algorithm)
+          stack = []
+          for i, h in enumerate(heights):
+              start = i
+              while stack and stack[-1][1] >= h:
+                  idx, h_val = stack.pop()
+                  area = h_val * (i - idx)
+                  if area > max_area:
+                      max_area = area
+                      best_rect = (idx, row - h_val + 1, i - idx, h_val)
+                  start = idx
+              stack.append((start, h))
+
+      return best_rect  # (x, y, width, height)
+
+  How it works visually:
+  Row 0: heights = [1,1,1,1,0,0]  ← Build histogram row by row
+  Row 1: heights = [2,2,2,2,0,0]
+  Row 2: heights = [3,3,3,3,0,0]
+  ...
+  At each row, find largest rectangle that fits in histogram
+
+  Step 5: Filter Regions
+
+  - Keep only regions ≥ 50% of screen area
+  - Sort by area (largest first)
+  - Keep top 2 regions
+
+  Step 6: Calculate Confidence
+
+  # Ideal coverage: 50-80% of screen
+  if 0.5 <= coverage <= 0.8:
+      confidence = 1.0
+  elif coverage < 0.5:
+      confidence = coverage / 0.5  # Linear scale
+  else:
+      confidence = 1.0 - (coverage - 0.8) / 0.2  # Penalty for too large
+
+  # Penalty for fragmentation (> 2 regions)
+  if num_regions > 2:
+      confidence *= 0.7
+
+  ---
+  Phase 2: Comparison (Every Screenshot)
+
+  When comparing two screenshots:
+
+  def is_duplicate(current, previous):
+      # 1. Check if profile is still valid (< 30 seconds old)
+      if not profile.is_valid():
+          await refresh_profile()  # Re-run Phase 1
+
+      # 2. Extract only the static regions from both images
+      if profile.regions:
+          current_regions = [current.crop(region) for region in profile.regions]
+          previous_regions = [previous.crop(region) for region in profile.regions]
+
+          # 3. Compare each region using perceptual hash
+          similarities = []
+          for curr, prev in zip(current_regions, previous_regions):
+              hash1 = imagehash.phash(curr, hash_size=8)
+              hash2 = imagehash.phash(prev, hash_size=8)
+              hamming_distance = hash1 - hash2
+              similarity = 1.0 - (hamming_distance / 64)
+              similarities.append(similarity)
+
+          # 4. Average similarity across all regions
+          avg_similarity = sum(similarities) / len(similarities)
+      else:
+          # Fallback: compare full screen
+          avg_similarity = compare_full_screen(current, previous)
+
+      # 5. Duplicate if similarity >= 0.92
+      return avg_similarity >= 0.92
+
+  ---
+  Configuration Parameters
+  ┌───────────────────┬─────────┬────────────────────────────────────────┐
+  │     Parameter     │ Default │              Description               │
+  ├───────────────────┼─────────┼────────────────────────────────────────┤
+  │ sampling_interval │ 30s     │ How often to re-detect regions         │
+  ├───────────────────┼─────────┼────────────────────────────────────────┤
+  │ sample_count      │ 20      │ Screenshots per sampling               │
+  ├───────────────────┼─────────┼────────────────────────────────────────┤
+  │ sample_freq       │ 10 fps  │ Capture rate during sampling           │
+  ├───────────────────┼─────────┼────────────────────────────────────────┤
+  │ min_region_ratio  │ 0.5     │ Region must be ≥ 50% of screen         │
+  ├───────────────────┼─────────┼────────────────────────────────────────┤
+  │ max_regions       │ 2       │ Track at most 2 regions                │
+  ├───────────────────┼─────────┼────────────────────────────────────────┤
+  │ change_threshold  │ 25      │ Pixel diff > 25 = "changed"            │
+  ├───────────────────┼─────────┼────────────────────────────────────────┤
+  │ max_change_ratio  │ 0.1     │ Pixel changed ≤ 10% of time = "static" │
+  ├───────────────────┼─────────┼────────────────────────────────────────┤
+  │ dedup_threshold   │ 0.92    │ Similarity ≥ 92% = duplicate           │
+  └───────────────────┴─────────┴────────────────────────────────────────┘
+  ---
+  Why It Works
+
+  1. Video areas have pixels changing constantly → filtered out
+  2. Slide areas stay static between transitions → detected as regions
+  3. Only comparing slide regions means video playback doesn't trigger false "unique" detections
+  4. Periodic re-sampling adapts to layout changes (e.g., presenter switches to different screen layout)
+
+
+

@@ -5,7 +5,7 @@ from pathlib import Path
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QTextEdit, QPushButton, QSlider, QComboBox, QGroupBox,
-    QMessageBox, QApplication, QProgressDialog, QDialog
+    QMessageBox, QApplication, QProgressDialog, QDialog, QCheckBox
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread
 from PyQt5.QtGui import QFont
@@ -187,8 +187,17 @@ class DirectTalkWindow(QWidget):
 
     def _setup_ui(self):
         """Setup the UI components."""
+        from gui.utils.styles import (
+            set_window_bg, btn_primary, btn_danger, input_style,
+            FONT_TITLE, TEXT, TEXT_MUTED,
+        )
+
         self.setWindowTitle("SeenSlide - Direct Talk Mode")
         self.setMinimumSize(600, 820)
+        set_window_bg(self)
+
+        # Apply unified input styling
+        self.setStyleSheet(input_style())
 
         # Main layout
         main_layout = QVBoxLayout(self)
@@ -197,9 +206,16 @@ class DirectTalkWindow(QWidget):
 
         # Title
         title = QLabel("Quick Talk Setup", self)
-        title.setFont(QFont("Arial", 20, QFont.Bold))
+        title.setFont(FONT_TITLE)
+        title.setStyleSheet(f"color: {TEXT};")
         title.setAlignment(Qt.AlignCenter)
         main_layout.addWidget(title)
+
+        subtitle = QLabel("Set up your talk details and start presenting", self)
+        subtitle.setFont(QFont("Arial", 11))
+        subtitle.setStyleSheet(f"color: {TEXT_MUTED};")
+        subtitle.setAlignment(Qt.AlignCenter)
+        main_layout.addWidget(subtitle)
 
         # Collection selector group
         collection_group = self._create_collection_group()
@@ -235,41 +251,14 @@ class DirectTalkWindow(QWidget):
         button_layout = QHBoxLayout()
 
         self.start_button = QPushButton("Start Talk", self)
-        self.start_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4CAF50;
-                color: white;
-                border: none;
-                padding: 12px 30px;
-                font-size: 16px;
-                border-radius: 5px;
-                min-width: 150px;
-            }
-            QPushButton:hover {
-                background-color: #45a049;
-            }
-            QPushButton:disabled {
-                background-color: #cccccc;
-            }
-        """)
+        self.start_button.setCursor(Qt.PointingHandCursor)
+        self.start_button.setStyleSheet(btn_primary("min-width: 150px; padding: 12px 30px; font-size: 15px;"))
         self.start_button.clicked.connect(self._on_start_clicked)
         button_layout.addWidget(self.start_button)
 
         self.stop_button = QPushButton("Stop Talk", self)
-        self.stop_button.setStyleSheet("""
-            QPushButton {
-                background-color: #f44336;
-                color: white;
-                border: none;
-                padding: 12px 30px;
-                font-size: 16px;
-                border-radius: 5px;
-                min-width: 150px;
-            }
-            QPushButton:hover {
-                background-color: #da190b;
-            }
-        """)
+        self.stop_button.setCursor(Qt.PointingHandCursor)
+        self.stop_button.setStyleSheet(btn_danger("min-width: 150px; padding: 12px 30px; font-size: 15px;"))
         self.stop_button.clicked.connect(self._stop_talk)
         self.stop_button.setVisible(False)
         button_layout.addWidget(self.stop_button)
@@ -311,14 +300,14 @@ class DirectTalkWindow(QWidget):
         self.new_collection_btn = QPushButton("+ New", self)
         self.new_collection_btn.setStyleSheet("""
             QPushButton {
-                background-color: #2196F3;
+                background-color: #2563eb;
                 color: white;
                 border: none;
                 padding: 5px 15px;
-                border-radius: 3px;
+                border-radius: 12px;
             }
             QPushButton:hover {
-                background-color: #1976D2;
+                background-color: #1d4ed8;
             }
         """)
         self.new_collection_btn.clicked.connect(self._on_new_collection_clicked)
@@ -399,11 +388,11 @@ class DirectTalkWindow(QWidget):
 
             # Update cloud session display if visible
             if self.cloud_session_group.isVisible():
-                session_text = f"📚 {self.current_collection.name}\n"
-                session_text += f"🌐 ID: {self.current_collection.cloud_collection_id}\n"
+                session_text = f"{self.current_collection.name}\n"
+                session_text += f"ID: {self.current_collection.cloud_collection_id}\n"
                 api_url = self.orchestrator.config.get('cloud', {}).get('api_url', '') if self.orchestrator else ''
                 if api_url:
-                    session_text += f"📺 {api_url}/{self.current_collection.cloud_collection_id}"
+                    session_text += f"Viewer: {api_url}/{self.current_collection.cloud_collection_id}"
                 self.cloud_session_display.setText(session_text)
 
         # Need to restart orchestrator with new collection
@@ -545,13 +534,60 @@ class DirectTalkWindow(QWidget):
         tolerance_layout.addWidget(self.tolerance_slider)
 
         help_label = QLabel("Lower = more sensitive (captures minor changes)", self)
-        help_label.setStyleSheet("color: #666; font-size: 11px;")
+        help_label.setStyleSheet("color: #64748b; font-size: 11px;")
         tolerance_layout.addWidget(help_label)
 
         layout.addLayout(tolerance_layout)
 
+        # Voice recording toggle
+        layout.addSpacing(8)
+        voice_layout = QHBoxLayout()
+        self.voice_checkbox = QCheckBox("Record audio (microphone)", self)
+        self.voice_checkbox.setStyleSheet("QCheckBox { font-size: 13px; }")
+        voice_layout.addWidget(self.voice_checkbox)
+
+        # Mic device selector (hidden until checkbox is ticked)
+        self.mic_combo = QComboBox(self)
+        self.mic_combo.setFixedHeight(30)
+        self.mic_combo.setMinimumWidth(180)
+        self.mic_combo.setStyleSheet("""
+            QComboBox {
+                padding: 4px 8px;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                font-size: 11px;
+            }
+        """)
+        self.mic_combo.addItem("Default microphone", None)
+        self._populate_mic_devices()
+        self.mic_combo.setVisible(False)
+        voice_layout.addWidget(self.mic_combo)
+
+        self.voice_checkbox.toggled.connect(self.mic_combo.setVisible)
+        voice_layout.addStretch()
+        layout.addLayout(voice_layout)
+
+        # Recording indicator (shown during active recording)
+        self.voice_indicator = QLabel("")
+        self.voice_indicator.setStyleSheet("color: #dc2626; font-weight: bold; font-size: 12px;")
+        self.voice_indicator.setVisible(False)
+        layout.addWidget(self.voice_indicator)
+
         group.setLayout(layout)
         return group
+
+    def _populate_mic_devices(self):
+        """Populate microphone dropdown with available audio input devices."""
+        try:
+            from modules.voice.recorder import VoiceRecorder
+            devices = VoiceRecorder.list_audio_devices()
+            for dev in devices:
+                self.mic_combo.addItem(
+                    f"{dev['name']} ({dev['channels']}ch)",
+                    dev["index"]
+                )
+        except Exception:
+            pass  # sounddevice not installed — only "Default" shown
 
     def _create_region_info(self) -> QGroupBox:
         """Create region info display (no manual selection).
@@ -568,7 +604,7 @@ class DirectTalkWindow(QWidget):
             "Full screen will be captured, but only this region is compared for slide changes.",
             self
         )
-        info_label.setStyleSheet("color: #666; font-size: 11px;")
+        info_label.setStyleSheet("color: #64748b; font-size: 11px;")
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
 
@@ -579,7 +615,7 @@ class DirectTalkWindow(QWidget):
                 background-color: #f5f5f5;
                 padding: 10px;
                 border: 1px solid #ddd;
-                border-radius: 3px;
+                border-radius: 12px;
                 color: #333;
             }
         """)
@@ -601,11 +637,11 @@ class DirectTalkWindow(QWidget):
         self.cloud_session_display = QLabel("Initializing...", self)
         self.cloud_session_display.setStyleSheet("""
             QLabel {
-                background-color: #e3f2fd;
+                background: rgba(37, 99, 235, 0.06);
                 padding: 15px;
-                border: 2px solid #2196F3;
-                border-radius: 5px;
-                color: #1565C0;
+                border: 1px solid rgba(37, 99, 235, 0.2);
+                border-radius: 12px;
+                color: #2563eb;
                 font-size: 14px;
                 font-weight: bold;
             }
@@ -618,7 +654,7 @@ class DirectTalkWindow(QWidget):
             "Share this collection ID with viewers to access your talks online.",
             self
         )
-        help_label.setStyleSheet("color: #666; font-size: 11px;")
+        help_label.setStyleSheet("color: #64748b; font-size: 11px;")
         help_label.setWordWrap(True)
         layout.addWidget(help_label)
 
@@ -793,10 +829,10 @@ class DirectTalkWindow(QWidget):
             # Show and update cloud session display
             self.cloud_session_group.setVisible(True)
             collection_name = self.current_collection.name if self.current_collection else "Collection"
-            session_text = f"📚 {collection_name}\n"
-            session_text += f"🌐 ID: {self.cloud_collection_id}\n"
+            session_text = f"{collection_name}\n"
+            session_text += f"ID: {self.cloud_collection_id}\n"
             if self.cloud_viewer_url:
-                session_text += f"📺 {self.cloud_viewer_url}"
+                session_text += f"Viewer: {self.cloud_viewer_url}"
             self.cloud_session_display.setText(session_text)
         else:
             # Cloud disabled
@@ -920,6 +956,18 @@ class DirectTalkWindow(QWidget):
             if not success:
                 raise Exception("Failed to switch to active mode")
 
+            # Start voice recording if enabled
+            if self.voice_checkbox.isChecked():
+                mic_device = self.mic_combo.currentData()
+                self.orchestrator.set_voice_enabled(True, device=mic_device)
+                voice_ok = self.orchestrator.start_voice_recording()
+                if voice_ok:
+                    logger.info("Voice recording started")
+                    self.voice_indicator.setText("REC")
+                    self.voice_indicator.setVisible(True)
+                else:
+                    logger.warning("Voice recording failed to start — continuing without audio")
+
             # Store session info
             self.session_id = new_session.session_id
             self.talk_name = talk_name
@@ -980,16 +1028,27 @@ class DirectTalkWindow(QWidget):
 
             try:
                 if self.orchestrator:
+                    # Stop voice recording
+                    voice_path = self.orchestrator.stop_voice_recording()
+                    if voice_path:
+                        logger.info(f"Voice recording saved: {voice_path}")
+                    self.voice_indicator.setVisible(False)
+
                     # Switch back to IDLE mode (keeps session alive for next talk)
                     success = self.orchestrator.set_capture_mode(CaptureMode.IDLE)
 
+                    voice_msg = ""
+                    if voice_path:
+                        voice_msg = f"\n\nAudio recording saved to:\n{voice_path}"
+
                     if success:
-                        logger.info("✅ Switched back to IDLE mode")
+                        logger.info("Switched back to IDLE mode")
                         QMessageBox.information(
                             self,
                             "Talk Stopped",
                             "Talk has been stopped successfully.\n\n"
-                            "Your slides have been saved and are available in the cloud viewer.\n\n"
+                            "Your slides have been saved and are available in the cloud viewer."
+                            + voice_msg + "\n\n"
                             "You can start a new talk or close this window."
                         )
                     else:
@@ -1084,8 +1143,8 @@ class DirectTalkWindow(QWidget):
                 if self.orchestrator:
                     try:
                         self.orchestrator.set_capture_mode(CaptureMode.IDLE)
-                    except:
-                        pass
+                    except Exception as e:
+                        logger.warning(f"Failed to switch to idle on close: {e}")
 
                 # Cleanup and stop orchestrator
                 self._cleanup(stop_orchestrator=True)

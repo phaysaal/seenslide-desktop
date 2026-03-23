@@ -1,403 +1,280 @@
-# SeenSlide Desktop - Open Source Screen Capture
+# SeenSlide Desktop
 
 **Real-time presentation sharing made simple and transparent.**
 
-SeenSlide Desktop is an open-source screen capture application that intelligently captures your presentations and shares them with remote audiences in real-time. Perfect for lectures, webinars, sales demos, and remote teaching.
+SeenSlide Desktop captures your presentations and shares them with remote audiences in real-time. Attendees follow along in their browser at `seenslide.com/{session-id}` — no install needed on their end.
 
 ---
 
-## 🔓 Why Open Source?
+## Features
 
-**Transparency = Trust**
+### Presentation Modes
 
-When you install software that captures your screen, you deserve to know exactly what it does with your data. That's why SeenSlide Desktop is **100% open source**:
+| Mode | Description |
+|------|-------------|
+| **Just One Talk** | Quick setup for a single presentation. Screen capture starts after a countdown, slides are uploaded as they change. Window closes when done. |
+| **Multiple Talks (Conference)** | Long-running mode for events with multiple speakers. Admin dashboard runs in the browser. Talks are started/stopped individually. |
+| **Upload Slides** | Import a PDF or PowerPoint file directly — no screen capture needed. Two sub-modes: **Upload All** (bulk) or **Sync with Talk** (manual advance with live session). |
 
-- ✅ **Auditable Security**: Every line of code is public - security researchers can verify there's no data theft or malicious behavior
-- ✅ **Privacy First**: Your screen captures are processed locally - you control what gets shared
-- ✅ **Community Driven**: Contributions, bug reports, and feature requests welcome
-- ✅ **No Hidden Agenda**: What you see is what you get
+### Smart Screen Capture
+- **Automatic deduplication** — only uploads when the slide actually changes
+- **Multiple strategies** — hash, perceptual, hybrid, or adaptive deduplication
+- **Multi-monitor support** — capture from any connected display
+- **Wayland & X11** — works on all major Linux desktop environments
+- **Adjustable sensitivity** — slider from strict (catches small changes) to lenient
+
+### Voice Recording
+- **Optional microphone recording** during any talk
+- **Automatic slide markers** — timestamps sync audio with each slide transition
+- **Semi-live cloud upload** — audio chunks uploaded after each slide change + every 60 seconds
+- **Local WAV backup** — full recording saved locally at `~/.local/share/seenslide/voice/`
+- **Device selection** — pick which microphone to use
+
+### Slide File Upload
+- **PDF support** — renders each page as a slide image (via PyMuPDF)
+- **PowerPoint support** — converts PPTX/PPT/ODP via LibreOffice headless
+- **Upload All** — bulk upload all slides at once with progress bar
+- **Sync with Talk** — presenter view with keyboard navigation (arrow keys / space bar), uploads one slide at a time as you advance
+
+### Conference Mode
+- **Admin dashboard** — web-based control panel at `http://localhost:8081`
+- **Talk agenda** — paste a plain-text list of talks (`Title | Speaker | Description`), then select from a dropdown to auto-fill the form when starting each talk
+- **QR code** — displayed in the admin panel for easy audience access
+- **Background operation** — minimizes to system tray, admin panel stays in browser
+- **Session persistence** — cloud session survives server restarts
+
+### Auto-Update
+- **Background version check** on startup against the cloud server
+- **Broadcast messages** — server can push announcements to all desktop clients
+- **In-app download** with SHA-256 verification and progress bar
+- **Dismissed messages persist** across sessions
+
+### Cloud Integration
+- **Real-time sync** to [seenslide.com](https://seenslide.com) — viewers see slides appear live
+- **Collections** — group talks into collections with optional password protection
+- **Aliases** — human-readable URLs for collections
+- **Cross-device access** — verify ownership via admin credentials
 
 ---
 
-## ✨ Features
+## Quick Start
 
-### Core Capture
-- **Smart Deduplication**: Only shares slides when content actually changes
-- **Multi-Monitor Support**: Capture from any connected display
-- **Wayland & X11**: Works on all major Linux desktop environments
-- **Efficient Compression**: Minimal bandwidth usage
-
-### Local Management
-- **Private Sessions**: Run completely offline if desired
-- **Local Admin Dashboard**: Manage your presentations from a web interface
-- **Export Options**: Save slides as images or PDFs
-- **Session History**: Review past presentations
-
-### Cloud Integration (Optional)
-- **Real-Time Sharing**: Connect to SeenSlide Cloud for remote viewing
-- **Viewer Analytics**: See who's watching your presentation
-- **Q&A Features**: Interact with your audience (requires cloud subscription)
-
----
-
-## 🚀 Quick Start
-
-### Installation
-
-**Prerequisites:**
-- Python 3.10 or higher
-- pip package manager
-
-**Install:**
+### Install from .deb (Ubuntu/Debian)
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/seenslide-desktop.git
+sudo apt install ./seenslide_1.0.3_amd64.deb
+seenslide
+```
+
+### Run from Source
+
+```bash
+git clone https://github.com/phaysaal/seenslide-desktop.git
 cd seenslide-desktop
 
-# Install dependencies
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 
-# Run setup
-python setup.py install
-
-# Start SeenSlide
-python seenslide.py
+python -m gui.main
 ```
 
 ### First Launch
 
-1. **Configure Capture Source**:
-   ```bash
-   python seenslide.py --configure
-   ```
+A window with three options appears:
+1. **Start Presenting** — captures your screen, uploads slides live
+2. **Set up conference...** — opens the admin dashboard for multi-talk events
+3. **Or upload a PDF / PowerPoint file...** — import slides from a file
 
-2. **Start a Local Session**:
-   ```bash
-   python seenslide.py --local
-   ```
-
-3. **Connect to Cloud** (optional):
-   ```bash
-   python seenslide.py --cloud --api-key YOUR_API_KEY
-   ```
+Keyboard shortcuts: `Enter` = Start, `C` = Conference, `U` = Upload, `M` = Manage Talks, `Esc` = Quit
 
 ---
 
-## 📖 Usage
+## Configuration
 
-### Basic Screen Capture
-
-```bash
-# Start capturing your primary monitor
-python seenslide.py
-
-# Capture from specific monitor
-python seenslide.py --monitor 2
-
-# Save locally without cloud sync
-python seenslide.py --local --output ./my-presentation
-```
-
-### Local Admin Dashboard
-
-```bash
-# Start local admin server
-python seenslide_admin.py
-
-# Access at: http://localhost:5050
-```
-
-### Cloud Integration
-
-To share your presentations with remote viewers:
-
-1. Sign up at [seenslide.com](https://seenslide.com)
-2. Get your API key from the dashboard
-3. Configure desktop app:
-   ```bash
-   export SEENSLIDE_API_KEY="your-api-key-here"
-   python seenslide.py --cloud
-   ```
-
----
-
-## 🏗️ Architecture
-
-```
-seenslide-desktop/
-├── core/                  # Core framework
-│   ├── auth/             # Authentication (cloud API)
-│   ├── bus/              # Event system
-│   ├── config/           # Configuration management
-│   ├── interfaces/       # Plugin interfaces
-│   ├── models/           # Data models
-│   └── registry/         # Plugin registry
-│
-├── modules/
-│   ├── capture/          # Screen capture providers
-│   │   └── providers/   # Wayland portal, X11, etc.
-│   ├── dedup/            # Deduplication strategies
-│   ├── storage/          # Local & cloud storage
-│   ├── admin/            # Admin web interface
-│   ├── server/           # Local HTTP server
-│   └── web/              # Web API
-│
-├── seenslide/           # Main application logic
-│   ├── orchestrator.py  # Coordinates all components
-│   ├── cli.py           # Command-line interface
-│   └── app_starter.py   # Application startup
-│
-└── seenslide.py         # Entry point
-```
-
----
-
-## 🔒 Security & Privacy
-
-### What Data is Collected?
-
-**When running locally (`--local`):**
-- ❌ NO data sent anywhere
-- ✅ Everything stays on your machine
-- ✅ You control all captured slides
-
-**When connected to cloud (`--cloud`):**
-- ✅ Slide images (deduplicated screenshots)
-- ✅ Session metadata (title, timestamp)
-- ✅ User authentication tokens
-- ❌ NO keystroke logging
-- ❌ NO audio recording (unless you explicitly enable voice features)
-- ❌ NO access to other applications
-- ❌ NO access to files outside presentation
-
-### How is Data Transmitted?
-
-- 🔐 **TLS 1.3 Encryption**: All cloud communication encrypted
-- 🔐 **Secure WebSockets**: Real-time updates over WSS protocol
-- 🔐 **API Key Authentication**: Your credentials never stored in plaintext
-- 🔐 **No Third-Party Tracking**: No analytics, no telemetry
-
-### Can I Audit the Code?
-
-**Absolutely!** That's why it's open source:
-
-```bash
-# Search for network calls
-grep -r "requests\|urllib\|http" modules/ core/
-
-# Search for file system access
-grep -r "open\|write\|delete" modules/ core/
-
-# Search for subprocess execution
-grep -r "subprocess\|popen\|system" modules/ core/
-```
-
----
-
-## 🛠️ Configuration
-
-### Config File Location
-
-```
-~/.config/seenslide/config.yaml
-```
-
-### Example Configuration
+Config file: `config/config.yaml`
 
 ```yaml
 capture:
-  monitor: 0  # Primary monitor
-  fps: 1      # Capture once per second
-  quality: 85 # JPEG quality (0-100)
+  provider: "portal"        # "portal" (Wayland) or "mss" (X11)
+  interval_seconds: 2.0
 
 deduplication:
-  strategy: "hash"  # or "visual"
-  threshold: 0.95   # Similarity threshold
-
-cloud:
-  enabled: false
-  api_url: "https://api.seenslide.com"
-  auto_sync: true
+  strategy: "hash"           # hash, perceptual, hybrid, adaptive
+  perceptual_threshold: 0.95
 
 storage:
-  local_path: "~/.local/share/seenslide/slides"
-  max_sessions: 50
-  max_storage_mb: 1000
+  base_dir: "./data"
+
+voice:
+  enabled: true
+  quality: "medium"          # low (16kHz), medium (44.1kHz), high (48kHz)
+  channels: 1
+
+cloud:
+  enabled: true
+  api_url: "https://seenslide.com"
+  session_token: "your-token"
 ```
 
 ---
 
-## 🤝 Contributing
+## Architecture
 
-We welcome contributions from the community!
-
-### How to Contribute
-
-1. **Fork the repository**
-2. **Create a feature branch**: `git checkout -b feature/my-feature`
-3. **Make your changes**
-4. **Add tests** (if applicable)
-5. **Commit**: `git commit -m "Add my feature"`
-6. **Push**: `git push origin feature/my-feature`
-7. **Open a Pull Request**
-
-### Development Setup
-
-```bash
-# Clone your fork
-git clone https://github.com/YOUR-USERNAME/seenslide-desktop.git
-cd seenslide-desktop
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dev dependencies
-pip install -r requirements.txt
-pip install pytest black flake8
-
-# Run tests
-pytest tests/
-
-# Format code
-black .
-
-# Lint
-flake8 modules/ core/ seenslide/
+```
+seenslide-desktop/
+├── gui/                     # PyQt5 GUI
+│   ├── main.py              # Application entry point
+│   ├── windows/
+│   │   ├── mode_selector.py       # Main launcher
+│   │   ├── direct_talk_window.py  # Single talk mode
+│   │   ├── conference_launcher.py # Conference mode
+│   │   ├── slide_deck_window.py   # File upload mode
+│   │   └── talk_manager_window.py # Manage past talks
+│   └── widgets/
+│       ├── update_banner.py       # Auto-update notifications
+│       ├── region_selector.py     # Capture region picker
+│       └── countdown_widget.py    # Pre-capture countdown
+│
+├── core/
+│   ├── bus/event_bus.py     # Pub/sub event system
+│   ├── config/              # YAML config loader
+│   ├── interfaces/events.py # Event types (slide, voice, session)
+│   ├── models/              # Session, Slide, CaptureMode
+│   ├── registry/            # Plugin registry
+│   └── updater/             # Auto-update checker + downloader
+│
+├── modules/
+│   ├── capture/             # Screen capture (Wayland portal, MSS)
+│   ├── dedup/               # Deduplication strategies
+│   ├── storage/             # Local (SQLite) + cloud storage providers
+│   ├── voice/               # Voice recording + cloud chunk upload
+│   ├── slides/              # PDF/PPTX → image converter
+│   ├── admin/               # Conference admin server + web UI
+│   └── web/                 # Local viewer web server
+│
+├── seenslide/
+│   └── orchestrator.py      # Coordinates capture → dedup → storage → voice
+│
+├── config/config.yaml       # App configuration
+├── packaging/               # Build scripts (Linux .deb, macOS .dmg, Windows .exe)
+└── .github/workflows/       # CI/CD (builds all platforms on tag push)
 ```
 
-### Code of Conduct
+### Event Flow
 
-- Be respectful and inclusive
-- Provide constructive feedback
-- Focus on the code, not the person
-- Help newcomers feel welcome
-
----
-
-## 📋 Roadmap
-
-### Current Features (v1.0)
-- ✅ Screen capture (Wayland, X11)
-- ✅ Smart deduplication
-- ✅ Local sessions
-- ✅ Cloud synchronization
-- ✅ Admin dashboard
-
-### Planned Features
-- [ ] Windows support (native screen capture)
-- [ ] macOS support (Screen Capture Kit)
-- [ ] Hardware acceleration (GPU encoding)
-- [ ] Mobile app companion
-- [ ] Plugin system for custom providers
-- [ ] CLI-only mode (headless servers)
-- [ ] Docker container support
-
----
-
-## 🐛 Troubleshooting
-
-### Screen Capture Not Working
-
-**Linux (Wayland):**
-```bash
-# Install xdg-desktop-portal
-sudo apt install xdg-desktop-portal xdg-desktop-portal-gtk
-
-# Verify portal is running
-systemctl --user status xdg-desktop-portal
 ```
-
-**Linux (X11):**
-```bash
-# Install scrot or ImageMagick
-sudo apt install scrot
-```
-
-### "Permission Denied" Errors
-
-```bash
-# Grant executable permissions
-chmod +x seenslide.py seenslide_admin.py
-
-# Check Python version
-python --version  # Should be 3.10+
-```
-
-### Cloud Connection Issues
-
-```bash
-# Test API connectivity
-curl https://api.seenslide.com/health
-
-# Verify API key
-python seenslide.py --test-auth
+Screen Capture → SLIDE_CAPTURED
+       ↓
+Deduplication  → SLIDE_UNIQUE (new) or SLIDE_DUPLICATE (skip)
+       ↓
+Storage        → SLIDE_STORED (local + cloud upload)
+       ↓
+Voice Recorder → VOICE_MARKER_ADDED (auto-timestamps audio)
+       ↓
+Cloud Uploader → Audio chunk uploaded (semi-live)
 ```
 
 ---
 
-## 📜 License
+## Building Installers
 
-**MIT License**
+### Linux (.deb)
 
+```bash
+bash packaging/build_installer.sh --deb --version 1.0.3
+# Output: packaging/dist/seenslide_1.0.3_amd64.deb
 ```
-Copyright (c) 2024 SeenSlide Contributors
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+### macOS (.dmg)
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+```bash
+bash packaging/build_macos.sh --dmg --version 1.0.3
+# Output: packaging/dist/macos/SeenSlide-1.0.3-macOS.dmg
+```
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+### Windows (.exe)
+
+```bat
+packaging\build_windows.bat
+```
+
+### CI/CD
+
+Push a git tag to build all platforms and create a GitHub Release:
+
+```bash
+git tag v1.0.3
+git push --tags
 ```
 
 ---
 
-## 🔗 Links
+## Security & Privacy
+
+**When running locally:**
+- No data sent anywhere — everything stays on your machine
+
+**When connected to cloud:**
+- Slide images (deduplicated screenshots) uploaded to seenslide.com
+- Audio recording uploaded in chunks (only if voice recording is enabled)
+- All communication over HTTPS
+- No keystroke logging, no access to other applications, no telemetry
+
+**Voice recording** is opt-in — unchecked by default. The microphone is only accessed when the user explicitly enables it before starting a talk.
+
+---
+
+## Conference Mode — Talk Agenda
+
+For events with many talks, the admin can pre-load a talk list:
+
+1. Open the admin dashboard in the browser
+2. Click **Load List** in the Agenda section
+3. Paste talks in plain text, one per line:
+   ```
+   Introduction to AI | Dr. Smith | Opening keynote
+   Data Structures | Jane Doe | Trees and graphs
+   Machine Learning | Bob Wilson
+   Panel Discussion | Multiple | Q&A session
+   ```
+4. Click **Load** — a dropdown appears with all talks
+5. Select a talk → form auto-fills with title, speaker, description
+6. Click **Start Talk** — the talk starts and is marked as done in the list
+
+Format: `Title | Speaker | Description` (speaker and description are optional)
+
+---
+
+## Dependencies
+
+| Package | Purpose |
+|---------|---------|
+| PyQt5 | GUI framework |
+| FastAPI + Uvicorn | Local web servers (admin + viewer) |
+| Pillow | Image processing |
+| imagehash | Perceptual deduplication |
+| mss | X11 screen capture |
+| sounddevice | Microphone recording |
+| PyMuPDF | PDF → slide images |
+| requests | Cloud API communication |
+| PyYAML | Configuration |
+| bcrypt + PyJWT | Authentication |
+| qrcode | QR code generation |
+
+---
+
+## License
+
+MIT License - see [LICENSE](LICENSE) for details.
+
+---
+
+## Links
 
 - **Cloud Service**: [seenslide.com](https://seenslide.com)
-- **Documentation**: [docs.seenslide.com](https://docs.seenslide.com)
-- **Bug Reports**: [GitHub Issues](https://github.com/yourusername/seenslide-desktop/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/seenslide-desktop/discussions)
-- **Twitter**: [@SeenSlide](https://twitter.com/SeenSlide)
+- **Bug Reports**: [GitHub Issues](https://github.com/phaysaal/seenslide-desktop/issues)
 
 ---
 
-## 💬 Support
-
-- **Community Support**: [GitHub Discussions](https://github.com/yourusername/seenslide-desktop/discussions)
-- **Bug Reports**: [GitHub Issues](https://github.com/yourusername/seenslide-desktop/issues)
-- **Email**: opensource@seenslide.com
-
----
-
-## 🙏 Acknowledgments
-
-SeenSlide Desktop is built with amazing open-source technologies:
-
-- **FastAPI** - Modern web framework
-- **CustomTkinter** - Beautiful GUI components
-- **MSS** - Fast screen capture
-- **ImageHash** - Perceptual hashing
-- **Pillow** - Image processing
-- **Python** - The language that powers it all
-
-Thank you to all our contributors and the open-source community!
-
----
-
-**Made with ❤️ by the SeenSlide community**
-
-*Star ⭐ this repo if you find it useful!*
+**Made with care by the SeenSlide team**

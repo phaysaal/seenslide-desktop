@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=SeenSlide
+Comment=Slide capture and cloud sync tool for presentations
+Exec=/opt/seenslide/seenslide
+Icon=seenslide
+Terminal=false
+Type=Application
+Categories=Utility;Office;
+Keywords=presentation;slides;capture;screen;
+StartupNotify=true

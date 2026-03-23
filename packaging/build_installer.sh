@@ -21,6 +21,13 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$SCRIPT_DIR/dist"
 PACKAGE_DIR="$SCRIPT_DIR/package"
 
+# Activate project venv if it exists
+if [ -f "$PROJECT_DIR/venv/bin/activate" ]; then
+    source "$PROJECT_DIR/venv/bin/activate"
+elif [ -f "$PROJECT_DIR/.venv/bin/activate" ]; then
+    source "$PROJECT_DIR/.venv/bin/activate"
+fi
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'

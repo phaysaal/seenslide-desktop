@@ -36,42 +36,42 @@ class EditTalkDialog(QDialog):
 
         # Title field
         title_label = QLabel("Talk Title:")
-        title_label.setStyleSheet("color: #ffffff;")
+        title_label.setStyleSheet("color: #0f172a;")
         layout.addWidget(title_label)
 
         self.title_edit = QLineEdit(talk_title)
         self.title_edit.setStyleSheet("""
             QLineEdit {
-                background: #1a1a24;
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                background: #ffffff;
+                border: 1px solid #ccc;
                 border-radius: 6px;
                 padding: 8px;
-                color: #ffffff;
+                color: #0f172a;
                 font-size: 14px;
             }
             QLineEdit:focus {
-                border-color: #00d4ff;
+                border-color: #2563eb;
             }
         """)
         layout.addWidget(self.title_edit)
 
         # Presenter field
         presenter_label = QLabel("Presenter Name:")
-        presenter_label.setStyleSheet("color: #ffffff;")
+        presenter_label.setStyleSheet("color: #0f172a;")
         layout.addWidget(presenter_label)
 
         self.presenter_edit = QLineEdit(presenter_name or "")
         self.presenter_edit.setStyleSheet("""
             QLineEdit {
-                background: #1a1a24;
-                border: 1px solid rgba(255, 255, 255, 0.1);
+                background: #ffffff;
+                border: 1px solid #ccc;
                 border-radius: 6px;
                 padding: 8px;
-                color: #ffffff;
+                color: #0f172a;
                 font-size: 14px;
             }
             QLineEdit:focus {
-                border-color: #00d4ff;
+                border-color: #2563eb;
             }
         """)
         layout.addWidget(self.presenter_edit)
@@ -84,7 +84,7 @@ class EditTalkDialog(QDialog):
         buttons.rejected.connect(self.reject)
         buttons.setStyleSheet("""
             QPushButton {
-                background: #00d4ff;
+                background: #2563eb;
                 color: white;
                 border: none;
                 border-radius: 6px;
@@ -92,13 +92,13 @@ class EditTalkDialog(QDialog):
                 font-weight: bold;
             }
             QPushButton:hover {
-                background: #00b8e6;
+                background: #1d4ed8;
             }
         """)
         layout.addWidget(buttons)
 
-        # Dark theme
-        self.setStyleSheet("background: #12121a; color: #ffffff;")
+        # Light theme
+        self.setStyleSheet("background: #f6f7fb; color: #0f172a;")
 
     def get_values(self) -> tuple:
         """Get edited values.
@@ -167,9 +167,9 @@ class TalkManagerWindow(QWidget):
         self.setWindowTitle("Manage Past Talks - SeenSlide")
         self.setMinimumSize(700, 600)
 
-        # Dark background
+        # Light background
         palette = QPalette()
-        palette.setColor(QPalette.Window, QColor("#0a0a0f"))
+        palette.setColor(QPalette.Window, QColor("#f6f7fb"))
         self.setPalette(palette)
         self.setAutoFillBackground(True)
 
@@ -191,12 +191,12 @@ class TalkManagerWindow(QWidget):
                 border: none;
             }
             QScrollBar:vertical {
-                background: #12121a;
+                background: #e5e7eb;
                 width: 10px;
                 border-radius: 5px;
             }
             QScrollBar::handle:vertical {
-                background: #2a2a3a;
+                background: #94a3b8;
                 border-radius: 5px;
             }
         """)
@@ -220,18 +220,18 @@ class TalkManagerWindow(QWidget):
             QWidget containing header
         """
         header = QWidget()
-        header.setStyleSheet("background: #12121a; border-radius: 12px; padding: 20px;")
+        header.setStyleSheet("background: white; border: 1px solid rgba(15, 23, 42, 0.10); border-radius: 16px; padding: 20px;")
         layout = QVBoxLayout(header)
         layout.setSpacing(8)
 
-        title = QLabel("📋 Manage Past Talks")
+        title = QLabel("Manage Past Talks")
         title.setFont(QFont("Arial", 20, QFont.Bold))
-        title.setStyleSheet("color: #ffffff;")
+        title.setStyleSheet("color: #0f172a;")
         layout.addWidget(title)
 
         subtitle = QLabel("View, edit, or delete previously recorded talks and sessions")
         subtitle.setFont(QFont("Arial", 12))
-        subtitle.setStyleSheet("color: #8b8b9e;")
+        subtitle.setStyleSheet("color: #64748b;")
         layout.addWidget(subtitle)
 
         return header
@@ -246,19 +246,19 @@ class TalkManagerWindow(QWidget):
         layout = QHBoxLayout(footer)
         layout.setContentsMargins(0, 15, 0, 0)
 
-        refresh_btn = QPushButton("🔄 Refresh")
+        refresh_btn = QPushButton("Refresh")
         refresh_btn.setFont(QFont("Arial", 11))
         refresh_btn.setCursor(Qt.PointingHandCursor)
         refresh_btn.setStyleSheet("""
             QPushButton {
-                background: #2a2a3a;
-                color: #ffffff;
+                background: #e5e7eb;
+                color: #0f172a;
                 border: none;
                 border-radius: 8px;
                 padding: 10px 20px;
             }
             QPushButton:hover {
-                background: #3a3a4a;
+                background: #d1d5db;
             }
         """)
         refresh_btn.clicked.connect(self._load_talks)
@@ -271,7 +271,7 @@ class TalkManagerWindow(QWidget):
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.setStyleSheet("""
             QPushButton {
-                background: #00d4ff;
+                background: #2563eb;
                 color: white;
                 border: none;
                 border-radius: 8px;
@@ -279,7 +279,7 @@ class TalkManagerWindow(QWidget):
                 font-weight: bold;
             }
             QPushButton:hover {
-                background: #00b8e6;
+                background: #1d4ed8;
             }
         """)
         close_btn.clicked.connect(self.close)
@@ -301,7 +301,7 @@ class TalkManagerWindow(QWidget):
             # Check if cloud is configured
             if not self.api_url or not self.session_token:
                 self._show_empty_state(
-                    "🌐 Cloud Not Configured",
+                    "Cloud Not Configured",
                     "Cloud sync is not enabled in config.yaml.\n\n"
                     "To manage talks, please configure:\n"
                     "• cloud.enabled: true\n"
@@ -325,7 +325,7 @@ class TalkManagerWindow(QWidget):
                 sessions_data = response.json()
             except requests.exceptions.ConnectionError:
                 self._show_empty_state(
-                    "🌐 Cannot Connect to Cloud",
+                    "Cannot Connect to Cloud",
                     f"Unable to connect to Railway cloud.\n\n"
                     f"URL: {self.api_url}\n\n"
                     f"Please check your internet connection."
@@ -333,7 +333,7 @@ class TalkManagerWindow(QWidget):
                 return
             except requests.exceptions.Timeout:
                 self._show_empty_state(
-                    "⏱️ Cloud Timeout",
+                    "Cloud Timeout",
                     "Railway cloud is not responding.\n\n"
                     "Please try again in a moment."
                 )
@@ -341,20 +341,20 @@ class TalkManagerWindow(QWidget):
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 401:
                     self._show_empty_state(
-                        "🔒 Authentication Failed",
+                        "Authentication Failed",
                         "Invalid session token.\n\n"
                         "Please check your cloud.session_token in config.yaml"
                     )
                 else:
                     self._show_empty_state(
-                        "⚠️ Cloud Error",
+                        "Cloud Error",
                         f"HTTP {e.response.status_code}: {e.response.text}"
                     )
                 return
 
             if not sessions_data or not isinstance(sessions_data, list):
                 self._show_empty_state(
-                    "📭 No Sessions Yet",
+                    "No Sessions Yet",
                     "You haven't recorded any sessions to the cloud yet.\n\n"
                     "Start a presentation with cloud sync enabled to see talks here."
                 )
@@ -374,7 +374,7 @@ class TalkManagerWindow(QWidget):
 
             if session_count == 0:
                 self._show_empty_state(
-                    "📭 No Talks Found",
+                    "No Talks Found",
                     "Sessions exist but contain no talks.\n\n"
                     "This might happen if talks were manually deleted."
                 )
@@ -387,7 +387,7 @@ class TalkManagerWindow(QWidget):
         except Exception as e:
             logger.error(f"Failed to load talks: {e}", exc_info=True)
             self._show_empty_state(
-                "⚠️ Error Loading Talks",
+                "Error Loading Talks",
                 f"Failed to load talks from cloud.\n\n"
                 f"Error: {str(e)}\n\n"
                 f"Check logs for more details."
@@ -406,17 +406,16 @@ class TalkManagerWindow(QWidget):
         empty_layout.setSpacing(15)
         empty_layout.setAlignment(Qt.AlignCenter)
 
-        # Title with emoji
         title_label = QLabel(title)
         title_label.setFont(QFont("Arial", 18, QFont.Bold))
-        title_label.setStyleSheet("color: #ffffff;")
+        title_label.setStyleSheet("color: #0f172a;")
         title_label.setAlignment(Qt.AlignCenter)
         empty_layout.addWidget(title_label)
 
         # Message
         message_label = QLabel(message)
         message_label.setFont(QFont("Arial", 13))
-        message_label.setStyleSheet("color: #8b8b9e; line-height: 1.5;")
+        message_label.setStyleSheet("color: #64748b; line-height: 1.5;")
         message_label.setAlignment(Qt.AlignCenter)
         message_label.setWordWrap(True)
         empty_layout.addWidget(message_label)
@@ -458,9 +457,9 @@ class TalkManagerWindow(QWidget):
         card.setObjectName("sessionCard")
         card.setStyleSheet("""
             #sessionCard {
-                background: #12121a;
-                border: 1px solid rgba(255, 255, 255, 0.06);
-                border-radius: 12px;
+                background: white;
+                border: 1px solid rgba(15, 23, 42, 0.10);
+                border-radius: 16px;
                 padding: 0px;
             }
         """)
@@ -471,18 +470,18 @@ class TalkManagerWindow(QWidget):
 
         # Session header
         session_header = QWidget()
-        session_header.setStyleSheet("background: rgba(255, 255, 255, 0.02); border-radius: 12px 12px 0 0; padding: 16px;")
+        session_header.setStyleSheet("background: rgba(15, 23, 42, 0.03); border-radius: 12px 12px 0 0; padding: 16px;")
         header_layout = QHBoxLayout(session_header)
         header_layout.setContentsMargins(16, 16, 16, 16)
 
-        session_label = QLabel(f"📂 Session: {session_id[:12]}...")
+        session_label = QLabel(f"Session: {session_id[:12]}...")
         session_label.setFont(QFont("Courier", 11, QFont.Bold))
-        session_label.setStyleSheet("color: #8b8b9e;")
+        session_label.setStyleSheet("color: #64748b;")
         header_layout.addWidget(session_label)
 
         talk_count = QLabel(f"{len(talks)} talk{'s' if len(talks) != 1 else ''}")
         talk_count.setFont(QFont("Arial", 10))
-        talk_count.setStyleSheet("color: #4a4a5e;")
+        talk_count.setStyleSheet("color: #94a3b8;")
         header_layout.addWidget(talk_count)
 
         header_layout.addStretch()
@@ -509,7 +508,7 @@ class TalkManagerWindow(QWidget):
         item = QWidget()
         item.setStyleSheet("""
             background: transparent;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            border-bottom: 1px solid rgba(15, 23, 42, 0.08);
             padding: 16px;
         """)
 
@@ -525,38 +524,38 @@ class TalkManagerWindow(QWidget):
 
         title_label = QLabel(talk.get('title', 'Untitled Talk'))
         title_label.setFont(QFont("Arial", 12, QFont.DemiBold))
-        title_label.setStyleSheet("color: #ffffff;")
+        title_label.setStyleSheet("color: #0f172a;")
         info_layout.addWidget(title_label)
 
         presenter = talk.get('presenter_name', '')
         if presenter:
-            presenter_label = QLabel(f"👤 {presenter}")
+            presenter_label = QLabel(f"By {presenter}")
             presenter_label.setFont(QFont("Arial", 10))
-            presenter_label.setStyleSheet("color: #8b8b9e;")
+            presenter_label.setStyleSheet("color: #64748b;")
             info_layout.addWidget(presenter_label)
 
         layout.addWidget(info_widget, 1)
 
         # Action buttons
-        edit_btn = QPushButton("✏️ Edit")
+        edit_btn = QPushButton("Edit")
         edit_btn.setFont(QFont("Arial", 10))
         edit_btn.setCursor(Qt.PointingHandCursor)
         edit_btn.setStyleSheet("""
             QPushButton {
-                background: rgba(0, 212, 255, 0.1);
-                color: #00d4ff;
-                border: 1px solid rgba(0, 212, 255, 0.3);
+                background: rgba(37, 99, 235, 0.1);
+                color: #2563eb;
+                border: 1px solid rgba(37, 99, 235, 0.3);
                 border-radius: 6px;
                 padding: 6px 12px;
             }
             QPushButton:hover {
-                background: rgba(0, 212, 255, 0.2);
+                background: rgba(37, 99, 235, 0.2);
             }
         """)
         edit_btn.clicked.connect(lambda: self._edit_talk(talk, session_id))
         layout.addWidget(edit_btn)
 
-        delete_btn = QPushButton("🗑️ Delete")
+        delete_btn = QPushButton("Delete")
         delete_btn.setFont(QFont("Arial", 10))
         delete_btn.setCursor(Qt.PointingHandCursor)
         delete_btn.setStyleSheet("""

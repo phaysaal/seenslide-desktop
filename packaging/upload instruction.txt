@@ -1,0 +1,12 @@
+  - GitHub release v1.0.2: https://github.com/phaysaal/seenslide-desktop/releases/tag/v1.0.2
+  - Landing page updated to point to v1.0.2
+  - Build script committed with the optional dependency fix
+
+  For future releases, the command is:
+  cd ~/code/hobby/seenslide-desktop
+  gh release create v1.0.X \
+    --title "SeenSlide Desktop v1.0.X" \
+    --notes "Release notes here" \
+    packaging/dist/seenslide_1.0.X_amd64.deb
+
+

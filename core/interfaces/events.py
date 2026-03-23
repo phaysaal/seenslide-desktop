@@ -31,6 +31,12 @@ class EventType(Enum):
     CLIENT_CONNECTED = "client.connected"
     CLIENT_DISCONNECTED = "client.disconnected"
 
+    # Voice recording events
+    VOICE_RECORDING_STARTED = "voice.recording.started"
+    VOICE_RECORDING_STOPPED = "voice.recording.stopped"
+    VOICE_RECORDING_FAILED = "voice.recording.failed"
+    VOICE_MARKER_ADDED = "voice.marker.added"
+
     # Error events
     ERROR_OCCURRED = "error.occurred"
 

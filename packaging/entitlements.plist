@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Allow unsigned executable memory (needed by PyInstaller bootloader) -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <!-- Disable library validation (needed for bundled .so/.dylib files) -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <!-- Screen capture permission (needed for slide capture) -->
+    <key>com.apple.security.device.screen-capture</key>
+    <true/>
+    <!-- Network access (needed for cloud sync) -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <!-- Local network server (needed for local web server in conference mode) -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+</dict>
+</plist>

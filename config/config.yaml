@@ -78,6 +78,20 @@ storage:
   # JPG quality (1-100, only used if image_format is "jpg")
   jpg_quality: 95
 
+# Voice recording settings (optional)
+voice:
+  # Enable voice recording UI in Direct Talk mode
+  enabled: true
+
+  # Audio quality: "low" (16kHz), "medium" (44.1kHz), "high" (48kHz)
+  quality: "medium"
+
+  # Number of audio channels (1 = mono, 2 = stereo)
+  channels: 1
+
+  # Audio input device index (null = system default microphone)
+  device: null
+
 # Cloud sync settings (optional)
 cloud:
   enabled: true

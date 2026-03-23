@@ -12,6 +12,9 @@ from PyQt5.QtGui import QFont, QPixmap, QPalette, QColor
 from PyQt5.QtCore import QFile
 import logging
 
+from seenslide import __version__
+from gui.widgets.update_banner import UpdateBanner
+
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +26,7 @@ class ModeSelector(QWidget):
     direct_talk_selected = pyqtSignal()
     conference_mode_selected = pyqtSignal()
     manage_talks_selected = pyqtSignal()
+    upload_slides_selected = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         """Initialize mode selector.
@@ -71,6 +75,10 @@ class ModeSelector(QWidget):
         # Title bar
         titlebar = self._create_titlebar()
         card_layout.addWidget(titlebar)
+
+        # Update / message banner (hidden until triggered)
+        self.update_banner = UpdateBanner()
+        card_layout.addWidget(self.update_banner)
 
         # Content
         content = self._create_content()
@@ -192,7 +200,7 @@ class ModeSelector(QWidget):
         layout.addWidget(gear, 0, Qt.AlignRight | Qt.AlignVCenter)
 
         # --- Right: Version ---
-        version = QLabel("v0.3.0")
+        version = QLabel(f"v{__version__}")
         version.setFont(QFont("Courier", 10))
         version.setStyleSheet("color: #64748b;")
         version.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -216,7 +224,7 @@ class ModeSelector(QWidget):
             "Quick setup · Closes when done",
             "Default",
             "Start one presentation. Window closes automatically when finished.",
-            "▶ Start Presenting",
+            "Start Presenting",
             self._on_direct_talk_clicked,
             True
         )
@@ -237,11 +245,33 @@ class ModeSelector(QWidget):
             "Conference & event mode · Stays running",
             None,
             "Manage multiple sessions in sequence. Admin panel runs in background.",
-            "⚙ Set up conference…",
+            "Set up conference...",
             self._on_conference_clicked,
             False
         )
         layout.addWidget(conf_section)
+
+        # --- Upload slides link ---
+        layout.addSpacing(6)
+        upload_row = QWidget()
+        upload_row.setStyleSheet("background: transparent;")
+        ur = QHBoxLayout(upload_row)
+        ur.setContentsMargins(24, 0, 24, 0)
+        upload_link = QPushButton("Or upload a PDF / PowerPoint file...")
+        upload_link.setCursor(Qt.PointingHandCursor)
+        upload_link.setFlat(True)
+        upload_link.setFont(QFont("Arial", 10))
+        upload_link.setStyleSheet("""
+            QPushButton {
+                color: #2563eb; background: transparent; border: none;
+                text-decoration: underline; padding: 0;
+            }
+            QPushButton:hover { color: #1d4ed8; }
+        """)
+        upload_link.clicked.connect(self._on_upload_slides_clicked)
+        ur.addWidget(upload_link, 0, Qt.AlignLeft)
+        ur.addStretch()
+        layout.addWidget(upload_row)
 
         # Spacer to push the low-visibility row to bottom of content
         layout.addStretch(1)
@@ -272,129 +302,6 @@ class ModeSelector(QWidget):
         layout.addWidget(bottom_row)
 
         return content
-
-    def _create_content_obs(self) -> QWidget:
-        """Create main content area.
-
-        Returns:
-            QWidget containing content
-        """
-        content = QWidget()
-        layout = QVBoxLayout(content)
-        layout.setContentsMargins(22, 22, 22, 18)
-        layout.setSpacing(0)
-
-        # Brand section
-        #brand = self._create_brand()
-        #layout.addWidget(brand)
-
-        # Just One Talk section
-        layout.addSpacing(18)
-        single_section = self._create_section(
-            "Just One Talk",
-            "Quick setup · Closes when done",
-            "RECOMMENDED",
-            "Start one presentation. Window closes automatically when finished.",
-            "▶ Start Presenting",
-            self._on_direct_talk_clicked,
-            True
-        )
-        layout.addWidget(single_section)
-
-        # Divider
-        layout.addSpacing(14)
-        divider = QFrame()
-        divider.setFrameShape(QFrame.HLine)
-        divider.setStyleSheet("background: rgba(15, 23, 42, 0.08); max-height: 1px;")
-        layout.addWidget(divider)
-        layout.addSpacing(14)
-
-        # Multiple Talks section
-        multiple_section = self._create_section(
-            "Multiple Talks",
-            "Conference & event mode · Stays running",
-            None,
-            "Manage multiple sessions in sequence. Admin panel runs in background.",
-            "⚙ Set up conference…",
-            self._on_conference_clicked,
-            False
-        )
-        layout.addWidget(multiple_section)
-
-        # Divider
-        layout.addSpacing(14)
-        divider2 = QFrame()
-        divider2.setFrameShape(QFrame.HLine)
-        divider2.setStyleSheet("background: rgba(15, 23, 42, 0.08); max-height: 1px;")
-        layout.addWidget(divider2)
-        layout.addSpacing(14)
-
-        # Manage Talks section
-        manage_section = self._create_section(
-            "Manage Past Talks",
-            "Edit or delete recorded sessions",
-            None,
-            "View, rename, or delete previously recorded talks and presentations.",
-            "📋 Manage talks…",
-            self._on_manage_talks_clicked,
-            False
-        )
-        layout.addWidget(manage_section)
-
-        return content
-
-    def _create_brand(self) -> QWidget:
-        """Create brand section with logo and title.
-
-        Returns:
-            QWidget containing brand elements
-        """
-        brand = QWidget()
-        layout = QHBoxLayout(brand)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(14)
-
-        # Logo
-        logo_label = QLabel()
-        logo_pixmap = self._load_logo()
-
-        if logo_pixmap:
-            scaled_logo = logo_pixmap.scaled(46, 46, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            logo_label.setPixmap(scaled_logo)
-        else:
-            # Gradient placeholder
-            logo_label.setFixedSize(46, 46)
-            logo_label.setStyleSheet("""
-                background: qlineargradient(
-                    x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #2563eb, stop:1 #7c3aed
-                );
-                border-radius: 14px;
-            """)
-
-        layout.addWidget(logo_label)
-
-        # Text
-        text_widget = QWidget()
-        text_layout = QVBoxLayout(text_widget)
-        text_layout.setContentsMargins(0, 0, 0, 0)
-        text_layout.setSpacing(6)
-
-        title = QLabel("SeenSlide")
-        title.setFont(QFont("Arial", 20, QFont.Bold))
-        title.setStyleSheet("color: #0f172a; letter-spacing: -0.2px;")
-        text_layout.addWidget(title)
-
-        subtitle = QLabel("Control slides already on screen")
-        subtitle.setFont(QFont("Arial", 13))
-        subtitle.setStyleSheet("color: #64748b;")
-        text_layout.addWidget(subtitle)
-
-        layout.addWidget(text_widget)
-        layout.addStretch()
-
-        return brand
-
 
     def _create_section(
         self,
@@ -544,148 +451,6 @@ class ModeSelector(QWidget):
         outer.addWidget(card)
         return section
 
-    def _create_section_obs(
-        self,
-        title: str,
-        meta: str,
-        pill: Optional[str],
-        hint: str,
-        button_text: str,
-        button_callback,
-        is_primary: bool
-    ) -> QWidget:
-        """Create a mode selection section.
-
-        Args:
-            title: Section title
-            meta: Metadata/subtitle
-            pill: Optional pill badge text
-            hint: Hint text below button
-            button_text: Button label
-            button_callback: Button click handler
-            is_primary: Whether to use primary button style
-
-        Returns:
-            QWidget containing section
-        """
-        section = QWidget()
-        section.setStyleSheet("background: transparent;")
-
-        layout = QVBoxLayout(section)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
-
-        # Container frame with background
-        container = QFrame()
-        container.setObjectName("sectionContainer")
-        container.setStyleSheet("""
-            QFrame#sectionContainer {
-                background: rgba(2, 6, 23, 0.015);
-                border: 1px solid rgba(15, 23, 42, 0.12);
-                border-radius: 16px;
-            }
-        """)
-
-        container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(16, 16, 16, 16)
-        container_layout.setSpacing(12)
-
-        # Header row
-        header = QWidget()
-        header.setStyleSheet("background: transparent;")
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(10)
-
-        # Title and meta
-        title_widget = QWidget()
-        title_widget.setStyleSheet("background: transparent;")
-        title_layout = QVBoxLayout(title_widget)
-        title_layout.setContentsMargins(0, 0, 0, 0)
-        title_layout.setSpacing(4)
-
-        title_label = QLabel(title)
-        title_label.setFont(QFont("Arial", 14, QFont.Bold))
-        title_label.setStyleSheet("color: #0f172a; background: transparent;")
-        title_layout.addWidget(title_label)
-
-        meta_label = QLabel(meta)
-        meta_label.setFont(QFont("Arial", 12))
-        meta_label.setStyleSheet("color: #64748b; background: transparent;")
-        title_layout.addWidget(meta_label)
-
-        header_layout.addWidget(title_widget, 1)
-
-        # Pill badge
-        if pill:
-            pill_label = QLabel(pill)
-            pill_label.setFont(QFont("Arial", 10))
-            pill_label.setFixedHeight(24)
-            pill_label.setStyleSheet("""
-                color: #1d4ed8;
-                background: rgba(37, 99, 235, 0.10);
-                border: 1px solid rgba(37, 99, 235, 0.18);
-                padding: 4px 8px;
-                border-radius: 12px;
-            """)
-            pill_label.setAlignment(Qt.AlignCenter)
-            header_layout.addWidget(pill_label)
-
-        container_layout.addWidget(header)
-
-        # Button
-        button = QPushButton(button_text)
-        button.setFont(QFont("Arial", 13, QFont.Bold))
-        button.setCursor(Qt.PointingHandCursor)
-        button.setMinimumHeight(44)
-
-        if is_primary:
-            button.setStyleSheet("""
-                QPushButton {
-                    background: #2563eb;
-                    color: white;
-                    border: none;
-                    border-radius: 12px;
-                    padding: 12px 14px;
-                }
-                QPushButton:hover {
-                    background: #1d4ed8;
-                }
-                QPushButton:pressed {
-                    background: #1e40af;
-                }
-            """)
-        else:
-            button.setStyleSheet("""
-                QPushButton {
-                    background: #0f172a;
-                    color: white;
-                    border: none;
-                    border-radius: 12px;
-                    padding: 12px 14px;
-                }
-                QPushButton:hover {
-                    background: #1e293b;
-                }
-                QPushButton:pressed {
-                    background: #0f172a;
-                }
-            """)
-
-        button.clicked.connect(button_callback)
-        container_layout.addWidget(button)
-
-        # Hint
-        hint_label = QLabel(hint)
-        hint_label.setFont(QFont("Arial", 11))
-        hint_label.setStyleSheet("color: #64748b; background: transparent;")
-        hint_label.setWordWrap(True)
-        container_layout.addWidget(hint_label)
-
-        layout.addWidget(container)
-
-        return section
-
     def _create_footer(self) -> QWidget:
         """Create footer with subtle keyboard hints."""
         footer = QWidget()
@@ -745,59 +510,6 @@ class ModeSelector(QWidget):
 
         return footer
 
-    def _create_footer_obs(self) -> QWidget:
-        """Create footer with shortcuts.
-
-        Returns:
-            QWidget containing footer
-        """
-        footer = QWidget()
-        footer.setStyleSheet("""
-            background: transparent;
-            border-top: 1px solid rgba(15, 23, 42, 0.08);
-            padding: 12px 18px 14px;
-        """)
-
-        layout = QHBoxLayout(footer)
-        layout.setContentsMargins(18, 12, 18, 14)
-        layout.setSpacing(10)
-
-        # Shortcuts
-        shortcuts = QWidget()
-        shortcuts_layout = QHBoxLayout(shortcuts)
-        shortcuts_layout.setContentsMargins(0, 0, 0, 0)
-        shortcuts_layout.setSpacing(0)
-
-        for key, action in [("Enter", "Start"), ("C", "Conference"), ("M", "Manage"), ("Esc", "Quit")]:
-            key_label = QLabel(key)
-            key_label.setFont(QFont("Courier", 11))
-            key_label.setStyleSheet("""
-                color: #64748b;
-                background: rgba(2, 6, 23, 0.02);
-                border: 1px solid rgba(15, 23, 42, 0.12);
-                border-bottom-color: rgba(2, 6, 23, 0.18);
-                border-radius: 6px;
-                padding: 2px 6px;
-                margin-right: 6px;
-            """)
-            shortcuts_layout.addWidget(key_label)
-
-            action_label = QLabel(action)
-            action_label.setFont(QFont("Arial", 12))
-            action_label.setStyleSheet("color: #64748b; margin-right: 10px;")
-            shortcuts_layout.addWidget(action_label)
-
-        layout.addWidget(shortcuts)
-        layout.addStretch()
-
-        # Footer text
-        footer_text = QLabel("SeenSlide Launcher")
-        footer_text.setFont(QFont("Arial", 12))
-        footer_text.setStyleSheet("color: #64748b;")
-        layout.addWidget(footer_text)
-
-        return footer
-
     def _load_logo(self) -> Optional[QPixmap]:
         """Load application logo from resources.
 
@@ -826,9 +538,10 @@ class ModeSelector(QWidget):
         QShortcut(QKeySequence("Enter"), self, self._on_direct_talk_clicked)
         QShortcut(QKeySequence("C"), self, self._on_conference_clicked)
         QShortcut(QKeySequence("M"), self, self._on_manage_talks_clicked)
+        QShortcut(QKeySequence("U"), self, self._on_upload_slides_clicked)
         QShortcut(QKeySequence("Escape"), self, self.close)
 
-        logger.info("Keyboard shortcuts: Enter=Start, C=Conference, M=Manage, Esc=Quit")
+        logger.info("Keyboard shortcuts: Enter=Start, C=Conference, U=Upload, M=Manage, Esc=Quit")
 
     def _on_direct_talk_clicked(self):
         """Handle Direct Talk button click."""
@@ -839,6 +552,11 @@ class ModeSelector(QWidget):
         """Handle Conference Mode button click."""
         logger.info("Multiple Talks selected")
         self.conference_mode_selected.emit()
+
+    def _on_upload_slides_clicked(self):
+        """Handle Upload Slides link click."""
+        logger.info("Upload Slides selected")
+        self.upload_slides_selected.emit()
 
     def _on_manage_talks_clicked(self):
         """Handle Manage Talks button click."""

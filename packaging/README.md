@@ -116,13 +116,35 @@ sudo apt install imagemagick
 
 ## Cross-Platform Builds
 
-### Windows (Future)
-- Use PyInstaller on Windows machine
-- Create NSIS or Inno Setup installer
+### Windows
 
-### macOS (Future)
-- Use PyInstaller on macOS machine
-- Create .dmg with create-dmg tool
+Run on a Windows machine with Python 3.10+ installed:
+
+```cmd
+cd packaging
+build_windows.bat
+```
+
+Output: `packaging/dist/windows/SeenSlide/SeenSlide.exe`
+
+To create an installer, use [Inno Setup](https://jrsoftware.org/isinfo.php) or [NSIS](https://nsis.sourceforge.io/) with the output directory.
+
+### macOS
+
+Run on a macOS machine with Python 3.10+ installed:
+
+```bash
+cd packaging
+./build_macos.sh          # Creates .app bundle
+./build_macos.sh --dmg    # Also creates .dmg installer
+```
+
+Output: `packaging/dist/macos/SeenSlide.app`
+
+Optional: Install `create-dmg` for prettier DMG files:
+```bash
+brew install create-dmg
+```
 
 ## CI/CD Integration
 

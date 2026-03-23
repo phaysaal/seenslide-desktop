@@ -1,0 +1,229 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'          # Triggered by: git tag v1.0.3 && git push --tags
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g. 1.0.3)'
+        required: true
+
+env:
+  APP_NAME: seenslide
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  # -------------------------------------------------------------------
+  # Linux (.deb + .rpm + .AppImage)
+  # -------------------------------------------------------------------
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ruby ruby-dev build-essential \
+            libxcb-xinerama0 libxcb-cursor0 libgl1 \
+            libfuse2  # Required for AppImage
+          sudo gem install fpm
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build all Linux packages
+        run: bash packaging/build_installer.sh --all --version ${{ steps.version.outputs.version }}
+
+      - name: Upload .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-deb
+          path: packaging/dist/*.deb
+
+      - name: Upload .rpm
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-rpm
+          path: packaging/dist/*.rpm
+        if: hashFiles('packaging/dist/*.rpm') != ''
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage
+          path: packaging/dist/*.AppImage
+        if: hashFiles('packaging/dist/*.AppImage') != ''
+
+  # -------------------------------------------------------------------
+  # macOS (.dmg)
+  # -------------------------------------------------------------------
+  build-macos:
+    runs-on: macos-13     # Intel — broadest compatibility
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+          brew install create-dmg || true
+
+      - name: Build .app + .dmg
+        run: |
+          VERSION=${{ steps.version.outputs.version }} \
+          bash packaging/build_macos.sh --dmg --version ${{ steps.version.outputs.version }}
+
+      - name: Upload .dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: packaging/dist/macos/*.dmg
+
+  # -------------------------------------------------------------------
+  # Windows (.exe installer via Inno Setup)
+  # -------------------------------------------------------------------
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: packaging\build_windows.bat
+
+      - name: Create Windows installer with Inno Setup
+        shell: bash
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          cat > packaging/dist/installer.iss << INNO_EOF
+          [Setup]
+          AppName=SeenSlide
+          AppVersion=${VERSION}
+          AppPublisher=SeenSlide Team
+          AppPublisherURL=https://seenslide.com
+          DefaultDirName={autopf}\SeenSlide
+          DefaultGroupName=SeenSlide
+          OutputDir=.
+          OutputBaseFilename=SeenSlide-${VERSION}-Setup
+          Compression=lzma2/max
+          SolidCompression=yes
+          SetupIconFile=..\..\gui\resources\icons\logo.ico
+          UninstallDisplayIcon={app}\SeenSlide.exe
+          ArchitecturesInstallIn64BitMode=x64compatible
+
+          [Files]
+          Source: "windows\SeenSlide\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
+
+          [Icons]
+          Name: "{group}\SeenSlide"; Filename: "{app}\SeenSlide.exe"
+          Name: "{autodesktop}\SeenSlide"; Filename: "{app}\SeenSlide.exe"; Tasks: desktopicon
+
+          [Tasks]
+          Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"
+
+          [Run]
+          Filename: "{app}\SeenSlide.exe"; Description: "Launch SeenSlide"; Flags: nowait postinstall skipifsilent
+          INNO_EOF
+
+          # Inno Setup is pre-installed on windows-latest runners
+          iscc="C:/Program Files (x86)/Inno Setup 6/ISCC.exe"
+          if [ ! -f "$iscc" ]; then
+            echo "Inno Setup not found, skipping installer creation"
+            # Fall back: zip the folder instead
+            cd packaging/dist/windows
+            7z a "../SeenSlide-${VERSION}-Windows.zip" SeenSlide/
+          else
+            "$iscc" packaging/dist/installer.iss
+          fi
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            packaging/dist/SeenSlide-*-Setup.exe
+            packaging/dist/SeenSlide-*-Windows.zip
+
+  # -------------------------------------------------------------------
+  # Create GitHub Release (only on tag push)
+  # -------------------------------------------------------------------
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-linux, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f -ls
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/linux-deb/*.deb
+            artifacts/linux-rpm/*.rpm
+            artifacts/linux-appimage/*.AppImage
+            artifacts/macos-dmg/*.dmg
+            artifacts/windows-installer/SeenSlide-*-Setup.exe
+            artifacts/windows-installer/SeenSlide-*-Windows.zip

@@ -1,0 +1,249 @@
+In ../seenslide-desktop, to handle deduplication, I have an idea for an alternative strategy/algorithm. We will divide the whole screen in X*Y grid. we will assign the blocks weights  
+  that corresponds to how fast it is changing. To detect the changes we will use the current hashing technique (I forgot the name, you know it better). the blocks with higher weight     
+  will be considered video. too low - near zero will be considered non-changing, and between a suitable range will be considered as information and changes in these blocks will give     
+  unique slide. This is a simple overview. Technical detail will be prepared later. By the way, a taget I have is to merge information of consecutive slides so that small changes (like  
+  a line or two) can be merged into a single slide. So, considering all aspect, can you assess the idea - whether there is a fundamental flaw in the idea or it is worth for research     
+  purpose? Can python handle it or we need a C or rust based solution?                                                                                                                    
+
+● This is an interesting algorithm idea. Let me assess it:
+
+  Assessment
+
+  Strengths of the Approach
+
+  1. Spatial awareness - Current whole-image hashing (perceptual hash / pHash) loses where changes occur. Your grid approach preserves this.
+  2. Video region exclusion - Smart to identify and ignore rapidly-changing regions (embedded videos, animations, mouse cursors).
+  3. Progressive reveal detection - Can detect incremental content (bullet points appearing one by one) vs complete slide changes.
+  4. Merge potential - Knowing which blocks changed enables intelligent merging of consecutive slides.
+
+  No Fundamental Flaws
+
+  The concept is sound and has precedent in:
+  - Video compression (I/P/B frames, motion estimation)
+  - Screen sharing protocols (RDP, VNC dirty rectangles)
+  - Document diff algorithms
+
+  Technical Considerations
+  ┌──────────────────────────────────┬───────────────────────────────────────────────────────────┐
+  │            Challenge             │                        Mitigation                         │
+  ├──────────────────────────────────┼───────────────────────────────────────────────────────────┤
+  │ Grid misalignment with content   │ Use smaller blocks or adaptive sizing                     │
+  ├──────────────────────────────────┼───────────────────────────────────────────────────────────┤
+  │ Threshold tuning (video vs info) │ Empirical testing; possibly ML-based classification later │
+  ├──────────────────────────────────┼───────────────────────────────────────────────────────────┤
+  │ Temporal window size             │ Track rolling average over N frames                       │
+  ├──────────────────────────────────┼───────────────────────────────────────────────────────────┤
+  │ Merge complexity                 │ Start simple - merge if only 1-2 blocks changed           │
+  └──────────────────────────────────┴───────────────────────────────────────────────────────────┘
+  Python Feasibility
+
+  Yes, Python can handle this. Here's why:
+
+  1920×1080 screen ÷ 32×32 blocks = ~2000 blocks
+  At 1 FPS capture rate = 2000 hash comparisons/second
+
+  With NumPy vectorization, this is trivial:
+  - Block extraction: np.reshape() or array slicing
+  - Hash computation: batch with imagehash
+  - Weight tracking: simple NumPy array operations
+
+  When you'd need C/Rust:
+  - Processing >10 FPS
+  - Very fine grids (10000+ blocks)
+  - Mobile/embedded deployment
+  - After Python prototype proves the concept
+
+  Suggested Prototype Steps
+
+  1. Start with Python + NumPy (fast iteration)
+  2. Use 32×32 or 64×64 pixel blocks initially
+  3. Track per-block change frequency over a sliding window (e.g., last 10 frames)
+  4. Classify: video (>0.8), static (<0.1), info (0.1-0.8)
+  5. Trigger "new slide" when info-blocks change significantly
+  6. For merging: if <5% of info-blocks changed, merge into previous slide
+
+  Quick Complexity Estimate
+
+  # Pseudocode - very achievable in Python
+  blocks = split_into_grid(frame, 32, 32)  # ~2000 blocks
+  hashes = [phash(block) for block in blocks]  # vectorizable
+  deltas = hashes - previous_hashes  # NumPy fast
+  weights = update_rolling_weights(deltas)
+  info_blocks = weights[(weights > 0.1) & (weights < 0.8)]
+  if significant_change(info_blocks):
+      save_new_slide()
+
+  Verdict
+
+  Worth researching. No fundamental flaws. Python is sufficient for prototyping and likely for production. Profile first before considering Rust/C optimization.
+
+  Would you like me to create a proof-of-concept implementation in the seenslide-desktop codebase?
+
+
+After thinking through this carefully:
+
+  No Exact Match
+
+  I'm not aware of an existing algorithm that combines all these elements for your specific use case:
+
+  1. Grid-based spatial decomposition
+  2. Per-block temporal change rate classification (video/static/info)
+  3. Using "info" regions specifically for slide uniqueness detection
+  4. Merging consecutive slides based on minimal info-region changes
+
+  Related Existing Techniques
+  ┌─────────────────────┬─────────────────────────────┬───────────────────────────────┬────────────────────────────────────────────────────┐
+  │       Domain        │          Technique          │          Similarity           │                     Difference                     │
+  ├─────────────────────┼─────────────────────────────┼───────────────────────────────┼────────────────────────────────────────────────────┤
+  │ Video Compression   │ H.264/H.265 macroblocks     │ Grid-based, temporal tracking │ Goal is compression, not content classification    │
+  ├─────────────────────┼─────────────────────────────┼───────────────────────────────┼────────────────────────────────────────────────────┤
+  │ Remote Desktop      │ RDP/VNC dirty rectangles    │ Tracks changed regions        │ Any change triggers update, no rate classification │
+  ├─────────────────────┼─────────────────────────────┼───────────────────────────────┼────────────────────────────────────────────────────┤
+  │ Surveillance        │ Background subtraction      │ Separates static/dynamic      │ Binary classification, not tri-level               │
+  ├─────────────────────┼─────────────────────────────┼───────────────────────────────┼────────────────────────────────────────────────────┤
+  │ Video Analytics     │ Scene change detection      │ Detects transitions           │ Usually whole-frame, not spatial grid              │
+  ├─────────────────────┼─────────────────────────────┼───────────────────────────────┼────────────────────────────────────────────────────┤
+  │ HEVC                │ Screen Content Coding (SCC) │ Optimized for screen capture  │ Compression-focused, not deduplication             │
+  ├─────────────────────┼─────────────────────────────┼───────────────────────────────┼────────────────────────────────────────────────────┤
+  │ Video Summarization │ Keyframe extraction         │ Finds representative frames   │ Doesn't classify by spatial regions                │
+  └─────────────────────┴─────────────────────────────┴───────────────────────────────┴────────────────────────────────────────────────────┘
+  What's Novel in Your Approach
+
+  The combination is what's potentially novel:
+  - Tri-level classification (video/info/static) based on change rate
+  - Using only "info" regions to determine slide uniqueness
+  - The merge strategy for incremental changes
+
+  Closest Prior Art to Search
+
+  If you want to research further:
+  - "Temporal activity maps" in video analysis
+  - "Region-of-interest detection in screen recordings"
+  - "Presentation video segmentation"
+  - "Slide transition detection in lecture videos"
+
+  Papers on lecture video indexing might have related work, but they typically operate post-recording, not real-time.
+
+  My Assessment
+
+  This appears to be a novel combination for real-time presentation capture. The individual components exist, but their specific assembly for your use case seems original. Worth documenting and potentially publishable if results are good.
+
+  Would you like me to do a quick literature search to confirm, or proceed with prototyping?
+
+
+Literature Search Results
+
+  Based on my search, here's what I found:
+
+  1. Slide Change Detection in Presentations
+
+  Existing approaches:
+  Paper/Method: https://ieeexplore.ieee.org/document/4217248/
+  Technique: HMM + SIFT features
+  How it differs from your idea: Whole-frame matching, no spatial grid
+  ────────────────────────────────────────
+  Paper/Method: https://arxiv.org/pdf/2202.03540
+  Technique: CNN-based detection
+  How it differs from your idea: Deep learning on frame pairs, no block classification
+  ────────────────────────────────────────
+  Paper/Method: https://www.researchgate.net/publication/262771559_Automatic_detection_of_slide_transitions_in_lecture_videos
+  Technique: SIFT keypoints + similarity
+  How it differs from your idea: 87% accuracy, but whole-frame comparison
+  Key finding: All existing slide detection methods operate on whole frames, not spatial grids with per-block change rate classification.
+
+  ---
+  2. Block-Based Screen Content Classification (Closest Match)
+
+  https://www.cambridge.org/core/journals/apsipa-transactions-on-signal-and-information-processing/article/overview-of-hevc-extensions-on-screen-content-coding/E12DCF69B0A59DD269EFE14CD1AFBFBE
+
+  This is the closest existing work to your idea:
+  - Classifies blocks into Natural Content CUs (NCCUs) vs Screen Content CUs (SCCUs)
+  - Uses statistical characteristics for classification
+  - https://link.springer.com/article/10.1007/s11554-021-01189-6 exist for fast CU classification
+
+  BUT key differences:
+  - Goal is compression optimization, not content understanding
+  - Binary classification (natural/screen), not tri-level (video/info/static)
+  - No temporal change rate tracking for deduplication
+  - No slide merging concept
+
+  ---
+  3. Perceptual Hashing
+
+  https://www.researchgate.net/publication/324891190_Video_Deduplication_Based_on_Perceptual_Hash
+
+  - Uses pHash/dHash on keyframes
+  - Whole-frame hashing, not block-wise
+  - No spatial activity classification
+
+  https://en.wikipedia.org/wiki/Perceptual_hashing exists for tamper detection but not for temporal activity classification.
+
+  ---
+  4. Video Scene Detection
+
+  https://github.com/Breakthrough/PySceneDetect
+
+  - Content-aware detection using frame differences
+  - Adaptive thresholds based on rolling averages
+  - Operates on whole frames, not spatial regions
+
+  ---
+  Conclusion: Your Idea is Novel
+  ┌──────────────────────────────────────────────┬────────────────────────┬────────────────────────┐
+  │                  Component                   │ Exists in Literature?  │ Your Novel Combination │
+  ├──────────────────────────────────────────────┼────────────────────────┼────────────────────────┤
+  │ Grid-based decomposition                     │ ✅ (HEVC, JPEG)        │ ✅                     │
+  ├──────────────────────────────────────────────┼────────────────────────┼────────────────────────┤
+  │ Per-block perceptual hashing                 │ ❌ (only whole-image)  │ ✅                     │
+  ├──────────────────────────────────────────────┼────────────────────────┼────────────────────────┤
+  │ Temporal change rate tracking                │ ✅ (video compression) │ ✅                     │
+  ├──────────────────────────────────────────────┼────────────────────────┼────────────────────────┤
+  │ Tri-level classification (video/info/static) │ ❌                     │ ✅                     │
+  ├──────────────────────────────────────────────┼────────────────────────┼────────────────────────┤
+  │ Using info-regions for slide uniqueness      │ ❌                     │ ✅                     │
+  ├──────────────────────────────────────────────┼────────────────────────┼────────────────────────┤
+  │ Merging consecutive slides by region         │ ❌                     │ ✅                     │
+  └──────────────────────────────────────────────┴────────────────────────┴────────────────────────┘
+  The specific combination for real-time presentation capture and deduplication appears to be novel.
+
+  The closest prior art is HEVC-SCC block classification, but it serves a different purpose (compression) and lacks:
+  - Temporal activity rate tracking for content classification
+  - The tri-level video/info/static distinction
+  - Application to slide deduplication and merging
+
+  ---
+  Recommendation
+
+  This is publishable research if you can demonstrate:
+  1. Improved deduplication accuracy over whole-frame hashing
+  2. Successful video region exclusion
+  3. Effective slide merging with minimal information loss
+
+  Would you like me to create a proof-of-concept module in seenslide-desktop to validate the approach?
+
+
+The proof-of-concept module for the Grid-based Temporal Change Detection algorithm is now complete.
+
+  Summary of what was created:
+
+  1. /modules/dedup/strategies/grid_temporal_strategy.py - The main PoC implementation containing:
+    - BlockType enum: UNKNOWN, STATIC, INFO, VIDEO
+    - BlockState dataclass: Per-block state tracking (hash history, change rates)
+    - GridState dataclass: Entire grid state with timestamp
+    - GridTemporalStrategy class implementing IDeduplicationStrategy
+  2. Updated /modules/dedup/plugin.py - Registered the new strategy as "grid_temporal"
+
+  Key algorithm features implemented:
+  - 8×12 grid decomposition (96 blocks)
+  - Per-block perceptual hashing using pHash
+  - Sliding window change rate calculation (last 10 frames)
+  - Tri-level classification: STATIC (<0.1), INFO (0.1-0.7), VIDEO (>0.7)
+  - Duplicate detection only comparing INFO blocks (ignoring static/video regions)
+  - Statistics tracking and visualization helpers
+
+  Available strategies now:
+  ['hash', 'perceptual', 'hybrid', 'grid_temporal']
+
+  To use it, set deduplication.strategy: grid_temporal in your config. The strategy can be further tuned via parameters like grid dimensions, thresholds, and window size.
+  
+  
