@@ -118,6 +118,28 @@ datas = [
     (str(project_dir / 'seenslide'), 'seenslide'),
 ]
 
+# Collect system dbus and gi packages (C extensions, not pip-installable)
+import importlib
+binaries_extra = []
+for sysmod in ['dbus', 'gi', '_dbus_bindings', '_dbus_glib_bindings']:
+    try:
+        mod = importlib.import_module(sysmod)
+        if hasattr(mod, '__file__') and mod.__file__:
+            src = Path(mod.__file__)
+            if src.suffix == '.so':
+                binaries_extra.append((str(src), '.'))
+            elif src.name == '__init__.py':
+                # It's a package — include the whole directory
+                pkg_dir = src.parent
+                datas.append((str(pkg_dir), sysmod))
+    except ImportError:
+        pass
+
+# Also collect GI typelib files needed at runtime
+gi_typelib_dir = Path('/usr/lib/x86_64-linux-gnu/girepository-1.0')
+if gi_typelib_dir.exists():
+    datas.append((str(gi_typelib_dir), 'gi_typelibs'))
+
 # Hidden imports that PyInstaller might miss
 hiddenimports = [
     'customtkinter',
@@ -144,12 +166,20 @@ hiddenimports = [
     'soundfile',
     'fitz',
     'cv2',
+    'dbus',
+    'dbus.mainloop',
+    'dbus.mainloop.glib',
+    'gi',
+    'gi.repository',
+    'gi.repository.GLib',
+    'gi.repository.Gst',
+    'gi.repository.Gio',
 ]
 
 a = Analysis(
     [str(project_dir / 'gui' / 'main.py')],
-    pathex=[str(project_dir)],
-    binaries=[],
+    pathex=[str(project_dir), '/usr/lib/python3/dist-packages'],
+    binaries=binaries_extra,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
@@ -309,6 +339,10 @@ EOF
         --depends "libxcb-xinerama0" \
         --depends "libxcb-cursor0" \
         --depends "libgl1" \
+        --depends "python3-dbus" \
+        --depends "python3-gi" \
+        --depends "gir1.2-glib-2.0" \
+        --depends "gstreamer1.0-pipewire | gstreamer1.0-plugins-base" \
         -C "$PACKAGE_DIR" \
         -p "$BUILD_DIR/${APP_NAME}_${APP_VERSION}_amd64.deb" \
         .
