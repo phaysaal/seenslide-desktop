@@ -45,5 +45,12 @@ qrcode[pil]>=7.4.2
 sounddevice>=0.4.6
 soundfile>=0.12.1
 
+# Computer Vision (adaptive deduplication)
+opencv-python-headless>=4.8.0
+numpy>=1.24.0
+
 # Slide File Conversion (PDF → images)
 PyMuPDF>=1.23.0
+
+# Legacy admin GUI views
+customtkinter>=5.2.0
