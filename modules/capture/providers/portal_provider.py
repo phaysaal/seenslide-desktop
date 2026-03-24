@@ -25,6 +25,19 @@ from pathlib import Path
 from PIL import Image
 import io
 
+# Ensure GStreamer can find system plugins (pipewiresrc, etc.)
+# Must be set BEFORE gi.repository.Gst is imported.
+import os
+for _gst_dir in [
+    '/usr/lib/x86_64-linux-gnu/gstreamer-1.0',
+    '/usr/lib/gstreamer-1.0',
+]:
+    if os.path.isdir(_gst_dir):
+        existing = os.environ.get('GST_PLUGIN_PATH', '')
+        if _gst_dir not in existing:
+            os.environ['GST_PLUGIN_PATH'] = f"{_gst_dir}:{existing}" if existing else _gst_dir
+        break
+
 # D-Bus and GObject imports
 try:
     import dbus
