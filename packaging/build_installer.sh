@@ -307,8 +307,15 @@ build_deb() {
     # Copy application files
     cp -r "$BUILD_DIR/seenslide/"* "$PACKAGE_DIR/opt/seenslide/"
 
-    # Create symlink in /usr/bin
-    ln -sf /opt/seenslide/seenslide "$PACKAGE_DIR/usr/bin/seenslide"
+    # Create wrapper script (sets GStreamer/GI paths to find system plugins)
+    cat > "$PACKAGE_DIR/usr/bin/seenslide" << 'WRAPPER'
+#!/bin/bash
+# Ensure GStreamer can find system plugins (pipewiresrc, etc.)
+export GST_PLUGIN_PATH="/usr/lib/x86_64-linux-gnu/gstreamer-1.0:${GST_PLUGIN_PATH}"
+export GI_TYPELIB_PATH="/usr/lib/x86_64-linux-gnu/girepository-1.0:/usr/lib/girepository-1.0:${GI_TYPELIB_PATH}"
+exec /opt/seenslide/seenslide "$@"
+WRAPPER
+    chmod +x "$PACKAGE_DIR/usr/bin/seenslide"
 
     # Create desktop entry and icons
     create_desktop_entry
