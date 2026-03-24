@@ -249,12 +249,19 @@ class SeenSlideOrchestrator:
         api_url = cloud_cfg.get("api_url", "").rstrip("/")
         cloud_session_id = getattr(self.session, 'cloud_session_id', None)
 
+        logger.info(
+            f"Voice cloud check: api_url='{api_url}', "
+            f"cloud_session_id='{cloud_session_id}', "
+            f"cloud_enabled={cloud_cfg.get('enabled', False)}"
+        )
+
         if api_url and cloud_session_id:
             self._voice_cloud_uploader = VoiceCloudUploader(
                 api_url=api_url,
                 session_token=cloud_cfg.get("session_token", ""),
             )
             ok = self._voice_cloud_uploader.start_cloud_recording(cloud_session_id)
+            logger.info(f"Voice cloud recording start result: {ok}, recording_id={self._voice_cloud_uploader.recording_id}")
             if ok:
                 # Subscribe to slide events for chunk uploads
                 self.event_bus.subscribe(
