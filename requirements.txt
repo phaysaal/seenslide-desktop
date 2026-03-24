@@ -55,3 +55,6 @@ python-pptx>=0.6.21
 
 # Legacy admin GUI views
 customtkinter>=5.2.0
+
+# Required by pkg_resources at runtime in PyInstaller bundle
+setuptools>=68.0.0
