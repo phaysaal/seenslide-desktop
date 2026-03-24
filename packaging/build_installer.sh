@@ -103,7 +103,7 @@ build_pyinstaller() {
     # Create spec file for more control
     cat > "$SCRIPT_DIR/seenslide.spec" << 'SPEC'
 # -*- mode: python ; coding: utf-8 -*-
-import sys
+import sys, os, glob
 from pathlib import Path
 
 block_cipher = None
@@ -120,25 +120,29 @@ datas = [
 
 # Collect system dbus and gi packages (C extensions, not pip-installable)
 import importlib
+
 binaries_extra = []
-for sysmod in ['dbus', 'gi', '_dbus_bindings', '_dbus_glib_bindings']:
-    try:
-        mod = importlib.import_module(sysmod)
-        if hasattr(mod, '__file__') and mod.__file__:
-            src = Path(mod.__file__)
-            if src.suffix == '.so':
-                binaries_extra.append((str(src), '.'))
-            elif src.name == '__init__.py':
-                # It's a package — include the whole directory
-                pkg_dir = src.parent
-                datas.append((str(pkg_dir), sysmod))
-    except ImportError:
-        pass
+sys_pkg_dir = '/usr/lib/python3/dist-packages'
+
+# Collect _dbus_bindings*.so and _dbus_glib_bindings*.so
+for pattern in ['_dbus_bindings*.so', '_dbus_glib_bindings*.so']:
+    for so_file in glob.glob(os.path.join(sys_pkg_dir, pattern)):
+        binaries_extra.append((so_file, '.'))
+
+# Collect dbus and gi Python packages
+for pkg_name in ['dbus', 'gi']:
+    pkg_path = os.path.join(sys_pkg_dir, pkg_name)
+    if os.path.isdir(pkg_path):
+        datas.append((pkg_path, pkg_name))
 
 # Also collect GI typelib files needed at runtime
-gi_typelib_dir = Path('/usr/lib/x86_64-linux-gnu/girepository-1.0')
-if gi_typelib_dir.exists():
-    datas.append((str(gi_typelib_dir), 'gi_typelibs'))
+for typelib_dir in [
+    '/usr/lib/x86_64-linux-gnu/girepository-1.0',
+    '/usr/lib/girepository-1.0',
+]:
+    if os.path.isdir(typelib_dir):
+        datas.append((typelib_dir, 'gi_typelibs'))
+        break
 
 # Hidden imports that PyInstaller might miss
 hiddenimports = [

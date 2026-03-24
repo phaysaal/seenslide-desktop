@@ -42,7 +42,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ruby ruby-dev build-essential \
             libxcb-xinerama0 libxcb-cursor0 libgl1 \
-            libfuse2
+            libfuse2 \
+            python3-dbus python3-gi gir1.2-glib-2.0
           sudo gem install fpm
 
       - name: Install Python dependencies
