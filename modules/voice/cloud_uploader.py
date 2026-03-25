@@ -38,15 +38,21 @@ class VoiceCloudUploader:
     # Cloud recording lifecycle
     # ------------------------------------------------------------------
 
-    def start_cloud_recording(self, cloud_session_id: str, audio_format: str = "wav") -> bool:
+    def start_cloud_recording(
+        self, cloud_session_id: str, audio_format: str = "wav", talk_id: str = None
+    ) -> bool:
         """Tell the cloud to create a new voice recording entry.
 
         Returns True if successful (sets self._recording_id).
         """
         try:
+            params = {"audio_format": audio_format}
+            if talk_id:
+                params["talk_id"] = talk_id
+
             resp = requests.post(
                 f"{self._api_url}/api/voice/desktop/start/{cloud_session_id}",
-                params={"audio_format": audio_format},
+                params=params,
                 headers=self._headers,
                 timeout=10,
             )

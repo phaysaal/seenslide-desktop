@@ -251,12 +251,15 @@ class SeenSlideOrchestrator:
         cloud_session_id = None
         cloud_token = ""
 
+        cloud_talk_id = None
+
         if self.storage_manager and hasattr(self.storage_manager, '_cloud'):
             cloud = self.storage_manager._cloud
             if cloud and cloud.enabled and cloud.api_url and cloud.cloud_session_id:
                 cloud_api_url = cloud.api_url
                 cloud_session_id = cloud.cloud_session_id
                 cloud_token = cloud.session_token or ""
+                cloud_talk_id = getattr(cloud, 'current_talk_id', None)
 
         logger.info(
             f"Voice cloud check: api_url='{cloud_api_url}', "
@@ -268,7 +271,9 @@ class SeenSlideOrchestrator:
                 api_url=cloud_api_url,
                 session_token=cloud_token,
             )
-            ok = self._voice_cloud_uploader.start_cloud_recording(cloud_session_id)
+            ok = self._voice_cloud_uploader.start_cloud_recording(
+                cloud_session_id, talk_id=cloud_talk_id
+            )
             logger.info(f"Voice cloud recording start result: {ok}, recording_id={self._voice_cloud_uploader.recording_id}")
             if ok:
                 # Subscribe to slide events for chunk uploads

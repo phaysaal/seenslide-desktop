@@ -182,7 +182,10 @@ class CloudStorageProvider(IStorageProvider):
             response.raise_for_status()
 
             result = response.json()
-            logger.info(f"✅ Talk created in cloud: {talk_name}")
+            # Store the talk_id for voice recording association
+            talk_data = result.get("talk", {})
+            self.current_talk_id = talk_data.get("talk_id")
+            logger.info(f"✅ Talk created in cloud: {talk_name} (talk_id: {self.current_talk_id})")
             return True
 
         except Exception as e:
