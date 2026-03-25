@@ -244,21 +244,29 @@ class SeenSlideOrchestrator:
         if not self.voice_recorder.start():
             return False
 
-        # Start cloud voice upload if cloud is configured
-        cloud_cfg = self.config.get("cloud", {})
-        api_url = cloud_cfg.get("api_url", "").rstrip("/")
-        cloud_session_id = getattr(self.session, 'cloud_session_id', None)
+        # Start cloud voice upload — get URL and session ID from the
+        # already-working cloud storage provider (not from config file,
+        # which may have placeholder tokens in the bundled .deb)
+        cloud_api_url = None
+        cloud_session_id = None
+        cloud_token = ""
+
+        if self.storage_manager and hasattr(self.storage_manager, '_cloud'):
+            cloud = self.storage_manager._cloud
+            if cloud and cloud.enabled and cloud.api_url and cloud.cloud_session_id:
+                cloud_api_url = cloud.api_url
+                cloud_session_id = cloud.cloud_session_id
+                cloud_token = cloud.session_token or ""
 
         logger.info(
-            f"Voice cloud check: api_url='{api_url}', "
-            f"cloud_session_id='{cloud_session_id}', "
-            f"cloud_enabled={cloud_cfg.get('enabled', False)}"
+            f"Voice cloud check: api_url='{cloud_api_url}', "
+            f"cloud_session_id='{cloud_session_id}'"
         )
 
-        if api_url and cloud_session_id:
+        if cloud_api_url and cloud_session_id:
             self._voice_cloud_uploader = VoiceCloudUploader(
-                api_url=api_url,
-                session_token=cloud_cfg.get("session_token", ""),
+                api_url=cloud_api_url,
+                session_token=cloud_token,
             )
             ok = self._voice_cloud_uploader.start_cloud_recording(cloud_session_id)
             logger.info(f"Voice cloud recording start result: {ok}, recording_id={self._voice_cloud_uploader.recording_id}")
