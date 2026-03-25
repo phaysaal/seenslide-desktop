@@ -170,6 +170,7 @@ hiddenimports = [
     'soundfile',
     'fitz',
     'cv2',
+    'evdev',
     'dbus',
     'dbus.mainloop',
     'dbus.mainloop.glib',
