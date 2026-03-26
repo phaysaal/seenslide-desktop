@@ -137,7 +137,7 @@ class VoiceCloudUploader:
                     f"{self._api_url}/api/voice/upload-chunk/{self._recording_id}",
                     files=files,
                     headers=self._headers,
-                    timeout=15,
+                    timeout=60,
                 )
                 if resp.status_code == 200:
                     total = resp.json().get("total_size", 0)

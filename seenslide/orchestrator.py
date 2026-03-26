@@ -312,7 +312,7 @@ class SeenSlideOrchestrator:
 
     # --- 60-second auto-chunk timer ---
 
-    _AUTO_CHUNK_INTERVAL = 60  # seconds
+    _AUTO_CHUNK_INTERVAL = 30  # seconds
 
     def _start_auto_chunk_timer(self):
         """Start repeating timer that uploads audio every 60s."""
