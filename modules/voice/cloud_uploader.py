@@ -1,16 +1,17 @@
 """Uploads voice audio chunks to the cloud backend after each slide change.
 
-Lifecycle (driven by the orchestrator):
-    uploader = VoiceCloudUploader(api_url, session_token, cloud_session_id)
-    uploader.start_cloud_recording(cloud_session_id)   # POST /desktop/start
-    ...
-    uploader.upload_chunk(pcm_bytes, slide_number, ts)  # POST /upload-chunk + /desktop/marker
-    ...
-    uploader.stop_cloud_recording(duration)             # POST /desktop/stop
+Each PCM chunk is converted to OGG/Opus via ffmpeg before uploading,
+reducing bandwidth ~10x (86 KB/s raw → ~8 KB/s Opus). If ffmpeg is
+not available, falls back to uploading raw PCM.
+
+Server stores each chunk as a separate .ogg file and concatenates
+them into a single file when the recording stops.
 """
 
 import io
 import logging
+import shutil
+import subprocess
 import threading
 from typing import Optional
 
@@ -18,17 +19,82 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+# Check once at import time
+FFMPEG_AVAILABLE = shutil.which("ffmpeg") is not None
+
+
+def _pcm_to_opus(pcm_data: bytes, sample_rate: int = 44100, channels: int = 1) -> Optional[bytes]:
+    """Convert raw PCM bytes to OGG/Opus using ffmpeg.
+
+    Args:
+        pcm_data: Raw 16-bit signed little-endian PCM.
+        sample_rate: Sample rate in Hz.
+        channels: Number of audio channels.
+
+    Returns:
+        OGG/Opus bytes, or None if conversion fails.
+    """
+    if not FFMPEG_AVAILABLE:
+        return None
+
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-loglevel", "error",
+                "-f", "s16le",          # input: raw PCM 16-bit signed LE
+                "-ar", str(sample_rate),
+                "-ac", str(channels),
+                "-i", "pipe:0",         # read from stdin
+                "-c:a", "libopus",
+                "-b:a", "64k",          # 64 kbps — good quality for voice
+                "-f", "ogg",            # output: OGG container
+                "pipe:1",               # write to stdout
+            ],
+            input=pcm_data,
+            capture_output=True,
+            timeout=30,
+        )
+
+        if result.returncode == 0 and result.stdout:
+            ratio = len(pcm_data) / len(result.stdout) if result.stdout else 0
+            logger.debug(
+                f"Opus conversion: {len(pcm_data)} → {len(result.stdout)} bytes "
+                f"({ratio:.1f}x compression)"
+            )
+            return result.stdout
+        else:
+            logger.warning(f"ffmpeg failed: {result.stderr.decode()[:200]}")
+            return None
+
+    except subprocess.TimeoutExpired:
+        logger.warning("ffmpeg timed out during Opus conversion")
+        return None
+    except Exception as e:
+        logger.warning(f"Opus conversion failed: {e}")
+        return None
+
 
 class VoiceCloudUploader:
-    """Uploads voice chunks + markers to the SeenSlide cloud backend."""
+    """Uploads voice chunks + markers to the SeenSlide cloud backend.
+
+    Converts PCM → OGG/Opus before uploading if ffmpeg is available.
+    Falls back to raw PCM upload if not.
+    """
 
     def __init__(self, api_url: str, session_token: str = ""):
         self._api_url = api_url.rstrip("/")
         self._session_token = session_token
         self._recording_id: Optional[str] = None
+        self._chunk_index: int = 0
+        self._use_opus = FFMPEG_AVAILABLE
         self._headers = {
             "Authorization": f"Bearer {self._session_token}" if session_token else "",
         }
+
+        if self._use_opus:
+            logger.info("Voice upload: ffmpeg found — will compress to Opus (~10x smaller)")
+        else:
+            logger.info("Voice upload: ffmpeg not found — uploading raw PCM")
 
     @property
     def recording_id(self) -> Optional[str]:
@@ -39,14 +105,12 @@ class VoiceCloudUploader:
     # ------------------------------------------------------------------
 
     def start_cloud_recording(
-        self, cloud_session_id: str, audio_format: str = "wav", talk_id: str = None
+        self, cloud_session_id: str, audio_format: str = None, talk_id: str = None
     ) -> bool:
-        """Tell the cloud to create a new voice recording entry.
-
-        Returns True if successful (sets self._recording_id).
-        """
+        """Tell the cloud to create a new voice recording entry."""
         try:
-            params = {"audio_format": audio_format}
+            fmt = "ogg" if self._use_opus else "wav"
+            params = {"audio_format": fmt}
             if talk_id:
                 params["talk_id"] = talk_id
 
@@ -59,7 +123,8 @@ class VoiceCloudUploader:
             if resp.status_code == 200:
                 data = resp.json()
                 self._recording_id = data.get("recording_id")
-                logger.info(f"Cloud voice recording started: {self._recording_id}")
+                self._chunk_index = 0
+                logger.info(f"Cloud voice recording started: {self._recording_id} (format: {fmt})")
                 return True
             else:
                 logger.warning(f"Failed to start cloud voice recording: {resp.status_code} {resp.text}")
@@ -69,19 +134,10 @@ class VoiceCloudUploader:
             return False
 
     def upload_chunk(self, pcm_data: bytes, slide_number: int = 0, timestamp_seconds: float = 0.0):
-        """Upload an audio chunk and optionally add a slide marker.
-
-        Called in a background thread so it doesn't block recording.
-
-        Args:
-            pcm_data: Raw PCM audio bytes to append.
-            slide_number: Current slide number (0 = skip marker).
-            timestamp_seconds: Audio timestamp for the marker.
-        """
+        """Upload an audio chunk (background thread)."""
         if not self._recording_id or not pcm_data:
             return
 
-        # Run in background thread to avoid blocking
         t = threading.Thread(
             target=self._upload_chunk_sync,
             args=(pcm_data, slide_number, timestamp_seconds),
@@ -91,16 +147,13 @@ class VoiceCloudUploader:
         t.start()
 
     def upload_chunk_blocking(self, pcm_data: bytes, slide_number: int = 0, timestamp_seconds: float = 0.0):
-        """Upload an audio chunk synchronously (blocks until complete).
-
-        Use this for the final chunk before stopping the recording.
-        """
+        """Upload an audio chunk synchronously (for final chunk)."""
         if not self._recording_id or not pcm_data:
             return
         self._upload_chunk_sync(pcm_data, slide_number, timestamp_seconds)
 
     def stop_cloud_recording(self, duration_seconds: float = 0.0):
-        """Finalize the cloud recording."""
+        """Finalize the cloud recording (server concatenates chunks)."""
         if not self._recording_id:
             return
 
@@ -109,7 +162,7 @@ class VoiceCloudUploader:
                 f"{self._api_url}/api/voice/desktop/stop/{self._recording_id}",
                 params={"duration_seconds": duration_seconds},
                 headers=self._headers,
-                timeout=10,
+                timeout=30,  # Concat may take a moment
             )
             if resp.status_code == 200:
                 logger.info(f"Cloud voice recording stopped: {self._recording_id}")
@@ -125,13 +178,35 @@ class VoiceCloudUploader:
     # ------------------------------------------------------------------
 
     def _upload_chunk_sync(self, pcm_data: bytes, slide_number: int, timestamp_seconds: float):
-        """Synchronous chunk upload with retry (runs in background thread)."""
-        # Upload audio chunk with retry
+        """Convert to Opus (if available) and upload with retry."""
+        # Convert PCM → OGG/Opus
+        if self._use_opus:
+            upload_data = _pcm_to_opus(pcm_data)
+            if upload_data is None:
+                # Fallback to raw PCM
+                upload_data = pcm_data
+                content_type = "application/octet-stream"
+                ext = "raw"
+            else:
+                content_type = "audio/ogg"
+                ext = "ogg"
+        else:
+            upload_data = pcm_data
+            content_type = "application/octet-stream"
+            ext = "raw"
+
+        self._chunk_index += 1
+
+        # Upload with retry
         success = False
         for attempt in range(3):
             try:
                 files = {
-                    "file": ("chunk.raw", io.BytesIO(pcm_data), "application/octet-stream"),
+                    "file": (
+                        f"chunk_{self._chunk_index:04d}.{ext}",
+                        io.BytesIO(upload_data),
+                        content_type,
+                    ),
                 }
                 resp = requests.post(
                     f"{self._api_url}/api/voice/upload-chunk/{self._recording_id}",
@@ -141,7 +216,11 @@ class VoiceCloudUploader:
                 )
                 if resp.status_code == 200:
                     total = resp.json().get("total_size", 0)
-                    logger.debug(f"Voice chunk uploaded: +{len(pcm_data)} bytes (total {total})")
+                    logger.debug(
+                        f"Voice chunk #{self._chunk_index} uploaded: "
+                        f"{len(pcm_data)} PCM → {len(upload_data)} {ext} "
+                        f"(total on server: {total})"
+                    )
                     success = True
                     break
                 else:
@@ -153,9 +232,12 @@ class VoiceCloudUploader:
                 time.sleep(5)
 
         if not success:
-            logger.error(f"Voice chunk upload failed after 3 retries ({len(pcm_data)} bytes lost)")
+            logger.error(
+                f"Voice chunk #{self._chunk_index} upload failed after 3 retries "
+                f"({len(upload_data)} bytes lost)"
+            )
 
-        # Add slide marker (no retry needed — markers are idempotent)
+        # Add slide marker
         if slide_number > 0:
             try:
                 resp = requests.post(
