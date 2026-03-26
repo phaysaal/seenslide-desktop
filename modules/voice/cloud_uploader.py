@@ -90,6 +90,15 @@ class VoiceCloudUploader:
         )
         t.start()
 
+    def upload_chunk_blocking(self, pcm_data: bytes, slide_number: int = 0, timestamp_seconds: float = 0.0):
+        """Upload an audio chunk synchronously (blocks until complete).
+
+        Use this for the final chunk before stopping the recording.
+        """
+        if not self._recording_id or not pcm_data:
+            return
+        self._upload_chunk_sync(pcm_data, slide_number, timestamp_seconds)
+
     def stop_cloud_recording(self, duration_seconds: float = 0.0):
         """Finalize the cloud recording."""
         if not self._recording_id:

@@ -352,20 +352,23 @@ class SeenSlideOrchestrator:
         path = None
 
         if self.voice_recorder and self.voice_recorder.is_recording:
-            # Flush final chunk to cloud before stopping
+            # Stop the recorder first so all audio is finalized
+            duration = self.voice_recorder.duration_seconds
+            path = self.voice_recorder.stop()
+
+            # Now flush ALL remaining audio and upload synchronously
             if self._voice_cloud_uploader:
                 final_chunk = self.voice_recorder.flush_chunk()
                 if final_chunk:
                     markers = self.voice_recorder.markers
                     slide_num = markers[-1].slide_number if markers else 0
                     ts = markers[-1].timestamp_seconds if markers else 0.0
-                    self._voice_cloud_uploader.upload_chunk(final_chunk, slide_num, ts)
+                    # Blocking upload — waits until complete before stopping
+                    self._voice_cloud_uploader.upload_chunk_blocking(
+                        final_chunk, slide_num, ts
+                    )
 
-            duration = self.voice_recorder.duration_seconds
-            path = self.voice_recorder.stop()
-
-            # Finalize cloud recording
-            if self._voice_cloud_uploader:
+                # Finalize cloud recording (after final chunk is confirmed uploaded)
                 self._voice_cloud_uploader.stop_cloud_recording(duration)
                 self._voice_cloud_uploader = None
 
