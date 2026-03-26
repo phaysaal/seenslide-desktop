@@ -153,7 +153,7 @@ class VoiceCloudUploader:
         self._upload_chunk_sync(pcm_data, slide_number, timestamp_seconds)
 
     def stop_cloud_recording(self, duration_seconds: float = 0.0):
-        """Finalize the cloud recording (server concatenates chunks)."""
+        """Finalize the cloud recording."""
         if not self._recording_id:
             return
 
@@ -162,7 +162,7 @@ class VoiceCloudUploader:
                 f"{self._api_url}/api/voice/desktop/stop/{self._recording_id}",
                 params={"duration_seconds": duration_seconds},
                 headers=self._headers,
-                timeout=30,  # Concat may take a moment
+                timeout=30,
             )
             if resp.status_code == 200:
                 logger.info(f"Cloud voice recording stopped: {self._recording_id}")
@@ -172,6 +172,84 @@ class VoiceCloudUploader:
             logger.warning(f"Cloud voice stop failed: {e}")
         finally:
             self._recording_id = None
+
+    def upload_final_ogg(self, wav_path: str, recording_id: str, duration_seconds: float = 0.0):
+        """Convert local WAV → OGG/Opus and upload as the final recording.
+
+        This replaces the chunked data on the server with a single proper
+        OGG file that has correct duration and is fully seekable.
+
+        Args:
+            wav_path: Path to local WAV file.
+            recording_id: Cloud recording ID.
+            duration_seconds: Total duration.
+        """
+        if not FFMPEG_AVAILABLE:
+            logger.info("ffmpeg not available — skipping final OGG upload")
+            return
+
+        import tempfile
+        import subprocess
+        import os
+
+        ogg_path = None
+        try:
+            # Convert WAV → OGG/Opus
+            ogg_fd, ogg_path = tempfile.mkstemp(suffix=".ogg")
+            os.close(ogg_fd)
+
+            logger.info(f"Converting {wav_path} → OGG/Opus for final upload...")
+            result = subprocess.run(
+                [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error",
+                    "-y",
+                    "-i", wav_path,
+                    "-c:a", "libopus", "-b:a", "64k",
+                    ogg_path,
+                ],
+                capture_output=True,
+                timeout=120,
+            )
+
+            if result.returncode != 0:
+                logger.warning(f"Final OGG conversion failed: {result.stderr.decode()[:200]}")
+                return
+
+            ogg_size = os.path.getsize(ogg_path)
+            wav_size = os.path.getsize(wav_path)
+            logger.info(
+                f"Converted: {wav_size} bytes WAV → {ogg_size} bytes OGG "
+                f"({wav_size / ogg_size:.1f}x compression)"
+            )
+
+            # Upload as final file replacement
+            with open(ogg_path, "rb") as f:
+                files = {
+                    "file": ("final.ogg", f, "audio/ogg"),
+                }
+                resp = requests.post(
+                    f"{self._api_url}/api/voice/desktop/upload-final/{recording_id}",
+                    files=files,
+                    params={"duration_seconds": duration_seconds},
+                    headers=self._headers,
+                    timeout=120,
+                )
+
+            if resp.status_code == 200:
+                logger.info(f"Final OGG uploaded: {recording_id} ({ogg_size} bytes)")
+            else:
+                logger.warning(f"Final OGG upload failed: {resp.status_code} {resp.text[:200]}")
+
+        except subprocess.TimeoutExpired:
+            logger.warning("Final OGG conversion timed out")
+        except Exception as e:
+            logger.warning(f"Final OGG upload failed: {e}")
+        finally:
+            if ogg_path:
+                try:
+                    os.unlink(ogg_path)
+                except Exception:
+                    pass
 
     # ------------------------------------------------------------------
     # Internal

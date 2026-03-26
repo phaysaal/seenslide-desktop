@@ -368,8 +368,19 @@ class SeenSlideOrchestrator:
                         final_chunk, slide_num, ts
                     )
 
+                # Save recording_id before stop (stop clears it)
+                cloud_recording_id = self._voice_cloud_uploader.recording_id
+
                 # Finalize cloud recording (after final chunk is confirmed uploaded)
                 self._voice_cloud_uploader.stop_cloud_recording(duration)
+
+                # Convert full local WAV → OGG and upload as final replacement
+                # This gives viewers a seekable file with correct duration
+                if path and cloud_recording_id:
+                    self._voice_cloud_uploader.upload_final_ogg(
+                        path, cloud_recording_id, duration
+                    )
+
                 self._voice_cloud_uploader = None
 
                 # Unsubscribe from slide events
