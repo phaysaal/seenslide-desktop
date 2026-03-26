@@ -15,7 +15,7 @@ from modules.dedup.engine import DeduplicationEngine
 from modules.dedup.strategies.hash_strategy import HashDeduplicationStrategy
 from modules.dedup.strategies.perceptual_strategy import PerceptualDeduplicationStrategy
 from modules.dedup.strategies.hybrid_strategy import HybridDeduplicationStrategy
-from modules.dedup.strategies.adaptive_strategy import AdaptiveDeduplicationStrategy
+# AdaptiveDeduplicationStrategy imported lazily (requires opencv)
 from modules.storage.manager import StorageManager
 from modules.voice.recorder import VoiceRecorder
 from modules.voice.cloud_uploader import VoiceCloudUploader
@@ -559,6 +559,7 @@ class SeenSlideOrchestrator:
         elif strategy_name == "hybrid":
             strategy = HybridDeduplicationStrategy()
         elif strategy_name == "adaptive":
+            from modules.dedup.strategies.adaptive_strategy import AdaptiveDeduplicationStrategy
             strategy = AdaptiveDeduplicationStrategy(capture_provider=capture_provider)
             logger.info("Using adaptive deduplication with region profiling")
         else:

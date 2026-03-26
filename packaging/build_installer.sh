@@ -146,7 +146,6 @@ for typelib_dir in [
 
 # Hidden imports that PyInstaller might miss
 hiddenimports = [
-    'customtkinter',
     'PyQt5',
     'PyQt5.QtCore',
     'PyQt5.QtGui',
@@ -169,7 +168,6 @@ hiddenimports = [
     'sounddevice',
     'soundfile',
     'fitz',
-    'cv2',
     'evdev',
     'dbus',
     'dbus.mainloop',
@@ -190,7 +188,11 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['pkg_resources', 'setuptools', 'appdirs'],
+    excludes=[
+        'pkg_resources', 'setuptools', 'appdirs',
+        'cv2', 'scipy', 'opencv',       # Only needed for adaptive dedup (not default)
+        'customtkinter', 'tkinter',     # Legacy admin GUI (not used by PyQt5 app)
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
