@@ -168,7 +168,6 @@ hiddenimports = [
     'sounddevice',
     'soundfile',
     'fitz',
-    'evdev',
     'dbus',
     'dbus.mainloop',
     'dbus.mainloop.glib',
@@ -178,6 +177,11 @@ hiddenimports = [
     'gi.repository.Gst',
     'gi.repository.Gio',
 ]
+
+# Add evdev only if available (Linux)
+import importlib.util
+if importlib.util.find_spec('evdev'):
+    hiddenimports.append('evdev')
 
 a = Analysis(
     [str(project_dir / 'gui' / 'main.py')],

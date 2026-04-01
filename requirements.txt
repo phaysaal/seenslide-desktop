@@ -15,7 +15,7 @@ pydantic>=2.0.0
 
 # Screen Capture
 mss>=9.0.0
-evdev>=1.6.0
+evdev>=1.6.0; sys_platform == 'linux'
 
 # Image Processing & Deduplication
 Pillow>=10.0.0
@@ -47,7 +47,7 @@ sounddevice>=0.4.6
 soundfile>=0.12.1
 
 # Computer Vision (adaptive deduplication)
-opencv-python-headless>=4.8.0
+opencv-python-headless>=4.8.0; sys_platform == 'linux'
 numpy>=1.24.0
 
 # Slide File Conversion (PDF → images)
@@ -55,4 +55,4 @@ PyMuPDF>=1.23.0
 python-pptx>=0.6.21
 
 # Legacy admin GUI views
-customtkinter>=5.2.0
+customtkinter>=5.2.0; sys_platform == 'linux'
