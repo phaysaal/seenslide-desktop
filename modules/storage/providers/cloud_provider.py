@@ -22,6 +22,7 @@ class CloudStorageProvider(IStorageProvider):
         self.api_url: Optional[str] = None
         self.session_token: Optional[str] = None
         self.cloud_session_id: Optional[str] = None
+        self.current_talk_id: Optional[str] = None
         self.enabled = False
 
     @property
@@ -182,9 +183,12 @@ class CloudStorageProvider(IStorageProvider):
             response.raise_for_status()
 
             result = response.json()
-            # Store the talk_id for voice recording association
+            # Store the talk_id for slide and voice recording association
             talk_data = result.get("talk", {})
             self.current_talk_id = talk_data.get("talk_id")
+            if not self.current_talk_id:
+                logger.error(f"Failed to get talk_id from API response: {result}")
+                return False
             logger.info(f"✅ Talk created in cloud: {talk_name} (talk_id: {self.current_talk_id})")
             return True
 
@@ -209,11 +213,19 @@ class CloudStorageProvider(IStorageProvider):
         Returns:
             Slide ID if successful
         """
-        if not self.enabled or not self.cloud_session_id:
-            return slide.slide_id  # Return slide ID if disabled
+        if not self.enabled:
+            return slide.slide_id
+
+        # Prefer talk_id from slide, fallback to current_talk_id
+        talk_id = slide.talk_id or self.current_talk_id
+
+        if not talk_id:
+            logger.warning(f"No talk_id for slide {slide.sequence_number}, skipping cloud upload")
+            return slide.slide_id
 
         try:
-            url = f"{self.api_url}/api/cloud/session/{self.cloud_session_id}/upload-slide?slide_number={slide.sequence_number}"
+            # Use talk-specific endpoint for correct hierarchy
+            url = f"{self.api_url}/api/cloud/talk/{talk_id}/upload-slide?slide_number={slide.sequence_number}"
             headers = {
                 "Authorization": f"Bearer {self.session_token}"
             }
@@ -223,11 +235,11 @@ class CloudStorageProvider(IStorageProvider):
                 "file": (f"slide_{slide.sequence_number:03d}.jpg", image_data, "image/jpeg")
             }
 
-            logger.debug(f"Uploading slide {slide.sequence_number} to cloud...")
+            logger.debug(f"Uploading slide {slide.sequence_number} to talk {talk_id}...")
             response = requests.post(url, headers=headers, files=files, timeout=30)
             response.raise_for_status()
 
-            logger.info(f"✅ Uploaded slide {slide.sequence_number} to cloud")
+            logger.info(f"✅ Uploaded slide {slide.sequence_number} to talk {talk_id}")
             return slide.slide_id
 
         except Exception as e:
