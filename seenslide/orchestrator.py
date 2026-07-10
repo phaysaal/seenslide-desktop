@@ -2,6 +2,7 @@
 
 import logging
 import threading
+from collections import deque
 from typing import Optional, Dict
 import time
 
@@ -58,6 +59,13 @@ class SeenSlideOrchestrator:
         self.voice_recorder: Optional[VoiceRecorder] = None
         self._voice_cloud_uploader: Optional[VoiceCloudUploader] = None
         self._voice_auto_chunk_timer: Optional[threading.Timer] = None
+        # FIFO of (slide_number, timestamp_seconds) awaiting upload. A deque
+        # (not a single slot) because two SLIDE_UNIQUEs can land between
+        # flushes — the old single slot silently overwrote the first marker.
+        # Guarded by _voice_marker_lock: producers run on the capture-daemon
+        # thread, consumers on both that thread and the auto-chunk timer.
+        self._pending_voice_markers = deque()
+        self._voice_marker_lock = threading.Lock()
 
         self._voice_enabled = False
         self._running = False
@@ -123,6 +131,7 @@ class SeenSlideOrchestrator:
             self.capture_daemon = CaptureDaemon(
                 provider=capture_provider,
                 session=self.session,
+                config=capture_config,
                 event_bus=self.event_bus,
                 mode=mode
             )
@@ -186,6 +195,7 @@ class SeenSlideOrchestrator:
 
             if self.storage_manager:
                 self.storage_manager.stop()
+                self.storage_manager.set_current_talk(None)
 
             self._running = False
             session_id = self.session.session_id if self.session else "unknown"
@@ -253,12 +263,20 @@ class SeenSlideOrchestrator:
 
         cloud_talk_id = None
 
+        cloud = None
         if self.storage_manager and hasattr(self.storage_manager, '_cloud'):
             cloud = self.storage_manager._cloud
             if cloud and cloud.enabled and cloud.api_url and cloud.cloud_session_id:
                 cloud_api_url = cloud.api_url
                 cloud_session_id = cloud.cloud_session_id
-                cloud_token = cloud.session_token or ""
+                # Only forward a genuine legacy override (config-file token).
+                # cloud.session_token is a live property — snapshotting it
+                # here and passing it to the uploader would freeze it as a
+                # static override for the whole recording, so a token
+                # rotation mid-talk (re-auth, claim/merge) would 401 every
+                # voice call. With "" the uploader reads the live identity
+                # token per request.
+                cloud_token = getattr(cloud, '_session_token_override', None) or ""
                 cloud_talk_id = getattr(cloud, 'current_talk_id', None)
 
         logger.info(
@@ -267,33 +285,94 @@ class SeenSlideOrchestrator:
         )
 
         if cloud_api_url and cloud_session_id:
+            # Read the recorder's actual sample rate AFTER start() has run
+            # — start() overrides _sample_rate with the device's default,
+            # which may differ from the constructor value. Without this,
+            # ffmpeg encodes the OGG/Opus chunks at the wrong rate and
+            # live viewers hear pitch-shifted audio.
+            recorder_sr = getattr(self.voice_recorder, "_sample_rate", 44100)
+            recorder_ch = getattr(self.voice_recorder, "_channels", 1)
+            # Resolver: slide_number → stable cloud slide_id, filled in by
+            # the cloud provider as slide uploads succeed. Markers carrying
+            # slide_id survive slide reordering on the server.
+            resolver = (
+                (lambda n, c=cloud: c.slide_ids_by_number.get(n))
+                if cloud is not None else None
+            )
             self._voice_cloud_uploader = VoiceCloudUploader(
                 api_url=cloud_api_url,
                 session_token=cloud_token,
+                sample_rate=recorder_sr,
+                channels=recorder_ch,
+                slide_id_resolver=resolver,
             )
             ok = self._voice_cloud_uploader.start_cloud_recording(
                 cloud_session_id, talk_id=cloud_talk_id
             )
             logger.info(f"Voice cloud recording start result: {ok}, recording_id={self._voice_cloud_uploader.recording_id}")
             if ok:
-                # Subscribe to slide events for chunk uploads
+                with self._voice_marker_lock:
+                    self._pending_voice_markers.clear()
+                # Subscribe to SLIDE_UNIQUE for markers (correct slide numbers)
                 self.event_bus.subscribe(
-                    EventType.SLIDE_UNIQUE, self._on_slide_for_voice_upload
+                    EventType.SLIDE_UNIQUE, self._on_unique_slide_for_voice_marker
                 )
-                # Start 60-second auto-chunk timer (uploads even without slide changes)
+                # Subscribe to SLIDE_CAPTURED for frequent audio flushing (~2s)
+                self.event_bus.subscribe(
+                    EventType.SLIDE_CAPTURED, self._on_capture_for_voice_flush
+                )
+                # Trigger an immediate capture so slide 1's content is confirmed
+                # quickly. Combined with the t=0.0 anchor in the marker handler,
+                # this places slide 1's marker at the start of the recording
+                # even if the periodic interval hasn't elapsed yet.
+                if self.capture_daemon:
+                    self.capture_daemon.request_immediate_capture()
+                # Start auto-chunk timer (uploads even without slide changes)
                 self._start_auto_chunk_timer()
-                logger.info("Voice cloud upload enabled (semi-live, 60s auto-chunk)")
+                logger.info("Voice cloud upload enabled (semi-live, 30s auto-chunk)")
             else:
                 logger.warning("Cloud voice recording failed to start — recording locally only")
                 self._voice_cloud_uploader = None
 
         return True
 
-    def _on_slide_for_voice_upload(self, event):
-        """Flush audio chunk and upload to cloud on each new slide."""
+    def _on_unique_slide_for_voice_marker(self, event):
+        """Record a marker when a unique slide is detected (real slide number).
+
+        The first slide is anchored to t=0.0 — whatever slide content was
+        on screen when voice recording began was visible from the start,
+        even though it took until the first capture+dedup cycle to confirm.
+        """
+        sequence_number = event.data.get("sequence_number", 0)
+        if self.voice_recorder and sequence_number > 0:
+            is_first = len(self.voice_recorder.markers) == 0
+            ts_override = 0.0 if is_first else None
+            self.voice_recorder.add_marker(
+                slide_number=sequence_number,
+                timestamp_seconds=ts_override,
+            )
+            markers = self.voice_recorder.markers
+            ts = markers[-1].timestamp_seconds if markers else 0.0
+            with self._voice_marker_lock:
+                self._pending_voice_markers.append((sequence_number, ts))
+            logger.debug(f"Voice sync: marker queued for slide {sequence_number} @ {ts:.1f}s")
+
+    def _on_capture_for_voice_flush(self, event):
+        """Flush audio chunk on each screen capture; include pending marker if any."""
         self._flush_and_upload_voice()
-        # Reset auto-chunk timer since we just uploaded
-        self._restart_auto_chunk_timer()
+
+    def _pop_pending_marker(self):
+        """Pop the oldest queued marker, or (0, 0.0) if none.
+
+        One marker per flush keeps chunk↔marker pairing simple; flushes run
+        every ~2s so a briefly backed-up queue drains within seconds, in
+        order. Anything lost to network blips is reconciled by the bulk
+        sync_markers call at talk end.
+        """
+        with self._voice_marker_lock:
+            if self._pending_voice_markers:
+                return self._pending_voice_markers.popleft()
+        return (0, 0.0)
 
     def _flush_and_upload_voice(self):
         """Flush accumulated audio and upload to cloud."""
@@ -304,29 +383,28 @@ class SeenSlideOrchestrator:
         if not chunk:
             return
 
-        markers = self.voice_recorder.markers
-        slide_num = markers[-1].slide_number if markers else 0
-        ts = markers[-1].timestamp_seconds if markers else 0.0
-
+        slide_num, ts = self._pop_pending_marker()
         self._voice_cloud_uploader.upload_chunk(chunk, slide_num, ts)
 
-    # --- 60-second auto-chunk timer ---
+    # --- 30-second auto-chunk timer ---
+    # Wall-clock backstop: every 30s, flush whatever audio has accumulated
+    # to the cloud. During normal operation slide-triggered flushes drain
+    # the buffer every ~2s, so the timer's tick is usually a cheap no-op
+    # (flush_chunk returns early on an empty buffer). It earns its keep
+    # when SLIDE_CAPTURED stops firing — e.g. capture daemon paused, idle,
+    # or stuck — but voice is still recording: audio keeps flowing instead
+    # of pooling until session end. This timer is NOT reset by capture
+    # events; that would have made it never fire during a live talk.
 
     _AUTO_CHUNK_INTERVAL = 30  # seconds
 
     def _start_auto_chunk_timer(self):
-        """Start repeating timer that uploads audio every 60s."""
+        """Start the 30s backstop timer (one-shot, re-scheduled each tick)."""
         self._voice_auto_chunk_timer = threading.Timer(
             self._AUTO_CHUNK_INTERVAL, self._auto_chunk_tick
         )
         self._voice_auto_chunk_timer.daemon = True
         self._voice_auto_chunk_timer.start()
-
-    def _restart_auto_chunk_timer(self):
-        """Reset the timer (called after each slide-triggered upload)."""
-        self._stop_auto_chunk_timer()
-        if self.voice_recorder and self.voice_recorder.is_recording:
-            self._start_auto_chunk_timer()
 
     def _stop_auto_chunk_timer(self):
         if self._voice_auto_chunk_timer:
@@ -334,59 +412,90 @@ class SeenSlideOrchestrator:
             self._voice_auto_chunk_timer = None
 
     def _auto_chunk_tick(self):
-        """Timer callback: upload audio even if no new slide appeared."""
+        """Timer callback: flush whatever audio is buffered, then reschedule."""
         if self.voice_recorder and self.voice_recorder.is_recording:
-            logger.debug("Auto-chunk: uploading audio (no slide change in 60s)")
+            logger.debug(
+                f"Auto-chunk tick ({self._AUTO_CHUNK_INTERVAL}s): "
+                f"flushing any pending audio"
+            )
             self._flush_and_upload_voice()
-            # Re-schedule
             self._start_auto_chunk_timer()
 
     def stop_voice_recording(self) -> Optional[str]:
         """Stop voice recording and return the WAV file path.
 
         Also uploads any remaining audio chunk and stops the cloud recording.
+
+        Cloud finalization runs whenever an uploader exists — even if the
+        recorder already died (e.g. a mic error mid-talk flipped
+        _recording=False). Skipping it in that case used to leave the cloud
+        recording stuck in processing_status='recording' forever, which
+        hides it from viewers, and leaked the event subscriptions.
         """
         # Stop auto-chunk timer
         self._stop_auto_chunk_timer()
 
         path = None
+        duration = 0.0
+        recorder = self.voice_recorder
+        uploader = self._voice_cloud_uploader
 
-        if self.voice_recorder and self.voice_recorder.is_recording:
+        if recorder and recorder.is_recording:
+            # Drain any in-flight SLIDE_CAPTURED → dedup → SLIDE_UNIQUE chain
+            # before stopping the recorder. The chain runs on the capture
+            # daemon thread; without this wait, voice_recorder.stop() (called
+            # from a different worker thread) can flip _recording=False while
+            # the chain is mid-flight, causing the last slide's add_marker to
+            # be silently dropped. Capture mode is already IDLE by this point
+            # (set by main_dashboard._stop_recording), so no new captures
+            # fire during the wait.
+            time.sleep(0.5)
+
             # Stop the recorder first so all audio is finalized
-            duration = self.voice_recorder.duration_seconds
-            path = self.voice_recorder.stop()
+            duration = recorder.duration_seconds
+            path = recorder.stop()
+        elif recorder:
+            # Recorder already stopped (mic failure or double-stop). The
+            # partial WAV on disk is still worth finalizing to the cloud.
+            duration = recorder.duration_seconds
+            path = recorder.output_path
 
-            # Now flush ALL remaining audio and upload synchronously
-            if self._voice_cloud_uploader:
-                final_chunk = self.voice_recorder.flush_chunk()
+        if uploader:
+            # Flush whatever audio remains and upload it in order, waiting
+            # for the queue to drain before finalizing.
+            if recorder:
+                final_chunk = recorder.flush_chunk()
                 if final_chunk:
-                    markers = self.voice_recorder.markers
-                    slide_num = markers[-1].slide_number if markers else 0
-                    ts = markers[-1].timestamp_seconds if markers else 0.0
-                    # Blocking upload — waits until complete before stopping
-                    self._voice_cloud_uploader.upload_chunk_blocking(
-                        final_chunk, slide_num, ts
-                    )
+                    slide_num, ts = self._pop_pending_marker()
+                    uploader.upload_chunk_blocking(final_chunk, slide_num, ts)
 
-                # Save recording_id before stop (stop clears it)
-                cloud_recording_id = self._voice_cloud_uploader.recording_id
+            # Save recording_id before stop (stop clears it)
+            cloud_recording_id = uploader.recording_id
 
-                # Finalize cloud recording (after final chunk is confirmed uploaded)
-                self._voice_cloud_uploader.stop_cloud_recording(duration)
+            # Reconcile markers: the recorder's local list is authoritative;
+            # per-chunk marker POSTs during the talk are best-effort.
+            if recorder and recorder.markers:
+                uploader.sync_markers(recorder.markers)
 
-                # Convert full local WAV → OGG and upload as final replacement
-                # This gives viewers a seekable file with correct duration
-                if path and cloud_recording_id:
-                    self._voice_cloud_uploader.upload_final_ogg(
-                        path, cloud_recording_id, duration
-                    )
+            # Finalize cloud recording (after final chunk is confirmed uploaded)
+            uploader.stop_cloud_recording(duration)
 
-                self._voice_cloud_uploader = None
+            # Convert full local WAV → OGG and upload as final replacement
+            # This gives viewers a seekable file with correct duration
+            if path and cloud_recording_id:
+                uploader.upload_final_ogg(path, cloud_recording_id, duration)
 
-                # Unsubscribe from slide events
-                self.event_bus.unsubscribe(
-                    EventType.SLIDE_UNIQUE, self._on_slide_for_voice_upload
-                )
+            self._voice_cloud_uploader = None
+
+        # Always unsubscribe — these are no-ops if we never subscribed.
+        self.event_bus.unsubscribe(
+            EventType.SLIDE_UNIQUE, self._on_unique_slide_for_voice_marker
+        )
+        self.event_bus.unsubscribe(
+            EventType.SLIDE_CAPTURED, self._on_capture_for_voice_flush
+        )
+        with self._voice_marker_lock:
+            self._pending_voice_markers.clear()
 
         return path
 
@@ -449,14 +558,12 @@ class SeenSlideOrchestrator:
             return None
         return self.capture_daemon.get_mode()
 
-    def update_session(self, new_session: Session) -> bool:
+    def update_session(self, new_session: Session, create_talk: bool = True) -> bool:
         """Update the current session (for switching between talks).
 
         Args:
             new_session: New session object
-
-        Returns:
-            True if updated successfully, False otherwise
+            create_talk: Whether to create a new talk in the cloud
         """
         if not self._running:
             logger.warning("Cannot update session: orchestrator not running")
@@ -477,16 +584,32 @@ class SeenSlideOrchestrator:
                         self.storage_manager._cloud.cloud_session_id = new_session.cloud_session_id
                         logger.info(f"Updated cloud provider to use cloud session: {new_session.cloud_session_id}")
 
-                        # Create talk in cloud session (don't fail if this doesn't work)
-                        try:
-                            self.storage_manager._cloud.create_talk(
-                                session_id=new_session.session_id,
-                                talk_name=new_session.name,
-                                presenter_name=new_session.presenter_name,
-                                description=new_session.description
-                            )
-                        except Exception as e:
-                            logger.warning(f"Failed to create talk in cloud (continuing anyway): {e}")
+                        # Create talk in cloud session if requested
+                        if create_talk:
+                            try:
+                                self.storage_manager._cloud.create_talk(
+                                    session_id=new_session.session_id,
+                                    talk_name=new_session.name,
+                                    presenter_name=new_session.presenter_name,
+                                    description=new_session.description
+                                )
+                                # Sync talk_id to storage manager for slide association
+                                talk_id = self.storage_manager._cloud.current_talk_id
+                                if talk_id:
+                                    self.storage_manager.set_current_talk(talk_id)
+                                    # Also create talk in local DB with same talk_id
+                                    try:
+                                        self.storage_manager._database.create_talk(
+                                            session_id=new_session.session_id,
+                                            title=new_session.name,
+                                            presenter_name=new_session.presenter_name,
+                                            description=new_session.description,
+                                            talk_id=talk_id
+                                        )
+                                    except Exception as e2:
+                                        logger.warning(f"Failed to create talk locally: {e2}")
+                            except Exception as e:
+                                logger.warning(f"Failed to create talk in cloud (continuing anyway): {e}")
 
                 logger.info(f"Updated storage manager session from {old_session_id} to {new_session.session_id}")
 

@@ -65,6 +65,12 @@ class VoiceRecorder:
         self._recording = False
         self._paused = False
         self._thread: Optional[threading.Thread] = None
+        # Single lock guards the wave file, _total_frames, and the cloud
+        # chunk buffer together. Earlier versions used two locks (one for
+        # the WAV write, one for the chunk buffer) — they're touched as a
+        # pair in the record loop, so a flush_chunk landing between the
+        # two critical sections could split a single audio block across
+        # two cloud uploads. Unifying them keeps each frame batch atomic.
         self._lock = threading.Lock()
 
         # Output
@@ -75,12 +81,8 @@ class VoiceRecorder:
         self._total_frames: int = 0
         self._slide_counter: int = 0
 
-        # Chunk buffer for cloud upload
+        # Chunk buffer for cloud upload (guarded by self._lock)
         self._chunk_buffer = bytearray()
-        self._chunk_lock = threading.Lock()
-
-        # Subscribe to slide events for auto-markers
-        self._event_bus.subscribe(EventType.SLIDE_UNIQUE, self._on_slide_unique)
 
     # ------------------------------------------------------------------
     # Public API
@@ -104,11 +106,17 @@ class VoiceRecorder:
 
     @property
     def duration_seconds(self) -> float:
-        if not self._recording:
-            if self._total_frames and self._sample_rate:
-                return self._total_frames / self._sample_rate
-            return 0.0
-        return time.time() - self._start_time
+        """True audio duration — frames recorded divided by sample rate.
+
+        Used for both the live readout and the post-stop value sent to the
+        cloud. Counting frames (instead of wall-clock since _start_time)
+        keeps paused intervals out of the duration: the record loop skips
+        writeframes() while _paused is True, so _total_frames only ever
+        reflects audio that was actually captured.
+        """
+        if self._total_frames and self._sample_rate:
+            return self._total_frames / self._sample_rate
+        return 0.0
 
     def start(self) -> bool:
         """Start recording audio from the microphone."""
@@ -127,6 +135,14 @@ class VoiceRecorder:
             return False
 
         try:
+            # Robust Sample Rate Detection
+            try:
+                device_info = sd.query_devices(self._device, 'input')
+                self._sample_rate = int(device_info['default_samplerate'])
+                logger.info(f"Using device default sample rate: {self._sample_rate} Hz")
+            except Exception as e:
+                logger.warning(f"Could not query device info, falling back to {self._sample_rate}: {e}")
+
             # Prepare output file
             self._output_dir.mkdir(parents=True, exist_ok=True)
             timestamp = time.strftime("%Y%m%d_%H%M%S")
@@ -220,12 +236,15 @@ class VoiceRecorder:
         self._paused = False
         logger.info("Voice recording resumed")
 
-    def add_marker(self, slide_number: int = 0):
+    def add_marker(self, slide_number: int = 0, timestamp_seconds: Optional[float] = None):
         """Add a slide marker at the current recording position.
 
         Args:
             slide_number: The slide number that just appeared.
                          If 0, auto-increments from last marker.
+            timestamp_seconds: Override the marker's audio-timeline position.
+                         If None, uses the current audio position. Pass 0.0 to
+                         anchor the first slide to the start of the recording.
         """
         if not self._recording:
             return
@@ -234,14 +253,24 @@ class VoiceRecorder:
             self._slide_counter += 1
             slide_number = self._slide_counter
 
-        elapsed = time.time() - self._start_time
+        if timestamp_seconds is None:
+            # Position on the AUDIO timeline, not the wall clock. The server
+            # treats marker timestamps as playback positions in the recorded
+            # file, and the file's length is _total_frames / _sample_rate.
+            # Wall clock diverges from that whenever frames are dropped
+            # (input overflow) or recording is paused — markers stamped with
+            # wall clock then point past the audio they belong to.
+            with self._lock:
+                frames = self._total_frames
+            timestamp_seconds = round(frames / self._sample_rate, 3) if self._sample_rate else 0.0
+
         marker = SlideMarker(
             slide_number=slide_number,
-            timestamp_seconds=round(elapsed, 3),
+            timestamp_seconds=timestamp_seconds,
         )
         self._markers.append(marker)
 
-        logger.debug(f"Voice marker: slide {slide_number} at {elapsed:.1f}s")
+        logger.debug(f"Voice marker: slide {slide_number} at {timestamp_seconds:.1f}s")
         self._event_bus.publish(Event(
             EventType.VOICE_MARKER_ADDED,
             data={
@@ -259,7 +288,7 @@ class VoiceRecorder:
         Returns:
             Raw PCM bytes (16-bit, mono, 44100 Hz) — empty bytes if nothing new.
         """
-        with self._chunk_lock:
+        with self._lock:
             if not self._chunk_buffer:
                 return b""
             data = bytes(self._chunk_buffer)
@@ -287,6 +316,7 @@ class VoiceRecorder:
 
         block_size = 1024
         try:
+            # We use the sample rate determined in start()
             with sd.InputStream(
                 samplerate=self._sample_rate,
                 channels=self._channels,
@@ -301,22 +331,20 @@ class VoiceRecorder:
                     if self._paused:
                         continue  # Discard frames while paused
                     raw = data.tobytes()
+                    # Single critical section: WAV write, frame counter,
+                    # and cloud chunk buffer all advance together so a
+                    # concurrent flush_chunk() never sees a chunk buffer
+                    # that's out of step with the WAV file.
                     with self._lock:
                         if self._wave_file:
                             self._wave_file.writeframes(raw)
                             self._total_frames += len(data)
-                    with self._chunk_lock:
                         self._chunk_buffer.extend(raw)
 
         except Exception as e:
             logger.error(f"Voice recording loop error: {e}", exc_info=True)
             self._recording = False
             self._publish_failed(str(e))
-
-    def _on_slide_unique(self, event: Event):
-        """Auto-add a marker when a new unique slide is detected."""
-        if self._recording and not self._paused:
-            self.add_marker()
 
     def _close_wave(self):
         """Safely close the WAV file."""
