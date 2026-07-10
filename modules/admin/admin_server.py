@@ -754,7 +754,7 @@ class AdminServer:
                         logger.info(f"Created filesystem directories for session: {new_session.session_id}")
 
                 # Update the orchestrator to use this new session
-                success = self.idle_orchestrator.update_session(new_session)
+                success = self.idle_orchestrator.update_session(new_session, create_talk=True)
                 if not success:
                     return SessionControlResponse(
                         success=False,
@@ -835,6 +835,12 @@ class AdminServer:
                         logger.warning("Failed to switch to idle mode")
                 else:
                     logger.warning("Idle orchestrator not running")
+
+                # Tell the cloud the talk is over so viewers stop seeing
+                # the LIVE badge. Done before clearing local state so the
+                # cloud_provider.current_talk_id is still valid.
+                if self.cloud_provider and self.cloud_provider.current_talk_id:
+                    self.cloud_provider.end_talk()
 
                 # Clear active talk info
                 self.active_session_id = None

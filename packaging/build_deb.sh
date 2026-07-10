@@ -138,6 +138,26 @@ cat > "$DEB_ROOT/DEBIAN/postinst" << 'EOF'
 gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
 # Update desktop database
 update-desktop-database /usr/share/applications 2>/dev/null || true
+
+# Check for input group membership (required for Linux hardware slide advance detection)
+if [ -f /proc/version ]; then
+    # Only on Linux
+    if ! groups $SUDO_USER | grep -q "\binput\b"; then
+        echo ""
+        echo "==============================================================================="
+        echo "  [ACTION REQUIRED] Hardware Slide Advance Detection"
+        echo "==============================================================================="
+        echo "  To allow SeenSlide to detect keyboard/mouse events for automatic capture,"
+        echo "  your user must be a member of the 'input' group."
+        echo ""
+        echo "  Please run the following command after installation:"
+        echo "    sudo usermod -aG input \$USER"
+        echo ""
+        echo "  NOTE: You will need to LOG OUT and LOG IN again for this to take effect."
+        echo "==============================================================================="
+        echo ""
+    fi
+fi
 EOF
 chmod 755 "$DEB_ROOT/DEBIAN/postinst"
 

@@ -20,7 +20,7 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/yourusername/seenslide",
-    packages=find_packages(),
+    packages=["seenslide", "gui", "modules", "core"],
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Education",

@@ -41,6 +41,7 @@ class ProcessedSlide:
     Attributes:
         slide_id: Unique identifier for this slide
         session_id: ID of the session this slide belongs to
+        talk_id: ID of the talk this slide belongs to
         image_path: File path to the saved full-size image
         thumbnail_path: File path to the thumbnail image
         timestamp: Unix timestamp when slide was captured
@@ -54,6 +55,7 @@ class ProcessedSlide:
     """
     slide_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     session_id: str = ""
+    talk_id: str = ""
     image_path: str = ""
     thumbnail_path: str = ""
     timestamp: float = 0.0
@@ -74,6 +76,7 @@ class ProcessedSlide:
         return {
             "slide_id": self.slide_id,
             "session_id": self.session_id,
+            "talk_id": self.talk_id,
             "image_path": self.image_path,
             "thumbnail_path": self.thumbnail_path,
             "timestamp": self.timestamp,

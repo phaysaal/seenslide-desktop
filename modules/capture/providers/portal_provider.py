@@ -66,6 +66,8 @@ class PortalCaptureProvider(ICaptureProvider):
 
     def __init__(self):
         """Initialize the portal capture provider."""
+        self._stream_active = False
+
         if not PORTAL_AVAILABLE:
             raise ImportError(
                 f"Portal provider requires system packages: {IMPORT_ERROR}\n"

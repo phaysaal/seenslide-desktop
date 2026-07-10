@@ -92,18 +92,20 @@ class UploadWorker(QThread):
             for i, img in enumerate(self.images):
                 self.progress.emit(i + 1, total)
 
-                # Convert PIL Image to JPEG bytes
+                # Save as JPEG to reduce file size
                 buf = io.BytesIO()
-                img.save(buf, format="JPEG", quality=90)
-                jpeg_bytes = buf.getvalue()
+                img.convert('RGB').save(buf, format="JPEG", quality=85, optimize=True)
+                img_data = buf.getvalue()
 
                 # Build a minimal ProcessedSlide-like object
                 from core.models.slide import ProcessedSlide
                 slide = ProcessedSlide(
                     slide_id=f"slide-{i+1}",
+                    session_id=session_id,
+                    talk_id=self.cloud.current_talk_id or "",
                     sequence_number=i + 1,
                 )
-                self.cloud.save_slide(slide, image_data=jpeg_bytes)
+                self.cloud.save_slide(slide, image_data=img_data)
 
             viewer_url = f"{self.cloud.api_url}/{session_id}"
             self.finished.emit(viewer_url)
@@ -560,17 +562,19 @@ class SlideDeckWindow(QWidget):
         idx = self._current_slide
         img = self._images[idx]
 
-        # Convert to JPEG bytes
+        # Save as JPEG to reduce file size
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=90)
-        jpeg_bytes = buf.getvalue()
+        img.convert('RGB').save(buf, format="JPEG", quality=85, optimize=True)
+        img_data = buf.getvalue()
 
         from core.models.slide import ProcessedSlide
         slide = ProcessedSlide(
             slide_id=f"slide-{idx+1}",
+            session_id=self.cloud_session_id or "",
+            talk_id=self._cloud.current_talk_id or "",
             sequence_number=idx + 1,
         )
-        self._cloud.save_slide(slide, image_data=jpeg_bytes)
+        self._cloud.save_slide(slide, image_data=img_data)
         self._slides_uploaded += 1
         logger.info(f"Uploaded slide {idx + 1}/{len(self._images)}")
 
@@ -631,7 +635,12 @@ class SlideDeckWindow(QWidget):
             except Exception:
                 token = ""
 
-            self._voice_uploader = VoiceCloudUploader(self._cloud.api_url, token)
+            self._voice_uploader = VoiceCloudUploader(
+                self._cloud.api_url,
+                token,
+                sample_rate=getattr(self._voice_recorder, "_sample_rate", 44100),
+                channels=getattr(self._voice_recorder, "_channels", 1),
+            )
             self._voice_uploader.start_cloud_recording(cloud_session_id)
 
     def _stop_voice(self) -> Optional[str]:
@@ -674,6 +683,13 @@ class SlideDeckWindow(QWidget):
             return
 
         voice_path = self._stop_voice()
+
+        # Tell the cloud the talk is over. Must come AFTER _stop_voice so
+        # the final chunk and OGG land in voice_recordings before the talk
+        # row flips to status='completed'.
+        if self._cloud and self._cloud.current_talk_id:
+            self._cloud.end_talk()
+
         self._is_presenting = False
         self._stop_btn.setVisible(False)
         self._start_btn.setVisible(True)

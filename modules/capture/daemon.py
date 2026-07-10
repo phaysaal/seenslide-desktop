@@ -26,6 +26,7 @@ class CaptureDaemon:
         self,
         provider: ICaptureProvider,
         session: Session,
+        config: dict = None,
         event_bus: Optional[EventBus] = None,
         mode: CaptureMode = CaptureMode.ACTIVE
     ):
@@ -34,11 +35,13 @@ class CaptureDaemon:
         Args:
             provider: Initialized capture provider
             session: Session configuration
+            config: Capture configuration dictionary
             event_bus: Event bus for publishing events (None = create new)
             mode: Capture mode (IDLE or ACTIVE)
         """
         self._provider = provider
         self._session = session
+        self._config = config or {}
         self._event_bus = event_bus or EventBus()
         self._mode = mode
 
@@ -53,17 +56,26 @@ class CaptureDaemon:
         self._input_triggered = False  # Set by InputMonitor callback
 
         # Input monitor for event-driven capture (keyboard/mouse)
-        self._input_monitor = InputMonitor(
-            on_trigger=self._on_input_event,
-            capture_delay=0.4,
-            debounce_interval=0.5,
-        )
+        enable_input_monitor = self._config.get("enable_input_monitor", True)
+        if enable_input_monitor:
+            self._input_monitor = InputMonitor(
+                on_trigger=self._on_input_event,
+                capture_delay=0.4,
+                debounce_interval=0.5,
+            )
+        else:
+            self._input_monitor = None
+            logger.info("Input monitor disabled via configuration")
 
         # Store original interval for mode switching
         self._original_interval = session.capture_interval_seconds
         self._idle_interval = 60.0  # Capture once per minute in idle mode
         # Fallback interval when input monitor is active (captures even without events)
-        self._fallback_interval = 10.0
+        # We use the original interval if it's reasonable (e.g. 2-15s), otherwise fallback to 10s
+        if 1.0 <= self._original_interval <= 30.0:
+            self._fallback_interval = self._original_interval
+        else:
+            self._fallback_interval = 10.0
 
         # Set initial interval based on mode
         if mode == CaptureMode.IDLE:
@@ -107,10 +119,13 @@ class CaptureDaemon:
             self._thread.start()
 
             # Start input monitor for event-driven capture
-            if self._input_monitor.start():
+            if self._input_monitor and self._input_monitor.start():
                 logger.info("Input monitor active — capturing on keyboard/mouse events (fallback every %.0fs)" % self._fallback_interval)
             else:
-                logger.info("Input monitor unavailable — using fixed interval capture (every %.1fs)" % self._original_interval)
+                if self._input_monitor:
+                    logger.info("Input monitor unavailable — using fixed interval capture (every %.1fs)" % self._original_interval)
+                else:
+                    logger.info("Input monitor disabled — using fixed interval capture (every %.1fs)" % self._original_interval)
 
             # Publish session started event
             self._event_bus.publish(Event(
@@ -152,7 +167,8 @@ class CaptureDaemon:
                     logger.warning("Capture daemon did not stop gracefully")
 
             # Stop input monitor
-            self._input_monitor.stop()
+            if self._input_monitor:
+                self._input_monitor.stop()
 
             # Stop screencast if provider supports it
             if hasattr(self._provider, 'stop_screencast'):
@@ -233,15 +249,16 @@ class CaptureDaemon:
         # Update capture interval and input monitor based on mode
         if mode == CaptureMode.IDLE:
             self._session.capture_interval_seconds = self._idle_interval
-            self._input_monitor.pause()
+            if self._input_monitor:
+                self._input_monitor.pause()
             logger.info(f"Switched to IDLE mode (interval: {self._idle_interval}s)")
         else:
             # Use fallback interval if input monitor is active, otherwise original
-            if self._input_monitor.is_available:
+            if self._input_monitor and self._input_monitor.is_available:
                 self._session.capture_interval_seconds = self._fallback_interval
+                self._input_monitor.resume()
             else:
                 self._session.capture_interval_seconds = self._original_interval
-            self._input_monitor.resume()
             logger.info(f"Switched to ACTIVE mode (interval: {self._session.capture_interval_seconds}s)")
 
         # Publish mode change event
@@ -296,6 +313,18 @@ class CaptureDaemon:
 
     def _on_input_event(self):
         """Callback from InputMonitor — a slide-change key/click was detected."""
+        self._input_triggered = True
+
+    def request_immediate_capture(self) -> None:
+        """Request an out-of-cycle capture as soon as possible.
+
+        Sets the input-triggered flag so the capture loop fires on its next
+        tick (~100ms) instead of waiting for the periodic interval. Used by
+        voice-recording start so slide 1 is confirmed quickly and its marker
+        can be anchored to 0:00.
+        """
+        if not self._running:
+            return
         self._input_triggered = True
 
     def _capture_loop(self) -> None:

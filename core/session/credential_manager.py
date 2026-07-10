@@ -224,3 +224,43 @@ class CredentialManager:
             self.get_password_hash(collection_id) is not None or
             self.get_session_token(collection_id) is not None
         )
+
+    # ── General-purpose key/value (used by DesktopIdentity) ────────
+
+    def set_credential(self, key: str, value: str) -> bool:
+        """Store an arbitrary key/value credential."""
+        if self.keyring_available:
+            try:
+                self.keyring.set_password(self.SERVICE_NAME, key, value)
+                return True
+            except Exception as e:
+                logger.error(f"Failed to store credential {key}: {e}")
+                return False
+        else:
+            self.credentials[key] = value
+            self._save_fallback_credentials()
+            return True
+
+    def get_credential(self, key: str) -> Optional[str]:
+        """Read an arbitrary key/value credential."""
+        if self.keyring_available:
+            try:
+                return self.keyring.get_password(self.SERVICE_NAME, key)
+            except Exception as e:
+                logger.error(f"Failed to read credential {key}: {e}")
+                return None
+        else:
+            return self.credentials.get(key)
+
+    def delete_credential(self, key: str) -> bool:
+        """Delete an arbitrary key/value credential."""
+        if self.keyring_available:
+            try:
+                self.keyring.delete_password(self.SERVICE_NAME, key)
+                return True
+            except Exception:
+                return False
+        else:
+            self.credentials.pop(key, None)
+            self._save_fallback_credentials()
+            return True
