@@ -15,7 +15,7 @@ from typing import Optional, Dict, Any
 from pathlib import Path
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException, Depends, Cookie, Response
+from fastapi import FastAPI, HTTPException, Depends, Cookie, Response, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -167,6 +167,9 @@ class AdminServer:
         # Crop region for deduplication (set via API by GUI)
         self.crop_region: Optional[Dict[str, int]] = None
 
+        # Pre-loaded talk agenda (list of {title, presenter, description, done})
+        self.talk_agenda: list = []
+
         # Viewer server process
         self.viewer_process = None
         self.viewer_running = False
@@ -178,6 +181,31 @@ class AdminServer:
         self._start_idle_capture()
 
         logger.info(f"Admin server initialized at {host}:{port}")
+
+    @staticmethod
+    def _parse_agenda_text(text: str) -> list:
+        """Parse plain-text agenda into list of talk dicts.
+
+        Supported formats (one talk per line):
+            Title | Speaker | Description
+            Title | Speaker
+            Title
+
+        Lines starting with # are comments. Empty lines are skipped.
+        """
+        talks = []
+        for line in text.strip().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = [p.strip() for p in line.split("|")]
+            talks.append({
+                "title": parts[0] if len(parts) > 0 else "",
+                "presenter": parts[1] if len(parts) > 1 else "",
+                "description": parts[2] if len(parts) > 2 else "",
+                "done": False,
+            })
+        return talks
 
     def _load_config(self) -> Dict:
         """Load configuration from file.
@@ -541,6 +569,61 @@ class AdminServer:
                 logger.error(f"Error setting crop region: {e}")
                 raise HTTPException(status_code=500, detail=str(e))
 
+        # ----- Talk Agenda (pre-loaded talk list) -----
+
+        @self.app.get("/api/agenda")
+        async def get_agenda(current_user: User = Depends(self._get_current_user)):
+            """Return the pre-loaded talk agenda."""
+            return {"talks": self.talk_agenda}
+
+        @self.app.post("/api/agenda")
+        async def set_agenda(
+            request: Request,
+            current_user: User = Depends(self._get_current_user),
+        ):
+            """Set/replace the talk agenda from a plain-text list.
+
+            Accepts JSON: {"text": "Title | Speaker | Description\\n..."} or
+                          {"talks": [{title, presenter, description}, ...]}
+            """
+            body = await request.json()
+
+            # Accept either structured list or plain text
+            if "talks" in body:
+                self.talk_agenda = [
+                    {
+                        "title": t.get("title", ""),
+                        "presenter": t.get("presenter", ""),
+                        "description": t.get("description", ""),
+                        "done": False,
+                    }
+                    for t in body["talks"]
+                ]
+            elif "text" in body:
+                self.talk_agenda = self._parse_agenda_text(body["text"])
+            else:
+                raise HTTPException(status_code=400, detail="Provide 'text' or 'talks'")
+
+            logger.info(f"Agenda loaded: {len(self.talk_agenda)} talks")
+            return {"success": True, "count": len(self.talk_agenda)}
+
+        @self.app.patch("/api/agenda/{index}/done")
+        async def mark_agenda_done(
+            index: int,
+            current_user: User = Depends(self._get_current_user),
+        ):
+            """Mark a talk in the agenda as done."""
+            if 0 <= index < len(self.talk_agenda):
+                self.talk_agenda[index]["done"] = True
+                return {"success": True}
+            raise HTTPException(status_code=404, detail="Index out of range")
+
+        @self.app.delete("/api/agenda")
+        async def clear_agenda(current_user: User = Depends(self._get_current_user)):
+            """Clear the entire agenda."""
+            self.talk_agenda.clear()
+            return {"success": True}
+
         @self.app.get("/api/sessions")
         async def list_sessions(
             current_user: User = Depends(self._get_current_user)
@@ -671,7 +754,7 @@ class AdminServer:
                         logger.info(f"Created filesystem directories for session: {new_session.session_id}")
 
                 # Update the orchestrator to use this new session
-                success = self.idle_orchestrator.update_session(new_session)
+                success = self.idle_orchestrator.update_session(new_session, create_talk=True)
                 if not success:
                     return SessionControlResponse(
                         success=False,
@@ -752,6 +835,12 @@ class AdminServer:
                         logger.warning("Failed to switch to idle mode")
                 else:
                     logger.warning("Idle orchestrator not running")
+
+                # Tell the cloud the talk is over so viewers stop seeing
+                # the LIVE badge. Done before clearing local state so the
+                # cloud_provider.current_talk_id is still valid.
+                if self.cloud_provider and self.cloud_provider.current_talk_id:
+                    self.cloud_provider.end_talk()
 
                 # Clear active talk info
                 self.active_session_id = None

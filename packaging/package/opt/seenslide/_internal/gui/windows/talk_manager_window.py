@@ -220,7 +220,7 @@ class TalkManagerWindow(QWidget):
             QWidget containing header
         """
         header = QWidget()
-        header.setStyleSheet("background: white; border: 1px solid rgba(15, 23, 42, 0.10); border-radius: 12px; padding: 20px;")
+        header.setStyleSheet("background: white; border: 1px solid rgba(15, 23, 42, 0.10); border-radius: 16px; padding: 20px;")
         layout = QVBoxLayout(header)
         layout.setSpacing(8)
 
@@ -459,7 +459,7 @@ class TalkManagerWindow(QWidget):
             #sessionCard {
                 background: white;
                 border: 1px solid rgba(15, 23, 42, 0.10);
-                border-radius: 12px;
+                border-radius: 16px;
                 padding: 0px;
             }
         """)

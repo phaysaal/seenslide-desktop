@@ -9,6 +9,10 @@ capture:
   # Capture interval in seconds (how often to capture screenshots)
   interval_seconds: 2.0
 
+  # Whether to trigger captures on keyboard/mouse events (Linux only)
+  # If false, will strictly use the fixed interval above.
+  enable_input_monitor: true
+
   # Provider-specific configuration
   config:
     cursor_mode: "hidden"  # Options: "hidden", "embedded", "metadata"
@@ -16,7 +20,11 @@ capture:
 # Deduplication settings
 deduplication:
   # Strategy: "hash", "perceptual", "hybrid", or "adaptive"
-  strategy: "hash"
+  # Default is "perceptual" so the Setup view's sensitivity slider
+  # (which writes to perceptual_threshold) actually does something.
+  # "hash" treats any pixel difference as a new slide — too strict for
+  # screen captures where compression and cursor blink cause noise.
+  strategy: "perceptual"
 
   # Hash algorithm (for hash strategy)
   hash_algorithm: "md5"
@@ -77,6 +85,20 @@ storage:
 
   # JPG quality (1-100, only used if image_format is "jpg")
   jpg_quality: 95
+
+# Voice recording settings (optional)
+voice:
+  # Enable voice recording UI in Direct Talk mode
+  enabled: true
+
+  # Audio quality: "low" (16kHz), "medium" (44.1kHz), "high" (48kHz)
+  quality: "medium"
+
+  # Number of audio channels (1 = mono, 2 = stereo)
+  channels: 1
+
+  # Audio input device index (null = system default microphone)
+  device: null
 
 # Cloud sync settings (optional)
 cloud:

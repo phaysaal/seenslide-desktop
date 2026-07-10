@@ -101,6 +101,29 @@
                         </div>
                     </div>
 
+                    <!-- Talk Agenda (pre-loaded list) -->
+                    <div class="control-section" id="agendaSection">
+                        <h3>Talk Agenda
+                            <button id="toggleAgendaBtn" class="btn btn-small btn-secondary" style="margin-left: 8px; font-size: 11px;">Load List</button>
+                        </h3>
+
+                        <!-- Paste area (hidden by default) -->
+                        <div id="agendaPasteArea" style="display: none; margin-bottom: 12px;">
+                            <textarea id="agendaText" rows="5" placeholder="Paste talks, one per line:&#10;Talk Title | Speaker Name | Description&#10;Talk Title | Speaker Name&#10;Talk Title"></textarea>
+                            <div class="button-group" style="margin-top: 6px;">
+                                <button id="loadAgendaBtn" class="btn btn-success btn-small">Load</button>
+                                <button id="clearAgendaBtn" class="btn btn-danger btn-small">Clear</button>
+                            </div>
+                        </div>
+
+                        <!-- Talk list (shown after loading) -->
+                        <div id="agendaList" style="display: none; margin-bottom: 12px;">
+                            <select id="agendaSelect" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #374151; background: #1f2937; color: #f3f4f6; font-size: 13px;">
+                                <option value="">— Select a talk from agenda —</option>
+                            </select>
+                        </div>
+                    </div>
+
                     <div class="control-section">
                         <h3>Start New Talk</h3>
                         <div id="captureControlsForm">

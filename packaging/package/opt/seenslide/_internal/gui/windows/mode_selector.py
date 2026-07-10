@@ -26,6 +26,7 @@ class ModeSelector(QWidget):
     direct_talk_selected = pyqtSignal()
     conference_mode_selected = pyqtSignal()
     manage_talks_selected = pyqtSignal()
+    upload_slides_selected = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         """Initialize mode selector.
@@ -249,6 +250,28 @@ class ModeSelector(QWidget):
             False
         )
         layout.addWidget(conf_section)
+
+        # --- Upload slides link ---
+        layout.addSpacing(6)
+        upload_row = QWidget()
+        upload_row.setStyleSheet("background: transparent;")
+        ur = QHBoxLayout(upload_row)
+        ur.setContentsMargins(24, 0, 24, 0)
+        upload_link = QPushButton("Or upload a PDF / PowerPoint file...")
+        upload_link.setCursor(Qt.PointingHandCursor)
+        upload_link.setFlat(True)
+        upload_link.setFont(QFont("Arial", 10))
+        upload_link.setStyleSheet("""
+            QPushButton {
+                color: #2563eb; background: transparent; border: none;
+                text-decoration: underline; padding: 0;
+            }
+            QPushButton:hover { color: #1d4ed8; }
+        """)
+        upload_link.clicked.connect(self._on_upload_slides_clicked)
+        ur.addWidget(upload_link, 0, Qt.AlignLeft)
+        ur.addStretch()
+        layout.addWidget(upload_row)
 
         # Spacer to push the low-visibility row to bottom of content
         layout.addStretch(1)
@@ -515,9 +538,10 @@ class ModeSelector(QWidget):
         QShortcut(QKeySequence("Enter"), self, self._on_direct_talk_clicked)
         QShortcut(QKeySequence("C"), self, self._on_conference_clicked)
         QShortcut(QKeySequence("M"), self, self._on_manage_talks_clicked)
+        QShortcut(QKeySequence("U"), self, self._on_upload_slides_clicked)
         QShortcut(QKeySequence("Escape"), self, self.close)
 
-        logger.info("Keyboard shortcuts: Enter=Start, C=Conference, M=Manage, Esc=Quit")
+        logger.info("Keyboard shortcuts: Enter=Start, C=Conference, U=Upload, M=Manage, Esc=Quit")
 
     def _on_direct_talk_clicked(self):
         """Handle Direct Talk button click."""
@@ -528,6 +552,11 @@ class ModeSelector(QWidget):
         """Handle Conference Mode button click."""
         logger.info("Multiple Talks selected")
         self.conference_mode_selected.emit()
+
+    def _on_upload_slides_clicked(self):
+        """Handle Upload Slides link click."""
+        logger.info("Upload Slides selected")
+        self.upload_slides_selected.emit()
 
     def _on_manage_talks_clicked(self):
         """Handle Manage Talks button click."""

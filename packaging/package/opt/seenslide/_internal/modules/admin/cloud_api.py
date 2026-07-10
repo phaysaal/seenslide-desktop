@@ -522,36 +522,41 @@ async def start_talk(session_id: str, request: StartTalkRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/session/{session_id}/upload-slide")
+@router.post("/talk/{talk_id}/upload-slide")
 async def upload_slide(
-    session_id: str,
+    talk_id: str,
     slide_number: int,
-    # file: UploadFile = File(...) # Commented out for now - needs proper file handling
 ):
-    """Upload a slide to collection.
+    """Upload a slide to a specific talk.
 
     Args:
-        session_id: Collection ID
+        talk_id: Talk ID
         slide_number: Slide sequence number
 
     Returns:
         Upload result
-
-    Raises:
-        HTTPException: If collection not found
     """
     # TODO: Implement proper file upload handling
-    # This is a placeholder implementation
+    # Search for talk to verify it exists
+    found_talk = False
+    for collection in COLLECTIONS.values():
+        for talk in collection.get("talks", []):
+            if talk.get("talk_id") == talk_id:
+                found_talk = True
+                break
+        if found_talk:
+            break
 
-    if session_id not in COLLECTIONS:
-        raise HTTPException(status_code=404, detail="Collection not found")
+    if not found_talk:
+        raise HTTPException(status_code=404, detail=f"Talk {talk_id} not found")
 
-    logger.info(f"Slide upload for collection {session_id}, slide #{slide_number}")
+    logger.info(f"Slide upload for talk {talk_id}, slide #{slide_number}")
 
     return {
         "success": True,
-        "slide_id": f"slide-{slide_number}",
-        "slide_number": slide_number
+        "slide_id": f"slide-{talk_id}-{slide_number}",
+        "slide_number": slide_number,
+        "talk_id": talk_id
     }
 
 

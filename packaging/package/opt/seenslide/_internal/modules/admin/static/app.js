@@ -104,6 +104,15 @@ class AdminApp {
             toleranceValue.textContent = e.target.value;
         });
 
+        // --- Talk Agenda ---
+        document.getElementById('toggleAgendaBtn').addEventListener('click', () => this.toggleAgendaPaste());
+        document.getElementById('loadAgendaBtn').addEventListener('click', () => this.loadAgenda());
+        document.getElementById('clearAgendaBtn').addEventListener('click', () => this.clearAgenda());
+        document.getElementById('agendaSelect').addEventListener('change', (e) => this.selectAgendaTalk(e));
+
+        // Load existing agenda on startup
+        this.refreshAgenda();
+
         this._dashboardListenersAdded = true;
     }
 
@@ -465,6 +474,98 @@ class AdminApp {
         }
     }
 
+    // ----- Talk Agenda -----
+
+    toggleAgendaPaste() {
+        const area = document.getElementById('agendaPasteArea');
+        area.style.display = area.style.display === 'none' ? 'block' : 'none';
+    }
+
+    async loadAgenda() {
+        const text = document.getElementById('agendaText').value.trim();
+        if (!text) {
+            this.showNotification('Paste a talk list first', 'error');
+            return;
+        }
+        try {
+            const resp = await fetch('/api/agenda', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ text }),
+                credentials: 'include',
+            });
+            const data = await resp.json();
+            if (data.success) {
+                this.showNotification(`Loaded ${data.count} talks`, 'success');
+                document.getElementById('agendaPasteArea').style.display = 'none';
+                this.refreshAgenda();
+            }
+        } catch (e) {
+            this.showNotification('Failed to load agenda', 'error');
+        }
+    }
+
+    async clearAgenda() {
+        try {
+            await fetch('/api/agenda', { method: 'DELETE', credentials: 'include' });
+            this.showNotification('Agenda cleared', 'success');
+            this.refreshAgenda();
+        } catch (e) {}
+    }
+
+    async refreshAgenda() {
+        try {
+            const resp = await fetch('/api/agenda', { credentials: 'include' });
+            const data = await resp.json();
+            const talks = data.talks || [];
+            const select = document.getElementById('agendaSelect');
+            const listDiv = document.getElementById('agendaList');
+
+            // Rebuild options
+            select.innerHTML = '<option value="">— Select a talk from agenda —</option>';
+            talks.forEach((t, i) => {
+                const opt = document.createElement('option');
+                opt.value = i;
+                const label = t.presenter ? `${t.title} — ${t.presenter}` : t.title;
+                opt.textContent = t.done ? `✓ ${label}` : label;
+                if (t.done) opt.style.color = '#6b7280';
+                select.appendChild(opt);
+            });
+
+            listDiv.style.display = talks.length > 0 ? 'block' : 'none';
+        } catch (e) {}
+    }
+
+    selectAgendaTalk(e) {
+        const idx = e.target.value;
+        if (idx === '') return;
+
+        const select = e.target;
+        const opt = select.options[select.selectedIndex];
+        // Parse from stored agenda via API is overkill — fetch the option text
+        // Instead, re-fetch agenda to get full data
+        fetch('/api/agenda', { credentials: 'include' })
+            .then(r => r.json())
+            .then(data => {
+                const talk = data.talks[parseInt(idx)];
+                if (talk) {
+                    document.getElementById('talkTitle').value = talk.title;
+                    document.getElementById('presenterName').value = talk.presenter || '';
+                    document.getElementById('talkDescription').value = talk.description || '';
+                }
+            });
+    }
+
+    async markAgendaDone(index) {
+        try {
+            await fetch(`/api/agenda/${index}/done`, {
+                method: 'PATCH',
+                credentials: 'include',
+            });
+            this.refreshAgenda();
+        } catch (e) {}
+    }
+
     async startCapture() {
         const name = document.getElementById('talkTitle').value.trim();
         if (!name) {
@@ -538,6 +639,13 @@ class AdminApp {
                     }
                 } else {
                     this.showNotification('Capture session started successfully', 'success');
+                }
+
+                // Mark agenda talk as done if selected from agenda
+                const agendaSelect = document.getElementById('agendaSelect');
+                if (agendaSelect.value !== '') {
+                    this.markAgendaDone(parseInt(agendaSelect.value));
+                    agendaSelect.value = '';
                 }
 
                 // Clear form

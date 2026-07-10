@@ -1,6 +1,7 @@
 """Cloud storage provider for uploading slides to Railway/SeenSlide Cloud."""
 
 import logging
+import threading
 import requests
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -20,9 +21,36 @@ class CloudStorageProvider(IStorageProvider):
     def __init__(self):
         """Initialize cloud storage provider."""
         self.api_url: Optional[str] = None
-        self.session_token: Optional[str] = None
+        # Override only set if `initialize()` is called with a literal session_token
+        # (legacy path). The live token comes from DesktopIdentity.
+        self._session_token_override: Optional[str] = None
         self.cloud_session_id: Optional[str] = None
+        self.current_talk_id: Optional[str] = None
         self.enabled = False
+        # slide_number → cloud slide_id for the current talk. Filled as
+        # slide uploads succeed; consumed by voice markers (stable ids
+        # survive slide reordering) — reset whenever a new talk starts.
+        self.slide_ids_by_number: dict = {}
+        # True between go_live() and end_live() for the current talk.
+        self._live = False
+        # Newest slide number a navigate was requested for (staleness guard)
+        self._navigate_target = 0
+
+    @property
+    def session_token(self) -> str:
+        """Live bearer token. Pulls from DesktopIdentity unless overridden."""
+        if self._session_token_override:
+            return self._session_token_override
+        try:
+            from core.identity import identity
+            return identity().token or ""
+        except Exception:
+            return ""
+
+    @session_token.setter
+    def session_token(self, value: Optional[str]) -> None:
+        """Allow legacy callers to set a token (treated as override)."""
+        self._session_token_override = value or None
 
     @property
     def name(self) -> str:
@@ -42,17 +70,27 @@ class CloudStorageProvider(IStorageProvider):
             True if initialized successfully
         """
         self.api_url = config.get("api_url", "").rstrip("/")
-        self.session_token = config.get("session_token", "")
+        # Only set an override if config supplied a real (non-placeholder) token.
+        legacy_token = config.get("session_token", "") or ""
+        if legacy_token and not legacy_token.lower().startswith("your-"):
+            self._session_token_override = legacy_token
+        else:
+            self._session_token_override = None
         self.enabled = config.get("enabled", False)
 
         if self.enabled:
-            if not self.api_url or not self.session_token:
-                logger.warning("Cloud sync enabled but missing api_url or session_token")
+            if not self.api_url:
+                logger.warning("Cloud sync enabled but api_url missing")
                 self.enabled = False
                 return False
-            else:
-                logger.info(f"Cloud storage initialized: {self.api_url}")
-                return True
+            if not self.session_token:
+                logger.warning(
+                    "Cloud sync enabled but no bearer token available "
+                    "(DesktopIdentity not bootstrapped yet?)"
+                )
+                # Don't disable — bootstrap may complete shortly after.
+            logger.info(f"Cloud storage initialized: {self.api_url}")
+            return True
         else:
             logger.info("Cloud storage disabled")
             return True
@@ -119,7 +157,9 @@ class CloudStorageProvider(IStorageProvider):
                 logger.info(f"Registering session with admin credentials: {admin_username}")
 
             logger.info(f"Creating cloud session: {session_name}")
-            response = requests.post(url, headers=headers, json=data, timeout=10)
+            # 30s timeout — Railway cold-starts can take >10s and we don't
+            # want to permanently brick cloud sync over a single slow request.
+            response = requests.post(url, headers=headers, json=data, timeout=30)
             response.raise_for_status()
 
             result = response.json()
@@ -140,9 +180,12 @@ class CloudStorageProvider(IStorageProvider):
                 try:
                     logger.error(f"Response status: {e.response.status_code}")
                     logger.error(f"Response body: {e.response.text}")
-                except:
+                except Exception:
                     pass
-            self.enabled = False  # Disable on error
+            # Do NOT disable the cloud provider on a single transient
+            # failure. The user may select a different (existing) session
+            # next, or network may recover. Individual upload calls log
+            # their own failures without disabling the provider globally.
             return ""
 
     def create_talk(
@@ -182,7 +225,19 @@ class CloudStorageProvider(IStorageProvider):
             response.raise_for_status()
 
             result = response.json()
-            logger.info(f"✅ Talk created in cloud: {talk_name}")
+            # Store the talk_id for slide and voice recording association
+            talk_data = result.get("talk", {})
+            self.current_talk_id = talk_data.get("talk_id")
+            if not self.current_talk_id:
+                logger.error(f"Failed to get talk_id from API response: {result}")
+                return False
+            self.slide_ids_by_number = {}
+            logger.info(f"✅ Talk created in cloud: {talk_name} (talk_id: {self.current_talk_id})")
+
+            # A talk in the desktop app starts exactly when presenting
+            # starts, so go live immediately — viewers polling
+            # /live-state begin following this talk's current slide.
+            self.go_live()
             return True
 
         except Exception as e:
@@ -196,6 +251,145 @@ class CloudStorageProvider(IStorageProvider):
             # Don't disable cloud on talk creation failure
             return False
 
+    def end_talk(self, talk_id: Optional[str] = None) -> bool:
+        """Tell the cloud that a talk has finished.
+
+        Marks cloud_talks.status='completed' and stamps end_time on the
+        server, so viewers stop showing the LIVE badge and the parent
+        cloud_sessions row no longer flags this talk as the active one.
+
+        Args:
+            talk_id: Cloud talk_id to end. Defaults to current_talk_id.
+
+        Returns:
+            True if the talk was acknowledged as ended (or no-op when
+            cloud is disabled / nothing to end). False on HTTP failure.
+        """
+        if not self.enabled or not self.cloud_session_id:
+            return True
+        tid = talk_id or self.current_talk_id
+        if not tid:
+            return True  # nothing to end
+
+        # End the live-follow session first so viewers stop polling a
+        # talk that's about to be marked completed.
+        self.end_live(tid)
+
+        try:
+            url = f"{self.api_url}/api/cloud/talk/{tid}/end"
+            headers = {
+                "Authorization": f"Bearer {self.session_token}",
+                "Content-Type": "application/json",
+            }
+            response = requests.post(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            if self.current_talk_id == tid:
+                self.current_talk_id = None
+            logger.info(f"✅ Ended talk in cloud: {tid}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to end talk {tid} in cloud: {e}", exc_info=True)
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    logger.error(f"Response body: {e.response.text}")
+                except Exception:
+                    pass
+            return False
+
+    # ------------------------------------------------------------------
+    # Live slide-follow (viewers poll /api/cloud/talk/{id}/live-state)
+    # ------------------------------------------------------------------
+
+    def go_live(self, talk_id: Optional[str] = None) -> bool:
+        """Mark the talk live on the server so viewers can follow along.
+
+        Failure is non-fatal — the talk proceeds normally, viewers just
+        don't get live slide-follow.
+        """
+        if not self.enabled:
+            return False
+        tid = talk_id or self.current_talk_id
+        if not tid:
+            return False
+        try:
+            resp = requests.post(
+                f"{self.api_url}/api/cloud/talk/{tid}/go-live",
+                headers={"Authorization": f"Bearer {self.session_token}"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            self._live = True
+            logger.info(f"🔴 Talk live: {tid}")
+            return True
+        except Exception as e:
+            logger.warning(f"go-live failed for talk {tid}: {e}")
+            return False
+
+    def navigate_slide(self, slide_number: int, talk_id: Optional[str] = None) -> bool:
+        """Push the presenter's current slide number to live viewers.
+
+        Called from short-lived background threads; only the newest
+        requested slide is worth delivering. _navigate_target tracks the
+        latest request so a thread that was stuck behind a slow request
+        (or a retry) drops out instead of delivering a stale slide after
+        a newer one already landed.
+        """
+        if not self.enabled or slide_number < 1:
+            return False
+        tid = talk_id or self.current_talk_id
+        if not tid:
+            return False
+        self._navigate_target = slide_number
+        try:
+            resp = requests.post(
+                f"{self.api_url}/api/cloud/talk/{tid}/navigate",
+                json={"slide_number": slide_number},
+                headers={"Authorization": f"Bearer {self.session_token}"},
+                timeout=5,
+            )
+            if resp.status_code == 400 and self._navigate_target == slide_number:
+                # Talk isn't live server-side (e.g. server restarted and
+                # lost in-memory live state) — re-establish and retry once.
+                if self.go_live(tid):
+                    resp = requests.post(
+                        f"{self.api_url}/api/cloud/talk/{tid}/navigate",
+                        json={"slide_number": slide_number},
+                        headers={"Authorization": f"Bearer {self.session_token}"},
+                        timeout=5,
+                    )
+            resp.raise_for_status()
+            logger.debug(f"Live navigate: slide {slide_number}")
+            return True
+        except Exception as e:
+            if self._navigate_target != slide_number:
+                logger.debug(f"Live navigate superseded (slide {slide_number})")
+            else:
+                logger.warning(f"Live navigate failed (slide {slide_number}): {e}")
+            return False
+
+    def end_live(self, talk_id: Optional[str] = None) -> bool:
+        """End the live-follow session for the talk."""
+        if not self.enabled:
+            return False
+        tid = talk_id or self.current_talk_id
+        if not tid:
+            self._live = False
+            return False
+        try:
+            resp = requests.post(
+                f"{self.api_url}/api/cloud/talk/{tid}/end-live",
+                headers={"Authorization": f"Bearer {self.session_token}"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            logger.info(f"⬛ Talk live ended: {tid}")
+            return True
+        except Exception as e:
+            logger.warning(f"end-live failed for talk {tid}: {e}")
+            return False
+        finally:
+            self._live = False
+
     def save_slide(self, slide: ProcessedSlide, image_data: bytes = None) -> str:
         """Upload slide to cloud.
 
@@ -206,11 +400,19 @@ class CloudStorageProvider(IStorageProvider):
         Returns:
             Slide ID if successful
         """
-        if not self.enabled or not self.cloud_session_id:
-            return slide.slide_id  # Return slide ID if disabled
+        if not self.enabled:
+            return slide.slide_id
+
+        # Prefer talk_id from slide, fallback to current_talk_id
+        talk_id = slide.talk_id or self.current_talk_id
+
+        if not talk_id:
+            logger.warning(f"No talk_id for slide {slide.sequence_number}, skipping cloud upload")
+            return slide.slide_id
 
         try:
-            url = f"{self.api_url}/api/cloud/session/{self.cloud_session_id}/upload-slide?slide_number={slide.sequence_number}"
+            # Use talk-specific endpoint for correct hierarchy (verified to work)
+            url = f"{self.api_url}/api/cloud/talk/{talk_id}/upload-slide?slide_number={slide.sequence_number}"
             headers = {
                 "Authorization": f"Bearer {self.session_token}"
             }
@@ -220,11 +422,38 @@ class CloudStorageProvider(IStorageProvider):
                 "file": (f"slide_{slide.sequence_number:03d}.jpg", image_data, "image/jpeg")
             }
 
-            logger.debug(f"Uploading slide {slide.sequence_number} to cloud...")
+            logger.debug(f"Uploading slide {slide.sequence_number} to talk {talk_id}...")
             response = requests.post(url, headers=headers, files=files, timeout=30)
             response.raise_for_status()
 
-            logger.info(f"✅ Uploaded slide {slide.sequence_number} to cloud")
+            # Remember the cloud's stable slide_id for this slide number —
+            # voice markers prefer it over the reorder-fragile slide_number.
+            try:
+                body = response.json()
+                cloud_slide_id = (
+                    body.get("slide_id")
+                    or body.get("slide", {}).get("slide_id")
+                )
+                if cloud_slide_id:
+                    self.slide_ids_by_number[slide.sequence_number] = cloud_slide_id
+            except Exception:
+                pass
+
+            logger.info(f"✅ Uploaded slide {slide.sequence_number} to talk {talk_id}")
+
+            # Tell live viewers the presenter is now on this slide. The
+            # newest unique slide IS the current slide during a talk.
+            # Fire-and-forget: this runs on the slide-storage thread, and a
+            # slow server (observed 10s+ read timeouts under load) must not
+            # stall the capture→store pipeline for a best-effort UI ping.
+            if self._live:
+                threading.Thread(
+                    target=self.navigate_slide,
+                    args=(slide.sequence_number, talk_id),
+                    daemon=True,
+                    name="live-navigate",
+                ).start()
+
             return slide.slide_id
 
         except Exception as e:
@@ -293,7 +522,9 @@ class CloudStorageProvider(IStorageProvider):
             session_id: Session ID to check
 
         Returns:
-            True if session exists on the cloud server
+            True only if the cloud reports the session exists. Returns
+            False when cloud is disabled or unreachable — callers should
+            treat that as "we can't confirm, so assume no."
         """
         if not self.enabled:
             return False
@@ -301,7 +532,17 @@ class CloudStorageProvider(IStorageProvider):
         try:
             url = f"{self.api_url}/api/cloud/session/{session_id}"
             response = requests.get(url, timeout=5)
-            return response.status_code == 200
+            if response.status_code == 200:
+                logger.info(f"✅ Session {session_id} exists in cloud")
+                return True
+            if response.status_code == 404:
+                logger.warning(f"❌ Session {session_id} not found in cloud")
+                return False
+            logger.error(
+                f"Unexpected status checking session {session_id}: "
+                f"{response.status_code}"
+            )
+            return False
         except Exception as e:
             logger.warning(f"Failed to check if session exists: {e}")
             return False
@@ -547,36 +788,6 @@ class CloudStorageProvider(IStorageProvider):
                 except:
                     pass
             return None
-
-    def session_exists(self, session_id: str) -> bool:
-        """Check if a session exists in the cloud.
-
-        Args:
-            session_id: Session ID to check
-
-        Returns:
-            True if session exists, False otherwise
-        """
-        if not self.enabled:
-            return True  # Assume exists if cloud disabled
-
-        try:
-            url = f"{self.api_url}/api/cloud/session/{session_id}"
-            response = requests.get(url, timeout=10)
-
-            if response.status_code == 200:
-                logger.info(f"✅ Session {session_id} exists in cloud")
-                return True
-            elif response.status_code == 404:
-                logger.warning(f"❌ Session {session_id} not found in cloud")
-                return False
-            else:
-                logger.error(f"Failed to check session: {response.status_code}")
-                return False
-
-        except Exception as e:
-            logger.error(f"Failed to check session existence: {e}")
-            return False
 
     def cleanup(self):
         """Cleanup cloud storage."""

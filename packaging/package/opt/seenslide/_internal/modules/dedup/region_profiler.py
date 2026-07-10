@@ -9,9 +9,25 @@ import time
 import asyncio
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
-import numpy as np
-import cv2
 from PIL import Image
+
+# Lazy imports — only loaded when adaptive strategy is actually used
+np = None
+cv2 = None
+
+def _ensure_cv2():
+    global np, cv2
+    if cv2 is None:
+        try:
+            import numpy as _np
+            import cv2 as _cv2
+            np = _np
+            cv2 = _cv2
+        except ImportError:
+            raise ImportError(
+                "Adaptive deduplication requires opencv and numpy. "
+                "Install with: pip install opencv-python-headless numpy"
+            )
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +104,7 @@ class RegionProfiler:
         Returns:
             RegionProfile with detected regions and confidence score
         """
+        _ensure_cv2()
         logger.info(f"Starting region sampling ({self.sample_count} frames @ {self.sample_freq}fps)...")
 
         # 1. Capture sample screenshots

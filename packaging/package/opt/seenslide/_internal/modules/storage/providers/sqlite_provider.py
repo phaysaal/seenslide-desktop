@@ -484,13 +484,14 @@ class SQLiteStorageProvider(IStorageProvider):
             cursor = self._conn.cursor()
             cursor.execute("""
                 INSERT INTO slides (
-                    slide_id, session_id, sequence_number, timestamp,
+                    slide_id, session_id, talk_id, sequence_number, timestamp,
                     image_path, thumbnail_path, width, height,
                     file_size_bytes, image_hash, similarity_score, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 slide.slide_id,
                 slide.session_id,
+                slide.talk_id,
                 slide.sequence_number,
                 slide.timestamp,
                 slide.image_path,
@@ -579,6 +580,44 @@ class SQLiteStorageProvider(IStorageProvider):
             logger.error(f"Failed to list slides: {e}")
             return []
 
+    def list_slides_by_talk(
+        self,
+        talk_id: str,
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> List[ProcessedSlide]:
+        """List slides for a talk, ordered by sequence_number.
+
+        Args:
+            talk_id: Talk identifier (matches slides.talk_id, which is
+                the cloud talk_id when set by the orchestrator).
+            limit: Maximum number of slides to return.
+            offset: Number of slides to skip.
+
+        Returns:
+            List of ProcessedSlide objects (empty on failure).
+        """
+        if not self._initialized:
+            return []
+
+        try:
+            cursor = self._conn.cursor()
+            query = """
+                SELECT * FROM slides
+                WHERE talk_id = ?
+                ORDER BY sequence_number
+            """
+            if limit is not None:
+                query += f" LIMIT {limit} OFFSET {offset}"
+
+            cursor.execute(query, (talk_id,))
+            rows = cursor.fetchall()
+            return [self._row_to_slide(row) for row in rows]
+
+        except Exception as e:
+            logger.error(f"Failed to list slides for talk {talk_id}: {e}")
+            return []
+
     def get_slide_count(self, session_id: str) -> int:
         """Get total slide count for session.
 
@@ -603,7 +642,7 @@ class SQLiteStorageProvider(IStorageProvider):
             logger.error(f"Failed to count slides: {e}")
             return 0
 
-    def create_talk(self, session_id: str, title: str, presenter_name: str = None, description: str = None, metadata: dict = None) -> str:
+    def create_talk(self, session_id: str, title: str, presenter_name: str = None, description: str = None, metadata: dict = None, talk_id: str = None) -> str:
         """Create a new talk in a session.
 
         Args:
@@ -612,6 +651,7 @@ class SQLiteStorageProvider(IStorageProvider):
             presenter_name: Presenter name
             description: Talk description
             metadata: Additional metadata
+            talk_id: Optional talk ID (uses cloud talk_id for consistency)
 
         Returns:
             Talk ID
@@ -623,7 +663,7 @@ class SQLiteStorageProvider(IStorageProvider):
         import time
 
         try:
-            talk_id = str(uuid.uuid4())
+            talk_id = talk_id or str(uuid.uuid4())
             created_at = time.time()
             metadata_json = json.dumps(metadata or {})
 
@@ -858,6 +898,7 @@ class SQLiteStorageProvider(IStorageProvider):
         return ProcessedSlide(
             slide_id=row['slide_id'],
             session_id=row['session_id'],
+            talk_id=row['talk_id'] or "",
             image_path=row['image_path'] or "",
             thumbnail_path=row['thumbnail_path'] or "",
             timestamp=row['timestamp'],

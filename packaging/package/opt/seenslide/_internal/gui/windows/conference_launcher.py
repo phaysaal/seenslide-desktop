@@ -64,54 +64,56 @@ class ConferenceLauncher(QWidget):
 
     def _setup_ui(self):
         """Setup the UI components."""
-        self.setWindowTitle("SeenSlide - Conference Mode")
-        self.setMinimumSize(500, 300)
-        self.setMaximumSize(500, 300)
+        from gui.utils.styles import (
+            set_window_bg, make_card, btn_danger, FONT_TITLE, TEXT, TEXT_MUTED, TEXT_FAINT,
+        )
 
-        # Main layout
-        main_layout = QVBoxLayout(self)
-        main_layout.setAlignment(Qt.AlignCenter)
+        self.setWindowTitle("SeenSlide - Conference Mode")
+        self.setFixedSize(500, 300)
+        set_window_bg(self)
+
+        # Outer layout with padding
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(20, 20, 20, 20)
+
+        # White card
+        card = make_card(self)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(24, 28, 24, 24)
+        card_layout.setSpacing(10)
+        card_layout.setAlignment(Qt.AlignCenter)
 
         # Title
-        title = QLabel("Conference Mode", self)
-        title.setFont(QFont("Arial", 20, QFont.Bold))
+        title = QLabel("Conference Mode")
+        title.setFont(FONT_TITLE)
+        title.setStyleSheet(f"color: {TEXT}; background: transparent;")
         title.setAlignment(Qt.AlignCenter)
-        main_layout.addWidget(title)
+        card_layout.addWidget(title)
 
-        # Status label
-        self.status_label = QLabel("Initializing...", self)
-        self.status_label.setFont(QFont("Arial", 14))
+        # Status
+        self.status_label = QLabel("Initializing...")
+        self.status_label.setFont(QFont("Arial", 13))
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet("color: #666; margin: 30px;")
-        main_layout.addWidget(self.status_label)
+        self.status_label.setStyleSheet(f"color: {TEXT_MUTED}; background: transparent; margin: 18px 0;")
+        card_layout.addWidget(self.status_label)
 
-        # Progress message
-        self.progress_label = QLabel("", self)
+        # Progress
+        self.progress_label = QLabel("")
         self.progress_label.setAlignment(Qt.AlignCenter)
-        self.progress_label.setStyleSheet("color: #999; font-size: 12px;")
-        main_layout.addWidget(self.progress_label)
+        self.progress_label.setStyleSheet(f"color: {TEXT_FAINT}; font-size: 12px; background: transparent;")
+        card_layout.addWidget(self.progress_label)
+
+        card_layout.addSpacing(8)
 
         # Cancel button (initially hidden)
-        self.cancel_button = QPushButton("Cancel", self)
-        self.cancel_button.setStyleSheet("""
-            QPushButton {
-                background-color: #f44336;
-                color: white;
-                border: none;
-                padding: 10px 30px;
-                font-size: 14px;
-                border-radius: 5px;
-                min-width: 120px;
-            }
-            QPushButton:hover {
-                background-color: #da190b;
-            }
-        """)
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.setCursor(Qt.PointingHandCursor)
+        self.cancel_button.setStyleSheet(btn_danger("min-width: 120px;"))
         self.cancel_button.clicked.connect(self._on_cancel)
         self.cancel_button.setVisible(False)
-        main_layout.addWidget(self.cancel_button, alignment=Qt.AlignCenter)
+        card_layout.addWidget(self.cancel_button, 0, Qt.AlignCenter)
 
-        self.setLayout(main_layout)
+        outer.addWidget(card)
 
     def _start_server(self):
         """Start the admin server."""
