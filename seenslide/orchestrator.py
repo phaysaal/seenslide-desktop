@@ -317,19 +317,18 @@ class SeenSlideOrchestrator:
                 self.event_bus.subscribe(
                     EventType.SLIDE_UNIQUE, self._on_unique_slide_for_voice_marker
                 )
-                # Subscribe to SLIDE_CAPTURED for frequent audio flushing (~2s)
-                self.event_bus.subscribe(
-                    EventType.SLIDE_CAPTURED, self._on_capture_for_voice_flush
-                )
                 # Trigger an immediate capture so slide 1's content is confirmed
                 # quickly. Combined with the t=0.0 anchor in the marker handler,
                 # this places slide 1's marker at the start of the recording
                 # even if the periodic interval hasn't elapsed yet.
                 if self.capture_daemon:
                     self.capture_daemon.request_immediate_capture()
-                # Start auto-chunk timer (uploads even without slide changes)
+                # Start the flush timer — the primary upload cadence
                 self._start_auto_chunk_timer()
-                logger.info("Voice cloud upload enabled (semi-live, 30s auto-chunk)")
+                logger.info(
+                    f"Voice cloud upload enabled (live, "
+                    f"{self._AUTO_CHUNK_INTERVAL:.0f}s chunks)"
+                )
             else:
                 logger.warning("Cloud voice recording failed to start — recording locally only")
                 self._voice_cloud_uploader = None
@@ -357,10 +356,6 @@ class SeenSlideOrchestrator:
                 self._pending_voice_markers.append((sequence_number, ts))
             logger.debug(f"Voice sync: marker queued for slide {sequence_number} @ {ts:.1f}s")
 
-    def _on_capture_for_voice_flush(self, event):
-        """Flush audio chunk on each screen capture; include pending marker if any."""
-        self._flush_and_upload_voice()
-
     def _pop_pending_marker(self):
         """Pop the oldest queued marker, or (0, 0.0) if none.
 
@@ -386,17 +381,17 @@ class SeenSlideOrchestrator:
         slide_num, ts = self._pop_pending_marker()
         self._voice_cloud_uploader.upload_chunk(chunk, slide_num, ts)
 
-    # --- 30-second auto-chunk timer ---
-    # Wall-clock backstop: every 30s, flush whatever audio has accumulated
-    # to the cloud. During normal operation slide-triggered flushes drain
-    # the buffer every ~2s, so the timer's tick is usually a cheap no-op
-    # (flush_chunk returns early on an empty buffer). It earns its keep
-    # when SLIDE_CAPTURED stops firing — e.g. capture daemon paused, idle,
-    # or stuck — but voice is still recording: audio keeps flowing instead
-    # of pooling until session end. This timer is NOT reset by capture
-    # events; that would have made it never fire during a live talk.
+    # --- flush timer ---
+    # Primary upload cadence for live streaming. Every second, whatever
+    # audio accumulated is flushed to the cloud as one chunk; the queued
+    # uploader keeps them ordered. This used to piggyback on SLIDE_CAPTURED
+    # (~2s cadence, and dead whenever the capture daemon paused) with a 30s
+    # timer as a backstop — that put up to 2s of the live listeners' ~6s
+    # end-to-end delay right here. A fixed 1s cadence roughly halves that
+    # contribution and keeps audio flowing even when captures stop.
+    # ~1s of Opus at 64kbps is ~8 KB per POST — negligible bandwidth.
 
-    _AUTO_CHUNK_INTERVAL = 30  # seconds
+    _AUTO_CHUNK_INTERVAL = 1.0  # seconds
 
     def _start_auto_chunk_timer(self):
         """Start the 30s backstop timer (one-shot, re-scheduled each tick)."""
@@ -487,12 +482,9 @@ class SeenSlideOrchestrator:
 
             self._voice_cloud_uploader = None
 
-        # Always unsubscribe — these are no-ops if we never subscribed.
+        # Always unsubscribe — a no-op if we never subscribed.
         self.event_bus.unsubscribe(
             EventType.SLIDE_UNIQUE, self._on_unique_slide_for_voice_marker
-        )
-        self.event_bus.unsubscribe(
-            EventType.SLIDE_CAPTURED, self._on_capture_for_voice_flush
         )
         with self._voice_marker_lock:
             self._pending_voice_markers.clear()
