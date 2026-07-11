@@ -9,34 +9,35 @@ from PyQt5.QtGui import QPalette, QColor, QFont
 
 # ── Colour palette ──────────────────────────────────────────────────
 
-BG          = "#f4f6f9"
-CARD_BG     = "#ffffff"
-CARD_BORDER = "#e3e7ee"
+# Dark theme matched to seenslide.com.
+BG          = "#07070a"
+CARD_BG     = "#14141e"
+CARD_BORDER = "rgba(255, 255, 255, 0.09)"
 
-# One accent for all interaction — a deep cerulean, not the bright SaaS blue.
-PRIMARY         = "#2266d4"
-PRIMARY_HOVER   = "#1b54b3"
-PRIMARY_PRESSED = "#164393"
-PRIMARY_TINT    = "#e9f1fe"
+# One accent for all interaction — emerald green.
+PRIMARY         = "#10b981"
+PRIMARY_HOVER   = "#12c88d"
+PRIMARY_PRESSED = "#059669"
+PRIMARY_TINT    = "rgba(16, 185, 129, 0.14)"
 
-SECONDARY       = "#171b22"
-SECONDARY_HOVER = "#2b313c"
+SECONDARY       = "#191922"
+SECONDARY_HOVER = "#20202b"
 
 # Semantic — state only, never used as the accent.
-DANGER          = "#e5484d"
-DANGER_HOVER    = "#cf3b40"
+DANGER          = "#f0526b"
+DANGER_HOVER    = "#e5484d"
 
-SUCCESS         = "#2e9e6b"
-SUCCESS_HOVER   = "#268257"
+SUCCESS         = "#10b981"
+SUCCESS_HOVER   = "#059669"
 
-TEXT        = "#171b22"
-TEXT_MUTED  = "#5b6472"
-TEXT_FAINT  = "#8b94a4"
+TEXT        = "rgba(255, 255, 255, 0.95)"
+TEXT_MUTED  = "rgba(255, 255, 255, 0.60)"
+TEXT_FAINT  = "rgba(255, 255, 255, 0.40)"
 
-INPUT_BG           = "#f5f7fb"
-INPUT_BORDER       = "#cfd6e0"
+INPUT_BG           = "#101019"
+INPUT_BORDER       = "rgba(255, 255, 255, 0.14)"
 INPUT_FOCUS_BORDER = PRIMARY
-DISABLED_BG        = "#aab4c5"
+DISABLED_BG        = "#2b2b36"
 
 # Monospace face for technical identifiers (codes, IDs, specs).
 MONO = "'JetBrains Mono', 'Cascadia Code', 'DejaVu Sans Mono', Menlo, Consolas, monospace"
@@ -131,12 +132,12 @@ def btn_danger(extra: str = "") -> str:
 def btn_ghost(extra: str = "") -> str:
     return f"""
         QPushButton {{
-            background: #e5e7eb; color: {TEXT}; border: none;
+            background: {SECONDARY}; color: {TEXT}; border: 1px solid {CARD_BORDER};
             border-radius: {BTN_RADIUS}px; padding: 8px 18px;
             font-size: 13px;
             {extra}
         }}
-        QPushButton:hover {{ background: #d1d5db; }}
+        QPushButton:hover {{ background: #20202b; }}
     """
 
 
@@ -167,10 +168,10 @@ def mono_style(size: int = 12, color: str = None) -> str:
 def chip_style(kind: str = "ok") -> str:
     """Pill that encodes state at a glance: ok | live | local | accent."""
     palette = {
-        "ok":     (SUCCESS, "#e7f6ee"),
-        "live":   (DANGER,  "#fdecec"),
-        "local":  ("#c07d12", "#fbf1dd"),
-        "accent": (PRIMARY, PRIMARY_TINT),
+        "ok":     ("#34d399", "rgba(16, 185, 129, 0.14)"),
+        "live":   ("#ff8494", "rgba(240, 82, 107, 0.14)"),
+        "local":  ("#fbbf5a", "rgba(245, 158, 11, 0.14)"),
+        "accent": ("#34d399", PRIMARY_TINT),
     }
     fg, bg = palette.get(kind, palette["ok"])
     return (f"QLabel {{ color: {fg}; background: {bg}; border-radius: 999px;"

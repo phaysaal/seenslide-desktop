@@ -23,7 +23,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, QRectF
 from PyQt5.QtGui import (
-    QFont, QPixmap, QColor, QPainter, QPainterPath, QPen
+    QFont, QPixmap, QColor, QPainter, QPainterPath, QPen, QFontMetrics
 )
 
 from gui.utils import styles
@@ -53,41 +53,48 @@ logger = logging.getLogger(__name__)
 
 # ── Design Tokens ──────────────────────────────────────────────────
 
-# Deep cool "ink" rail, a single cerulean accent, and semantic colours
-# reserved strictly for state (never used as the accent). See the
-# redesign mockup for the reasoning.
-SIDEBAR_BG = "#0e1420"
-SIDEBAR_BG_BOTTOM = "#0b0f18"
-SIDEBAR_ACTIVE_BG = "#182335"
-SIDEBAR_ACTIVE_BORDER = "#2266d4"
-SIDEBAR_TEXT = "#aab4c5"
-SIDEBAR_TEXT_DIM = "#6b7791"
+# Dark theme matched to seenslide.com: near-black ground, emerald primary
+# CTA, indigo/purple secondaries, gradient brand. Semantic colours are
+# reserved strictly for state (never used as the accent).
+SIDEBAR_BG = "#0b0b12"
+SIDEBAR_BG_BOTTOM = "#08080d"
+SIDEBAR_ACTIVE_BG = "rgba(16, 185, 129, 0.13)"
+SIDEBAR_ACTIVE_BORDER = "#10b981"
+SIDEBAR_TEXT = "rgba(255, 255, 255, 0.60)"
+SIDEBAR_TEXT_DIM = "rgba(255, 255, 255, 0.40)"
 
-BG_MAIN = "#f4f6f9"
-BG_WHITE = "#ffffff"
-BG_INPUT = "#f5f7fb"
+BG_MAIN = "#07070a"       # app ground
+BG_WHITE = "#14141e"      # card surface (name kept for compatibility)
+BG_CARD2 = "#191922"      # elevated / hover
+BG_INPUT = "#101019"
 
-# Accent (all interaction)
-BLUE = "#2266d4"
-BLUE_DARK = "#1b54b3"
-BLUE_LIGHT = "#e9f1fe"
-BLUE_PALE = "#93c5fd"
+# Accent (all interaction) — emerald green, with a gradient for primaries.
+BLUE = "#10b981"
+BLUE_DARK = "#059669"
+BLUE_LIGHT = "rgba(16, 185, 129, 0.14)"
+BLUE_PALE = "#34d399"
+GRAD_PRIMARY = "qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #10b981, stop:1 #059669)"
+# Brand-family secondaries (icon tiles, step markers)
+INDIGO = "#6366f1"
+PURPLE = "#8b5cf6"
+GRAD_BRAND = "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #10b981, stop:0.55 #6366f1, stop:1 #8b5cf6)"
+
 # Semantic — state only
-GREEN = "#2e9e6b"        # synced / ok
-GREEN_DARK = "#268257"
-GREEN_LIGHT = "#e7f6ee"
-RED = "#e5484d"          # live / danger (coral, not fire-engine red)
-RED_DARK = "#cf3b40"
-RED_LIGHT = "#fdecec"
-AMBER = "#c07d12"        # local-only / warning
-AMBER_LIGHT = "#fbf1dd"
+GREEN = "#10b981"          # synced / ok
+GREEN_DARK = "#059669"
+GREEN_LIGHT = "rgba(16, 185, 129, 0.14)"
+RED = "#f0526b"            # live / danger
+RED_DARK = "#e5484d"
+RED_LIGHT = "rgba(240, 82, 107, 0.14)"
+AMBER = "#f59e0b"          # local-only / warning
+AMBER_LIGHT = "rgba(245, 158, 11, 0.14)"
 
-TEXT_DARK = "#171b22"
-TEXT_BODY = "#5b6472"
-TEXT_MUTED = "#8b94a4"
-TEXT_FAINT = "#5b6472"
-BORDER = "#e3e7ee"
-CARD_BORDER = "#e3e7ee"
+TEXT_DARK = "#ffffff"                    # primary text (name kept for compat)
+TEXT_BODY = "rgba(255, 255, 255, 0.72)"
+TEXT_MUTED = "rgba(255, 255, 255, 0.55)"
+TEXT_FAINT = "rgba(255, 255, 255, 0.40)"
+BORDER = "rgba(255, 255, 255, 0.09)"
+CARD_BORDER = "rgba(255, 255, 255, 0.09)"
 
 # Monospace face for technical identifiers — session codes, device IDs,
 # monitor specs, timestamps — treated as first-class data.
@@ -116,9 +123,9 @@ class ShadowCard(QFrame):
             }}
         """)
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(28)
-        shadow.setOffset(0, 6)
-        shadow.setColor(QColor(16, 22, 34, 28))
+        shadow.setBlurRadius(34)
+        shadow.setOffset(0, 10)
+        shadow.setColor(QColor(0, 0, 0, 150))
         self.setGraphicsEffect(shadow)
 
 
@@ -571,7 +578,7 @@ class MainDashboard(QWidget):
             logo_lbl.setStyleSheet(f"background: {BLUE}; border-radius: 12px;")
 
         brand = QLabel("SeenSlide")
-        brand.setStyleSheet("color: #ffffff; font-size: 17px; font-weight: 600; background: transparent;")
+        brand.setStyleSheet("color: #34d399; font-size: 17px; font-weight: 700; background: transparent;")
         logo_area.addWidget(logo_lbl)
         logo_area.addWidget(brand)
         logo_area.addStretch()
@@ -631,14 +638,19 @@ class MainDashboard(QWidget):
         _handle = _email.split("@")[0] if "@" in _email else _email
         _initial = (_handle[:1] or "S").upper()
 
-        # Fit the handle to the chip width so it never clips mid-word.
-        _display = _handle if len(_handle) <= 13 else _handle[:12] + "…"
+        # Wrap the chip so its outer spacing comes from a layout margin, not a
+        # QSS `margin` (which insets the visible border while the child layout
+        # still uses the full width — that mismatch hard-clipped the name).
+        status_wrap = QWidget()
+        status_wrap_l = QVBoxLayout(status_wrap)
+        status_wrap_l.setContentsMargins(12, 8, 12, 12)
+        status_wrap_l.setSpacing(0)
 
         status_frame = QFrame()
         status_frame.setCursor(Qt.PointingHandCursor)
         status_frame.setStyleSheet(f"""
-            QFrame {{ background: {SIDEBAR_ACTIVE_BG}; border: 1px solid rgba(255,255,255,0.07);
-                      border-radius: 12px; margin: 8px 12px 12px 12px; }}
+            QFrame {{ background: {BG_WHITE}; border: 1px solid {BORDER};
+                      border-radius: 12px; }}
             QFrame:hover {{ border-color: rgba(255,255,255,0.16); }}
         """)
         status_frame.setToolTip(_email)
@@ -647,18 +659,27 @@ class MainDashboard(QWidget):
         status_layout.setSpacing(10)
 
         av = QLabel(_initial)
-        av.setFixedSize(34, 34)
+        av.setFixedSize(32, 32)
         av.setAlignment(Qt.AlignCenter)
         av.setStyleSheet(
-            f"color: white; font-size: 14px; font-weight: 600; border-radius: 10px;"
-            f" background: {BLUE};")
+            "color: white; font-size: 14px; font-weight: 600; border-radius: 10px;"
+            " background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #10b981, stop:0.55 #6366f1, stop:1 #8b5cf6);")
         status_layout.addWidget(av)
 
         who = QVBoxLayout()
         who.setSpacing(2)
         who.setContentsMargins(0, 0, 0, 0)
-        who_name = QLabel(_display)
-        who_name.setStyleSheet("color: #eaeff7; font-size: 12.5px; font-weight: 500; background: transparent; border: none;")
+        who_name = QLabel()
+        _name_font = QFont(self.font().family(), -1)
+        _name_font.setPixelSize(13)
+        _name_font.setWeight(QFont.Medium)
+        who_name.setFont(_name_font)
+        who_name.setStyleSheet("color: #eef2f7; background: transparent; border: none;")
+        # Elide against the real column budget: sidebar 200 − outer 24 − frame
+        # padding 20 − avatar 32 − spacing 10 ≈ 114, kept conservative so a long
+        # handle shows a clean ellipsis rather than a hard clip.
+        _fm = QFontMetrics(_name_font)
+        who_name.setText(_fm.elidedText(_handle, Qt.ElideRight, 104))
 
         self.status_dot = QLabel()  # kept: connection state toggles its colour
         self.status_dot.setFixedSize(7, 7)
@@ -675,7 +696,8 @@ class MainDashboard(QWidget):
         who.addLayout(who_status)
         status_layout.addLayout(who, 1)
 
-        layout.addWidget(status_frame)
+        status_wrap_l.addWidget(status_frame)
+        layout.addWidget(status_wrap)
 
         return sidebar
 
@@ -809,16 +831,19 @@ class MainDashboard(QWidget):
 
         primary = (btn_color == BLUE)
 
-        # Icon tile — accent tint for the primary mode, neutral for the other.
+        # Gradient icon tile — green→indigo for the primary mode,
+        # indigo→purple for the other (the brand family from the web).
         tile = QLabel(glyph)
-        tile.setFixedSize(42, 42)
+        tile.setFixedSize(44, 44)
         tile.setAlignment(Qt.AlignCenter)
         if primary:
-            tile.setStyleSheet(f"background: {BLUE_LIGHT}; color: {BLUE}; border-radius: 12px; font-size: 20px;")
+            tile.setStyleSheet("background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #10b981, stop:1 #6366f1);"
+                               " color: white; border-radius: 13px; font-size: 20px;")
         else:
-            tile.setStyleSheet(f"background: #eef1f6; color: {TEXT_DARK}; border-radius: 12px; font-size: 20px;")
+            tile.setStyleSheet("background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #6366f1, stop:1 #8b5cf6);"
+                               " color: white; border-radius: 13px; font-size: 20px;")
         layout.addWidget(tile)
-        layout.addSpacing(10)
+        layout.addSpacing(12)
 
         t = QLabel(title)
         t.setStyleSheet(f"color: {TEXT_DARK}; font-size: 16px; font-weight: 600; background: transparent;")
@@ -833,16 +858,16 @@ class MainDashboard(QWidget):
         btn.setCursor(Qt.PointingHandCursor)
         if primary:
             btn.setStyleSheet(f"""
-                QPushButton {{ background: {BLUE}; color: white; border: none;
+                QPushButton {{ background: {GRAD_PRIMARY}; color: #06110c; border: none;
                     border-radius: 10px; font-size: 13px; font-weight: 600; padding: 0 18px; }}
-                QPushButton:hover {{ background: {BLUE_DARK}; }}
+                QPushButton:hover {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #12c88d, stop:1 #06a874); }}
             """)
         else:
             btn.setStyleSheet(f"""
-                QPushButton {{ background: transparent; color: {TEXT_DARK};
-                    border: 1px solid #cfd6e0; border-radius: 10px; font-size: 13px;
+                QPushButton {{ background: {BG_CARD2}; color: {TEXT_DARK};
+                    border: 1px solid rgba(255,255,255,0.16); border-radius: 10px; font-size: 13px;
                     font-weight: 600; padding: 0 18px; }}
-                QPushButton:hover {{ background: #f0f3f8; border-color: {TEXT_MUTED}; }}
+                QPushButton:hover {{ background: #20202b; border-color: rgba(255,255,255,0.28); }}
             """)
         btn.clicked.connect(on_click)
 
@@ -979,18 +1004,17 @@ class MainDashboard(QWidget):
         self.voice_toggle.setFixedWidth(100)
         self.voice_toggle.setStyleSheet(f"""
             QPushButton {{
-                background: {BLUE};
-                color: white;
+                background: {GRAD_PRIMARY};
+                color: #06110c;
                 border: none;
                 border-radius: 14px;
                 font-size: 12px;
-                           }}
-            QPushButton:checked {{
-                background: {BLUE};
+                font-weight: 600;
             }}
             QPushButton:!checked {{
-                background: {BORDER};
-                color: {TEXT_FAINT};
+                background: {BG_CARD2};
+                color: {TEXT_MUTED};
+                border: 1px solid rgba(255,255,255,0.14);
             }}
         """)
         self.voice_toggle.clicked.connect(self._on_voice_toggle)
@@ -1014,14 +1038,15 @@ class MainDashboard(QWidget):
         self.btn_start.setCursor(Qt.PointingHandCursor)
         self.btn_start.setStyleSheet(f"""
             QPushButton {{
-                background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {BLUE},stop:1 {BLUE_DARK});
-                color: white;
+                background: {GRAD_PRIMARY};
+                color: #06110c;
                 border: none;
-                border-radius: 8px;
+                border-radius: 10px;
                 font-size: 14px;
-                           }}
+                font-weight: 600;
+            }}
             QPushButton:hover {{
-                background: {BLUE_DARK};
+                background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #12c88d,stop:1 #06a874);
             }}
         """)
         self.btn_start.clicked.connect(self._on_start_clicked)
@@ -1368,9 +1393,9 @@ class MainDashboard(QWidget):
         self.btn_launch_conf.setCursor(Qt.PointingHandCursor)
         self.btn_launch_conf.setStyleSheet(f"""
             QPushButton {{
-                background: {BLUE}; color: white; border: none; border-radius: 10px;
+                background: {GRAD_PRIMARY}; color: #06110c; border: none; border-radius: 10px;
                 font-size: 14px; font-weight: 600;            }}
-            QPushButton:hover {{ background: {BLUE_DARK}; }}
+            QPushButton:hover {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #12c88d,stop:1 #06a874); }}
         """)
         self.btn_launch_conf.clicked.connect(self._on_launch_conference)
         form_layout.addWidget(self.btn_launch_conf)
@@ -2912,17 +2937,22 @@ class MainDashboard(QWidget):
 
     def _input_style(self):
         return f"""
-            QLineEdit, QTextEdit {{
+            QLineEdit, QTextEdit, QComboBox {{
                 background: {BG_INPUT};
-                border: 1px solid {BORDER};
-                border-radius: 8px;
-                padding: 8px 12px;
+                border: 1px solid rgba(255,255,255,0.14);
+                border-radius: 10px;
+                padding: 10px 13px;
                 font-size: 13px;
                 color: {TEXT_DARK};
+                selection-background-color: rgba(16,185,129,0.35);
             }}
-            QLineEdit:focus, QTextEdit:focus {{
-                border-color: {BLUE};
+            QLineEdit:focus, QTextEdit:focus, QComboBox:focus {{
+                border: 1px solid {BLUE};
+                background: #0c0c14;
             }}
+            QComboBox::drop-down {{ border: none; width: 26px; }}
+            QComboBox::down-arrow {{ image: none; border-left: 4px solid transparent;
+                border-right: 4px solid transparent; border-top: 5px solid rgba(255,255,255,0.45); margin-right: 10px; }}
         """
 
     # ── Monitor picker ─────────────────────────────────────────────

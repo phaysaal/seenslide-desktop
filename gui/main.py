@@ -54,6 +54,43 @@ class SeenSlideApp:
             f = QFont("Inter")
             f.setPixelSize(13)
             self.app.setFont(f)
+        self._apply_dark_theme()
+
+    def _apply_dark_theme(self):
+        """Base dark theme matched to seenslide.com. Per-widget styles layer
+        on top; this catches dialogs, menus, scrollbars and any widget that
+        doesn't set its own background."""
+        from PyQt5.QtGui import QPalette, QColor
+        pal = QPalette()
+        ground = QColor("#07070a"); surface = QColor("#14141e"); text = QColor(255, 255, 255, 242)
+        pal.setColor(QPalette.Window, ground)
+        pal.setColor(QPalette.Base, QColor("#101019"))
+        pal.setColor(QPalette.AlternateBase, surface)
+        pal.setColor(QPalette.Text, text)
+        pal.setColor(QPalette.WindowText, text)
+        pal.setColor(QPalette.Button, surface)
+        pal.setColor(QPalette.ButtonText, text)
+        pal.setColor(QPalette.ToolTipBase, surface)
+        pal.setColor(QPalette.ToolTipText, text)
+        pal.setColor(QPalette.Highlight, QColor("#10b981"))
+        pal.setColor(QPalette.HighlightedText, QColor("#06110c"))
+        pal.setColor(QPalette.PlaceholderText, QColor(255, 255, 255, 102))
+        self.app.setPalette(pal)
+        self.app.setStyleSheet("""
+            QMainWindow, QDialog, QWidget { background-color: #07070a; color: rgba(255,255,255,0.92); }
+            QToolTip { background: #191922; color: #eef2f7; border: 1px solid rgba(255,255,255,0.12); padding: 5px 8px; border-radius: 6px; }
+            QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
+            QScrollBar::handle:vertical { background: rgba(255,255,255,0.16); border-radius: 5px; min-height: 30px; }
+            QScrollBar::handle:vertical:hover { background: rgba(255,255,255,0.28); }
+            QScrollBar:horizontal { background: transparent; height: 10px; margin: 2px; }
+            QScrollBar::handle:horizontal { background: rgba(255,255,255,0.16); border-radius: 5px; min-width: 30px; }
+            QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
+            QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+            QMenu { background: #14141e; color: #eef2f7; border: 1px solid rgba(255,255,255,0.10); border-radius: 8px; padding: 4px; }
+            QMenu::item { padding: 6px 22px; border-radius: 6px; }
+            QMenu::item:selected { background: rgba(16,185,129,0.18); }
+            QComboBox QAbstractItemView { background: #14141e; color: #eef2f7; border: 1px solid rgba(255,255,255,0.10); selection-background-color: rgba(16,185,129,0.25); outline: none; }
+        """)
 
     def run(self) -> int:
         self.main_window = MainDashboard()
