@@ -9,34 +9,41 @@ from PyQt5.QtGui import QPalette, QColor, QFont
 
 # ── Colour palette ──────────────────────────────────────────────────
 
-BG          = "#f6f7fb"
+BG          = "#f4f6f9"
 CARD_BG     = "#ffffff"
-CARD_BORDER = "rgba(15, 23, 42, 0.10)"
+CARD_BORDER = "#e3e7ee"
 
-PRIMARY         = "#2563eb"
-PRIMARY_HOVER   = "#1d4ed8"
-PRIMARY_PRESSED = "#1e40af"
+# One accent for all interaction — a deep cerulean, not the bright SaaS blue.
+PRIMARY         = "#2266d4"
+PRIMARY_HOVER   = "#1b54b3"
+PRIMARY_PRESSED = "#164393"
+PRIMARY_TINT    = "#e9f1fe"
 
-SECONDARY       = "#0f172a"
-SECONDARY_HOVER = "#1e293b"
+SECONDARY       = "#171b22"
+SECONDARY_HOVER = "#2b313c"
 
-DANGER          = "#dc2626"
-DANGER_HOVER    = "#b91c1c"
+# Semantic — state only, never used as the accent.
+DANGER          = "#e5484d"
+DANGER_HOVER    = "#cf3b40"
 
-SUCCESS         = "#16a34a"
-SUCCESS_HOVER   = "#15803d"
+SUCCESS         = "#2e9e6b"
+SUCCESS_HOVER   = "#268257"
 
-TEXT        = "#0f172a"
-TEXT_MUTED  = "#64748b"
-TEXT_FAINT  = "#94a3b8"
+TEXT        = "#171b22"
+TEXT_MUTED  = "#5b6472"
+TEXT_FAINT  = "#8b94a4"
 
-INPUT_BORDER       = "#d1d5db"
+INPUT_BG           = "#f5f7fb"
+INPUT_BORDER       = "#cfd6e0"
 INPUT_FOCUS_BORDER = PRIMARY
-DISABLED_BG        = "#94a3b8"
+DISABLED_BG        = "#aab4c5"
 
-CARD_RADIUS  = 16
-BTN_RADIUS   = 12
-INPUT_RADIUS = 8
+# Monospace face for technical identifiers (codes, IDs, specs).
+MONO = "'JetBrains Mono', 'Cascadia Code', 'DejaVu Sans Mono', Menlo, Consolas, monospace"
+
+CARD_RADIUS  = 14
+BTN_RADIUS   = 10
+INPUT_RADIUS = 10
 
 SHADOW_BLUR   = 26
 SHADOW_OFFSET = 10
@@ -136,17 +143,38 @@ def btn_ghost(extra: str = "") -> str:
 def input_style() -> str:
     return f"""
         QLineEdit, QComboBox, QTextEdit {{
-            background: white;
+            background: {INPUT_BG};
             border: 1px solid {INPUT_BORDER};
             border-radius: {INPUT_RADIUS}px;
-            padding: 8px 12px;
+            padding: 10px 13px;
             color: {TEXT};
             font-size: 13px;
         }}
         QLineEdit:focus, QComboBox:focus, QTextEdit:focus {{
-            border-color: {INPUT_FOCUS_BORDER};
+            border: 2px solid {INPUT_FOCUS_BORDER};
+            background: {CARD_BG};
+            padding: 9px 12px;
         }}
+        QLineEdit::placeholder {{ color: {TEXT_FAINT}; }}
     """
+
+
+def mono_style(size: int = 12, color: str = None) -> str:
+    """Inline style for technical identifiers (codes, IDs, specs)."""
+    return f"font-family: {MONO}; font-size: {size}px; letter-spacing: 0.3px; color: {color or TEXT_MUTED};"
+
+
+def chip_style(kind: str = "ok") -> str:
+    """Pill that encodes state at a glance: ok | live | local | accent."""
+    palette = {
+        "ok":     (SUCCESS, "#e7f6ee"),
+        "live":   (DANGER,  "#fdecec"),
+        "local":  ("#c07d12", "#fbf1dd"),
+        "accent": (PRIMARY, PRIMARY_TINT),
+    }
+    fg, bg = palette.get(kind, palette["ok"])
+    return (f"QLabel {{ color: {fg}; background: {bg}; border-radius: 999px;"
+            f" padding: 3px 9px; font-size: 11px; font-weight: 600; }}")
 
 
 def section_title_style() -> str:

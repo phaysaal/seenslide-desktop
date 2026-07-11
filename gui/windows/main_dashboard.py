@@ -53,55 +53,72 @@ logger = logging.getLogger(__name__)
 
 # ── Design Tokens ──────────────────────────────────────────────────
 
-SIDEBAR_BG = "#1a1f2e"
-SIDEBAR_BG_BOTTOM = "#151927"
-SIDEBAR_ACTIVE_BG = "rgba(59, 130, 246, 0.15)"
-SIDEBAR_ACTIVE_BORDER = "#3b82f6"
+# Deep cool "ink" rail, a single cerulean accent, and semantic colours
+# reserved strictly for state (never used as the accent). See the
+# redesign mockup for the reasoning.
+SIDEBAR_BG = "#0e1420"
+SIDEBAR_BG_BOTTOM = "#0b0f18"
+SIDEBAR_ACTIVE_BG = "#182335"
+SIDEBAR_ACTIVE_BORDER = "#2266d4"
+SIDEBAR_TEXT = "#aab4c5"
+SIDEBAR_TEXT_DIM = "#6b7791"
 
-BG_MAIN = "#f8fafc"
+BG_MAIN = "#f4f6f9"
 BG_WHITE = "#ffffff"
-BG_INPUT = "#f8fafc"
+BG_INPUT = "#f5f7fb"
 
-BLUE = "#3b82f6"
-BLUE_DARK = "#2563eb"
-BLUE_LIGHT = "#eff6ff"
+# Accent (all interaction)
+BLUE = "#2266d4"
+BLUE_DARK = "#1b54b3"
+BLUE_LIGHT = "#e9f1fe"
 BLUE_PALE = "#93c5fd"
-GREEN = "#10b981"
-GREEN_DARK = "#059669"
-GREEN_LIGHT = "#ecfdf5"
-RED = "#ef4444"
-RED_DARK = "#dc2626"
-RED_LIGHT = "#fef2f2"
+# Semantic — state only
+GREEN = "#2e9e6b"        # synced / ok
+GREEN_DARK = "#268257"
+GREEN_LIGHT = "#e7f6ee"
+RED = "#e5484d"          # live / danger (coral, not fire-engine red)
+RED_DARK = "#cf3b40"
+RED_LIGHT = "#fdecec"
+AMBER = "#c07d12"        # local-only / warning
+AMBER_LIGHT = "#fbf1dd"
 
-TEXT_DARK = "#1e293b"
-TEXT_BODY = "#475569"
-TEXT_MUTED = "#94a3b8"
-TEXT_FAINT = "#64748b"
-BORDER = "#e2e8f0"
-CARD_BORDER = "#ecf0f1"
+TEXT_DARK = "#171b22"
+TEXT_BODY = "#5b6472"
+TEXT_MUTED = "#8b94a4"
+TEXT_FAINT = "#5b6472"
+BORDER = "#e3e7ee"
+CARD_BORDER = "#e3e7ee"
+
+# Monospace face for technical identifiers — session codes, device IDs,
+# monitor specs, timestamps — treated as first-class data.
+MONO = "'JetBrains Mono', 'Cascadia Code', 'DejaVu Sans Mono', Menlo, Consolas, monospace"
 
 
 # ── Reusable Widgets ───────────────────────────────────────────────
 
 class ShadowCard(QFrame):
-    """White card with subtle drop shadow and optional top accent."""
-    def __init__(self, parent=None, accent_color=None, radius=12):
+    """Flat white card with a hairline border and a soft shadow.
+
+    The old coloured top-accent stripe (a dated Bootstrap-card pattern)
+    is gone — the accent_color argument is kept for call-site
+    compatibility but no longer draws a stripe. Distinction comes from
+    icon tiles and content, not a coloured edge.
+    """
+    def __init__(self, parent=None, accent_color=None, radius=14):
         super().__init__(parent)
         self._radius = radius
         self.setObjectName("shadowCard")
-        border_css = f"border-top: 3px solid {accent_color};" if accent_color else ""
         self.setStyleSheet(f"""
             QFrame#shadowCard {{
                 background: {BG_WHITE};
                 border: 1px solid {BORDER};
                 border-radius: {radius}px;
-                {border_css}
             }}
         """)
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(16)
-        shadow.setOffset(0, 2)
-        shadow.setColor(QColor(0, 0, 0, 20))
+        shadow.setBlurRadius(28)
+        shadow.setOffset(0, 6)
+        shadow.setColor(QColor(16, 22, 34, 28))
         self.setGraphicsEffect(shadow)
 
 
@@ -130,29 +147,31 @@ class SidebarButton(QPushButton):
             self.setStyleSheet(f"""
                 QPushButton {{
                     background: {SIDEBAR_ACTIVE_BG};
-                    color: #e2e8f0;
+                    color: #ffffff;
                     border: none;
                     border-left: 3px solid {SIDEBAR_ACTIVE_BORDER};
-                    border-radius: 8px;
-                    padding-left: 16px;
+                    border-radius: 10px;
+                    padding-left: 15px;
                     text-align: left;
-                    font-size: 13px;
-                                   }}
+                    font-size: 13.5px;
+                    font-weight: 600;
+                }}
             """)
         else:
             self.setStyleSheet(f"""
                 QPushButton {{
                     background: transparent;
-                    color: {TEXT_FAINT};
+                    color: {SIDEBAR_TEXT};
                     border: none;
-                    padding-left: 20px;
+                    padding-left: 18px;
                     text-align: left;
-                    font-size: 13px;
-                                       border-radius: 8px;
+                    font-size: 13.5px;
+                    font-weight: 500;
+                    border-radius: 10px;
                 }}
                 QPushButton:hover {{
-                    background: rgba(255,255,255,0.05);
-                    color: #e2e8f0;
+                    background: rgba(255,255,255,0.055);
+                    color: #dfe6f0;
                 }}
             """)
 
@@ -552,7 +571,7 @@ class MainDashboard(QWidget):
             logo_lbl.setStyleSheet(f"background: {BLUE}; border-radius: 12px;")
 
         brand = QLabel("SeenSlide")
-        brand.setStyleSheet("color: #60a5fa; font-size: 18px; background: transparent;")
+        brand.setStyleSheet("color: #ffffff; font-size: 17px; font-weight: 650; background: transparent;")
         logo_area.addWidget(logo_lbl)
         logo_area.addWidget(brand)
         logo_area.addStretch()
@@ -588,9 +607,9 @@ class MainDashboard(QWidget):
         live_layout.setSpacing(2)
 
         self.sidebar_session_label = QLabel("SESSION CODE")
-        self.sidebar_session_label.setStyleSheet(f"color: {TEXT_FAINT}; font-size: 9px; letter-spacing: 0.5px; background: transparent;")
+        self.sidebar_session_label.setStyleSheet(f"color: {SIDEBAR_TEXT_DIM}; font-size: 9px; letter-spacing: 0.8px; background: transparent;")
         self.sidebar_session_code = QLabel("")
-        self.sidebar_session_code.setStyleSheet("color: #e2e8f0; font-size: 15px; letter-spacing: 2px; background: transparent;")
+        self.sidebar_session_code.setStyleSheet(f"color: #e2e8f0; font-family: {MONO}; font-size: 15px; letter-spacing: 1px; background: transparent;")
         self.sidebar_copy_link = QPushButton("Copy link")
         self.sidebar_copy_link.setCursor(Qt.PointingHandCursor)
         self.sidebar_copy_link.setStyleSheet(f"color: {BLUE}; font-size: 11px; border: none; text-align: left; background: transparent; text-decoration: underline;")
@@ -601,22 +620,51 @@ class MainDashboard(QWidget):
         self.sidebar_live_box.setVisible(False)
         layout.addWidget(self.sidebar_live_box)
 
-        # Connection status
+        # Account chip — replaces the old green "Server Connected" bar,
+        # which read like a stray debug widget. Avatar initial + who +
+        # a small live-status dot.
+        try:
+            _ident = identity().record
+            _email = (_ident.email or _ident.phone_number or "Signed in") if _ident else "Signed in"
+        except Exception:
+            _email = "Signed in"
+        _handle = _email.split("@")[0] if "@" in _email else _email
+        _initial = (_handle[:1] or "S").upper()
+
         status_frame = QFrame()
-        status_frame.setFixedHeight(40)
-        status_frame.setStyleSheet("background: rgba(16,185,129,0.1); border-radius: 6px; margin: 8px 12px 12px 12px;")
+        status_frame.setStyleSheet(f"""
+            QFrame {{ background: {SIDEBAR_ACTIVE_BG}; border: 1px solid rgba(255,255,255,0.06);
+                      border-radius: 12px; margin: 8px 12px 12px 12px; }}
+        """)
         status_layout = QHBoxLayout(status_frame)
-        status_layout.setContentsMargins(10, 0, 10, 0)
-        status_layout.setSpacing(6)
+        status_layout.setContentsMargins(9, 9, 9, 9)
+        status_layout.setSpacing(10)
 
-        self.status_dot = QLabel()
-        self.status_dot.setFixedSize(8, 8)
-        self.status_dot.setStyleSheet(f"background: {GREEN}; border-radius: 4px;")
-        status_layout.addWidget(self.status_dot)
+        av = QLabel(_initial)
+        av.setFixedSize(30, 30)
+        av.setAlignment(Qt.AlignCenter)
+        av.setStyleSheet("color: white; font-size: 13px; font-weight: 650; border-radius: 9px;"
+                         "background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #3a7bd5, stop:1 #00d2a8);")
+        status_layout.addWidget(av)
 
-        self.status_text = QLabel("Server Connected")
-        self.status_text.setStyleSheet(f"color: {GREEN}; font-size: 13px; background: transparent;")
-        status_layout.addWidget(self.status_text)
+        who = QVBoxLayout()
+        who.setSpacing(1)
+        who_name = QLabel(_handle)
+        who_name.setStyleSheet("color: #eaeff7; font-size: 12px; font-weight: 600; background: transparent;")
+        self.status_dot = QLabel()  # kept: connection code toggles its colour
+        self.status_dot.setFixedSize(6, 6)
+        self.status_dot.setStyleSheet(f"background: {GREEN}; border-radius: 3px;")
+        self.status_text = QLabel("Synced")
+        self.status_text.setStyleSheet(f"color: {GREEN}; font-size: 10.5px; background: transparent;")
+        who_status = QHBoxLayout()
+        who_status.setSpacing(5)
+        who_status.setContentsMargins(0, 0, 0, 0)
+        who_status.addWidget(self.status_dot)
+        who_status.addWidget(self.status_text)
+        who_status.addStretch()
+        who.addWidget(who_name)
+        who.addLayout(who_status)
+        status_layout.addLayout(who)
         status_layout.addStretch()
 
         layout.addWidget(status_frame)
@@ -636,9 +684,9 @@ class MainDashboard(QWidget):
         # Greeting
         greeting = self._get_greeting()
         title = QLabel(greeting)
-        title.setStyleSheet(f"color: {TEXT_DARK}; font-size: 22px; background: transparent;")
-        subtitle = QLabel("What would you like to do?")
-        subtitle.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px; background: transparent;")
+        title.setStyleSheet(f"color: {TEXT_DARK}; font-size: 26px; font-weight: 680; background: transparent;")
+        subtitle = QLabel("Pick up where you left off, or start something new.")
+        subtitle.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13.5px; background: transparent;")
         layout.addWidget(title)
         layout.addWidget(subtitle)
 
@@ -659,16 +707,18 @@ class MainDashboard(QWidget):
         as_info = QVBoxLayout()
         as_info.setSpacing(1)
         self.as_name = QLabel("—")
-        self.as_name.setStyleSheet(f"color: {TEXT_DARK}; font-size: 13px; background: transparent;")
+        self.as_name.setStyleSheet(f"color: {TEXT_DARK}; font-size: 14px; font-weight: 620; background: transparent;")
         self.as_id = QLabel("")
-        self.as_id.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; background: transparent;")
+        self.as_id.setStyleSheet(f"color: {TEXT_MUTED}; font-family: {MONO}; font-size: 11.5px; letter-spacing: 0.3px; background: transparent;")
         as_info.addWidget(self.as_name)
         as_info.addWidget(self.as_id)
         as_layout.addLayout(as_info, 1)
 
-        # Label badge
-        self.as_badge = QLabel("Current Session")
-        self.as_badge.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; background: transparent;")
+        # State chip
+        self.as_badge = QLabel("Current")
+        self.as_badge.setStyleSheet(
+            f"color: {GREEN}; background: {GREEN_LIGHT}; border-radius: 999px;"
+            f" padding: 3px 10px; font-size: 11px; font-weight: 600;")
         as_layout.addWidget(self.as_badge)
 
         self.active_session_card.setVisible(False)
@@ -703,17 +753,19 @@ class MainDashboard(QWidget):
         cards_row.addWidget(conf_card)
         layout.addLayout(cards_row)
 
-        # Upload bar
-        upload_card = ShadowCard()
+        # Drop zone
+        upload_card = QFrame()
+        upload_card.setStyleSheet(
+            f"QFrame {{ background: transparent; border: 1.5px dashed #cfd6e0; border-radius: 12px; }}")
         upload_layout = QHBoxLayout(upload_card)
-        upload_layout.setContentsMargins(20, 14, 20, 14)
-        upload_layout.setSpacing(12)
+        upload_layout.setContentsMargins(20, 18, 20, 18)
+        upload_layout.setSpacing(6)
 
-        upload_text = QLabel("Drop a PDF or PowerPoint here, or")
-        upload_text.setStyleSheet(f"color: {TEXT_FAINT}; font-size: 13px; background: transparent;")
+        upload_text = QLabel("Drop a PDF or PowerPoint to start instantly, or")
+        upload_text.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13.5px; border: none; background: transparent;")
         upload_link = QPushButton("browse files")
         upload_link.setCursor(Qt.PointingHandCursor)
-        upload_link.setStyleSheet(f"color: {BLUE}; font-size: 13px; border: none; background: transparent;")
+        upload_link.setStyleSheet(f"color: {BLUE}; font-size: 13.5px; font-weight: 600; border: none; background: transparent;")
         upload_link.clicked.connect(self._on_upload_clicked)
 
         upload_layout.addStretch()
@@ -723,8 +775,8 @@ class MainDashboard(QWidget):
         layout.addWidget(upload_card)
 
         # Recent Sessions
-        recent_label = QLabel("Recent Sessions")
-        recent_label.setStyleSheet(f"color: {TEXT_DARK}; font-size: 14px; background: transparent;")
+        recent_label = QLabel("RECENT SESSIONS")
+        recent_label.setStyleSheet(f"color: {TEXT_FAINT}; font-size: 11px; font-weight: 600; letter-spacing: 0.9px; background: transparent; margin-top: 10px;")
         layout.addWidget(recent_label)
 
         # Placeholder recent sessions
@@ -741,44 +793,61 @@ class MainDashboard(QWidget):
 
         return view
 
-    def _build_mode_card(self, title, subtitle, desc, accent, btn_text, btn_color, on_click):
-        card = ShadowCard(accent_color=accent)
+    def _build_mode_card(self, title, subtitle, desc, accent, btn_text, btn_color, on_click, glyph="›"):
+        card = ShadowCard()
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(8)
+        layout.setContentsMargins(22, 22, 22, 22)
+        layout.setSpacing(4)
+
+        primary = (btn_color == BLUE)
+
+        # Icon tile — accent tint for the primary mode, neutral for the other.
+        tile = QLabel(glyph)
+        tile.setFixedSize(42, 42)
+        tile.setAlignment(Qt.AlignCenter)
+        if primary:
+            tile.setStyleSheet(f"background: {BLUE_LIGHT}; color: {BLUE}; border-radius: 12px; font-size: 20px;")
+        else:
+            tile.setStyleSheet(f"background: #eef1f6; color: {TEXT_DARK}; border-radius: 12px; font-size: 20px;")
+        layout.addWidget(tile)
+        layout.addSpacing(10)
 
         t = QLabel(title)
-        t.setStyleSheet(f"color: {TEXT_DARK}; font-size: 16px; background: transparent;")
+        t.setStyleSheet(f"color: {TEXT_DARK}; font-size: 16px; font-weight: 640; background: transparent;")
         s = QLabel(subtitle)
         s.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; background: transparent;")
         d = QLabel(desc)
         d.setWordWrap(True)
-        d.setStyleSheet(f"color: {TEXT_FAINT}; font-size: 12px; background: transparent; margin-top: 8px;")
+        d.setStyleSheet(f"color: {TEXT_BODY}; font-size: 12.5px; background: transparent; margin-top: 10px;")
 
         btn = QPushButton(btn_text)
-        btn.setFixedHeight(36)
-        btn.setFixedWidth(160)
+        btn.setFixedHeight(38)
         btn.setCursor(Qt.PointingHandCursor)
-        btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {btn_color};
-                color: white;
-                border: none;
-                border-radius: 8px;
-                font-size: 13px;
-                           }}
-            QPushButton:hover {{
-                background: {accent};
-                opacity: 0.9;
-            }}
-        """)
+        if primary:
+            btn.setStyleSheet(f"""
+                QPushButton {{ background: {BLUE}; color: white; border: none;
+                    border-radius: 10px; font-size: 13px; font-weight: 600; padding: 0 18px; }}
+                QPushButton:hover {{ background: {BLUE_DARK}; }}
+            """)
+        else:
+            btn.setStyleSheet(f"""
+                QPushButton {{ background: transparent; color: {TEXT_DARK};
+                    border: 1px solid #cfd6e0; border-radius: 10px; font-size: 13px;
+                    font-weight: 600; padding: 0 18px; }}
+                QPushButton:hover {{ background: #f0f3f8; border-color: {TEXT_MUTED}; }}
+            """)
         btn.clicked.connect(on_click)
 
         layout.addWidget(t)
         layout.addWidget(s)
         layout.addWidget(d)
-        layout.addSpacing(8)
-        layout.addWidget(btn)
+        layout.addSpacing(16)
+
+        btn_row = QHBoxLayout()
+        btn_row.setContentsMargins(0, 0, 0, 0)
+        btn_row.addWidget(btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
         layout.addStretch()
 
         return card
@@ -811,7 +880,7 @@ class MainDashboard(QWidget):
 
         # Title
         page_title = QLabel("Set Up Your Talk")
-        page_title.setStyleSheet(f"color: {TEXT_DARK}; font-size: 20px; background: transparent;")
+        page_title.setStyleSheet(f"color: {TEXT_DARK}; font-size: 26px; font-weight: 680; background: transparent;")
         page_sub = QLabel("Fill in the details below. You can change these later.")
         page_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px; background: transparent;")
         outer.addWidget(page_title)
@@ -1227,7 +1296,7 @@ class MainDashboard(QWidget):
 
         # Title
         page_title = QLabel("Set Up Conference")
-        page_title.setStyleSheet(f"color: {TEXT_DARK}; font-size: 20px; background: transparent;")
+        page_title.setStyleSheet(f"color: {TEXT_DARK}; font-size: 26px; font-weight: 680; background: transparent;")
         page_sub = QLabel("Create a collection with multiple sequential talks.")
         page_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px; background: transparent;")
         outer.addWidget(page_title)
@@ -1274,11 +1343,11 @@ class MainDashboard(QWidget):
                 height: 6px; background: {BORDER}; border-radius: 3px;
             }}
             QSlider::handle:horizontal {{
-                background: {GREEN}; border: 2px solid white;
+                background: {BLUE}; border: 2px solid white;
                 width: 16px; height: 16px; margin: -6px 0; border-radius: 9px;
             }}
             QSlider::sub-page:horizontal {{
-                background: {GREEN}; border-radius: 3px;
+                background: {BLUE}; border-radius: 3px;
             }}
         """)
         form_layout.addWidget(self.conf_slider)
@@ -1291,10 +1360,9 @@ class MainDashboard(QWidget):
         self.btn_launch_conf.setCursor(Qt.PointingHandCursor)
         self.btn_launch_conf.setStyleSheet(f"""
             QPushButton {{
-                background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {GREEN},stop:1 {GREEN_DARK});
-                color: white; border: none; border-radius: 8px;
-                font-size: 14px;            }}
-            QPushButton:hover {{ background: {GREEN_DARK}; }}
+                background: {BLUE}; color: white; border: none; border-radius: 10px;
+                font-size: 14px; font-weight: 600;            }}
+            QPushButton:hover {{ background: {BLUE_DARK}; }}
         """)
         self.btn_launch_conf.clicked.connect(self._on_launch_conference)
         form_layout.addWidget(self.btn_launch_conf)
@@ -1317,10 +1385,10 @@ class MainDashboard(QWidget):
         self.btn_add_talk.setCursor(Qt.PointingHandCursor)
         self.btn_add_talk.setStyleSheet(f"""
             QPushButton {{
-                background: {GREEN_LIGHT}; color: {GREEN};
-                border: none; border-radius: 6px;
-                padding: 6px 12px; font-size: 11px;            }}
-            QPushButton:hover {{ background: rgba(16,185,129,0.2); }}
+                background: {BLUE_LIGHT}; color: {BLUE};
+                border: none; border-radius: 8px;
+                padding: 7px 13px; font-size: 12px; font-weight: 600;            }}
+            QPushButton:hover {{ background: #d7e6fb; }}
         """)
         self.btn_add_talk.clicked.connect(self._add_conference_talk)
         talks_header.addWidget(self.btn_add_talk)
@@ -2829,8 +2897,9 @@ class MainDashboard(QWidget):
     # ── Helpers ────────────────────────────────────────────────────
 
     def _field_label(self, text):
-        lbl = QLabel(text)
-        lbl.setStyleSheet(f"color: {TEXT_BODY}; font-size: 11px; letter-spacing: 0.5px; background: transparent;")
+        # Sentence-case, medium weight — retires the ALL-CAPS-label wall.
+        lbl = QLabel(text[:1].upper() + text[1:].lower() if text.isupper() else text)
+        lbl.setStyleSheet(f"color: {TEXT_DARK}; font-size: 13px; font-weight: 550; background: transparent;")
         return lbl
 
     def _input_style(self):
