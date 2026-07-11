@@ -571,7 +571,7 @@ class MainDashboard(QWidget):
             logo_lbl.setStyleSheet(f"background: {BLUE}; border-radius: 12px;")
 
         brand = QLabel("SeenSlide")
-        brand.setStyleSheet("color: #ffffff; font-size: 17px; font-weight: 650; background: transparent;")
+        brand.setStyleSheet("color: #ffffff; font-size: 17px; font-weight: 600; background: transparent;")
         logo_area.addWidget(logo_lbl)
         logo_area.addWidget(brand)
         logo_area.addStretch()
@@ -631,41 +631,49 @@ class MainDashboard(QWidget):
         _handle = _email.split("@")[0] if "@" in _email else _email
         _initial = (_handle[:1] or "S").upper()
 
+        # Fit the handle to the chip width so it never clips mid-word.
+        _display = _handle if len(_handle) <= 13 else _handle[:12] + "…"
+
         status_frame = QFrame()
+        status_frame.setCursor(Qt.PointingHandCursor)
         status_frame.setStyleSheet(f"""
-            QFrame {{ background: {SIDEBAR_ACTIVE_BG}; border: 1px solid rgba(255,255,255,0.06);
+            QFrame {{ background: {SIDEBAR_ACTIVE_BG}; border: 1px solid rgba(255,255,255,0.07);
                       border-radius: 12px; margin: 8px 12px 12px 12px; }}
+            QFrame:hover {{ border-color: rgba(255,255,255,0.16); }}
         """)
+        status_frame.setToolTip(_email)
         status_layout = QHBoxLayout(status_frame)
-        status_layout.setContentsMargins(9, 9, 9, 9)
+        status_layout.setContentsMargins(10, 10, 10, 10)
         status_layout.setSpacing(10)
 
         av = QLabel(_initial)
-        av.setFixedSize(30, 30)
+        av.setFixedSize(34, 34)
         av.setAlignment(Qt.AlignCenter)
-        av.setStyleSheet("color: white; font-size: 13px; font-weight: 650; border-radius: 9px;"
-                         "background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #3a7bd5, stop:1 #00d2a8);")
+        av.setStyleSheet(
+            f"color: white; font-size: 14px; font-weight: 600; border-radius: 10px;"
+            f" background: {BLUE};")
         status_layout.addWidget(av)
 
         who = QVBoxLayout()
-        who.setSpacing(1)
-        who_name = QLabel(_handle)
-        who_name.setStyleSheet("color: #eaeff7; font-size: 12px; font-weight: 600; background: transparent;")
-        self.status_dot = QLabel()  # kept: connection code toggles its colour
-        self.status_dot.setFixedSize(6, 6)
-        self.status_dot.setStyleSheet(f"background: {GREEN}; border-radius: 3px;")
+        who.setSpacing(2)
+        who.setContentsMargins(0, 0, 0, 0)
+        who_name = QLabel(_display)
+        who_name.setStyleSheet("color: #eaeff7; font-size: 12.5px; font-weight: 500; background: transparent; border: none;")
+
+        self.status_dot = QLabel()  # kept: connection state toggles its colour
+        self.status_dot.setFixedSize(7, 7)
+        self.status_dot.setStyleSheet(f"background: {GREEN}; border-radius: 4px; border: none;")
         self.status_text = QLabel("Synced")
-        self.status_text.setStyleSheet(f"color: {GREEN}; font-size: 10.5px; background: transparent;")
+        self.status_text.setStyleSheet(f"color: {SIDEBAR_TEXT}; font-size: 11px; background: transparent; border: none;")
         who_status = QHBoxLayout()
-        who_status.setSpacing(5)
+        who_status.setSpacing(6)
         who_status.setContentsMargins(0, 0, 0, 0)
         who_status.addWidget(self.status_dot)
         who_status.addWidget(self.status_text)
         who_status.addStretch()
         who.addWidget(who_name)
         who.addLayout(who_status)
-        status_layout.addLayout(who)
-        status_layout.addStretch()
+        status_layout.addLayout(who, 1)
 
         layout.addWidget(status_frame)
 
@@ -684,7 +692,7 @@ class MainDashboard(QWidget):
         # Greeting
         greeting = self._get_greeting()
         title = QLabel(greeting)
-        title.setStyleSheet(f"color: {TEXT_DARK}; font-size: 26px; font-weight: 680; background: transparent;")
+        title.setStyleSheet(f"color: {TEXT_DARK}; font-size: 26px; font-weight: 600; background: transparent;")
         subtitle = QLabel("Pick up where you left off, or start something new.")
         subtitle.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13.5px; background: transparent;")
         layout.addWidget(title)
@@ -707,7 +715,7 @@ class MainDashboard(QWidget):
         as_info = QVBoxLayout()
         as_info.setSpacing(1)
         self.as_name = QLabel("—")
-        self.as_name.setStyleSheet(f"color: {TEXT_DARK}; font-size: 14px; font-weight: 620; background: transparent;")
+        self.as_name.setStyleSheet(f"color: {TEXT_DARK}; font-size: 14px; font-weight: 500; background: transparent;")
         self.as_id = QLabel("")
         self.as_id.setStyleSheet(f"color: {TEXT_MUTED}; font-family: {MONO}; font-size: 11.5px; letter-spacing: 0.3px; background: transparent;")
         as_info.addWidget(self.as_name)
@@ -813,7 +821,7 @@ class MainDashboard(QWidget):
         layout.addSpacing(10)
 
         t = QLabel(title)
-        t.setStyleSheet(f"color: {TEXT_DARK}; font-size: 16px; font-weight: 640; background: transparent;")
+        t.setStyleSheet(f"color: {TEXT_DARK}; font-size: 16px; font-weight: 600; background: transparent;")
         s = QLabel(subtitle)
         s.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; background: transparent;")
         d = QLabel(desc)
@@ -880,7 +888,7 @@ class MainDashboard(QWidget):
 
         # Title
         page_title = QLabel("Set Up Your Talk")
-        page_title.setStyleSheet(f"color: {TEXT_DARK}; font-size: 26px; font-weight: 680; background: transparent;")
+        page_title.setStyleSheet(f"color: {TEXT_DARK}; font-size: 26px; font-weight: 600; background: transparent;")
         page_sub = QLabel("Fill in the details below. You can change these later.")
         page_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px; background: transparent;")
         outer.addWidget(page_title)
@@ -1296,7 +1304,7 @@ class MainDashboard(QWidget):
 
         # Title
         page_title = QLabel("Set Up Conference")
-        page_title.setStyleSheet(f"color: {TEXT_DARK}; font-size: 26px; font-weight: 680; background: transparent;")
+        page_title.setStyleSheet(f"color: {TEXT_DARK}; font-size: 26px; font-weight: 600; background: transparent;")
         page_sub = QLabel("Create a collection with multiple sequential talks.")
         page_sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px; background: transparent;")
         outer.addWidget(page_title)
@@ -2899,7 +2907,7 @@ class MainDashboard(QWidget):
     def _field_label(self, text):
         # Sentence-case, medium weight — retires the ALL-CAPS-label wall.
         lbl = QLabel(text[:1].upper() + text[1:].lower() if text.isupper() else text)
-        lbl.setStyleSheet(f"color: {TEXT_DARK}; font-size: 13px; font-weight: 550; background: transparent;")
+        lbl.setStyleSheet(f"color: {TEXT_DARK}; font-size: 13px; font-weight: 500; background: transparent;")
         return lbl
 
     def _input_style(self):

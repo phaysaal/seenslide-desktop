@@ -26,11 +26,34 @@ class SeenSlideApp:
         self.app = QApplication(sys.argv)
         self.app.setApplicationName("SeenSlide")
         self.app.setOrganizationName("SeenSlide")
+        self._load_fonts()
 
         self.main_window: Optional[MainDashboard] = None
         self._update_checker: Optional[UpdateChecker] = None
         self._update_downloader: Optional[UpdateDownloader] = None
         self._pending_update: Optional[dict] = None
+
+    def _load_fonts(self):
+        """Bundle Inter and make it the app-wide UI font.
+
+        Inter is designed for on-screen UI — its weights are evenly graded,
+        so hierarchy comes from Medium/SemiBold rather than the heavy Bold
+        the system font forced. Falls back silently to the system font if
+        the files are missing (e.g. a stripped build).
+        """
+        import os
+        from PyQt5.QtGui import QFontDatabase, QFont
+        base = os.path.join(os.path.dirname(__file__), "resources", "fonts")
+        loaded = False
+        for fn in ("Inter-Regular.ttf", "Inter-Medium.ttf",
+                   "Inter-SemiBold.ttf", "Inter-Bold.ttf"):
+            path = os.path.join(base, fn)
+            if os.path.exists(path) and QFontDatabase.addApplicationFont(path) != -1:
+                loaded = True
+        if loaded:
+            f = QFont("Inter")
+            f.setPixelSize(13)
+            self.app.setFont(f)
 
     def run(self) -> int:
         self.main_window = MainDashboard()
