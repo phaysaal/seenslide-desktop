@@ -113,10 +113,15 @@ class PerceptualDeduplicationStrategy(IDeduplicationStrategy):
             else:
                 logger.info(f"     No cropping (comparing full images)")
 
-            # Compute perceptual hashes
+            # Compute perceptual hashes.
+            # dhash (gradient/difference hash) — numpy-only, no scipy. It's
+            # robust for slide-change detection (structured, high-contrast
+            # content) and drops a ~1GB scipy dependency that phash's DCT
+            # would otherwise force into every packaged build. Hamming
+            # distance and the hash_size^2 max below are identical to phash.
             logger.info(f"     Computing perceptual hashes (hash_size={self._hash_size}x{self._hash_size})...")
-            current_hash = imagehash.phash(current_img, hash_size=self._hash_size)
-            previous_hash = imagehash.phash(previous_img, hash_size=self._hash_size)
+            current_hash = imagehash.dhash(current_img, hash_size=self._hash_size)
+            previous_hash = imagehash.dhash(previous_img, hash_size=self._hash_size)
 
             logger.info(f"     Current hash:  {current_hash}")
             logger.info(f"     Previous hash: {previous_hash}")

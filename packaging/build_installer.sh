@@ -109,6 +109,15 @@ from pathlib import Path
 block_cipher = None
 project_dir = Path(SPECPATH).parent
 
+# numpy ships native C extensions (numpy.core._multiarray_umath /
+# _multiarray_tests) that the default hook can miss; collect its dynamic
+# libs and submodules explicitly. Lean, not collect_all — the latter drags
+# in numpy/scipy test suites and bloated a build to ~3GB. scipy is NOT
+# needed: the perceptual dedup uses dhash (numpy-only), not phash's DCT.
+from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules
+_extra_bins = collect_dynamic_libs('numpy')
+_extra_hidden = collect_submodules('numpy')
+
 # Collect all data files
 datas = [
     (str(project_dir / 'config'), 'config'),
@@ -186,16 +195,21 @@ if importlib.util.find_spec('evdev'):
 a = Analysis(
     [str(project_dir / 'gui' / 'main.py')],
     pathex=[str(project_dir), '/usr/lib/python3/dist-packages'],
-    binaries=binaries_extra,
+    binaries=binaries_extra + _extra_bins,
     datas=datas,
-    hiddenimports=hiddenimports,
+    hiddenimports=hiddenimports + _extra_hidden,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
         'pkg_resources', 'setuptools', 'appdirs',
-        'cv2', 'scipy', 'opencv',       # Only needed for adaptive dedup (not default)
+        'cv2', 'opencv',                # Only needed for adaptive dedup (not default)
         'customtkinter', 'tkinter',     # Legacy admin GUI (not used by PyQt5 app)
+        # The build venv also carries a full ML/CUDA stack (~4GB) that the
+        # desktop app never imports — screen capture + PyQt + numpy dedup +
+        # audio only. Excluding it keeps the package ~250MB instead of 2.7GB.
+        'torch', 'torchvision', 'torchaudio', 'triton', 'tensorflow',
+        'nvidia', 'transformers', 'sympy', 'jax', 'jaxlib',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -214,7 +228,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=False,  # No console window
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -229,7 +243,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name='seenslide',
 )
