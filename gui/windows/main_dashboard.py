@@ -1322,7 +1322,7 @@ class MainDashboard(QWidget):
         self.voice_toggle.setStyleSheet(f"""
             QPushButton {{
                 background: {GRAD_PRIMARY};
-                color: #06110c;
+                color: {PRIMARY_TEXT_ON};
                 border: none;
                 border-radius: 14px;
                 font-size: 12px;
@@ -1331,7 +1331,7 @@ class MainDashboard(QWidget):
             QPushButton:!checked {{
                 background: {BG_CARD2};
                 color: {TEXT_MUTED};
-                border: 1px solid rgba(255,255,255,0.14);
+                border: 1px solid {CARD_BORDER};
             }}
         """)
         self.voice_toggle.clicked.connect(self._on_voice_toggle)
@@ -1356,7 +1356,7 @@ class MainDashboard(QWidget):
         self.btn_start.setStyleSheet(f"""
             QPushButton {{
                 background: {GRAD_PRIMARY};
-                color: #06110c;
+                color: {PRIMARY_TEXT_ON};
                 border: none;
                 border-radius: 10px;
                 font-size: 14px;
@@ -3054,7 +3054,7 @@ class MainDashboard(QWidget):
         self.acc_secondary_btn.setStyleSheet(
             f"QPushButton {{ background: transparent; color: {TEXT_BODY};"
             f" border: 1px solid {BORDER}; border-radius: 6px; padding: 0 16px; font-size: 12px; }}"
-            f"QPushButton:hover {{ background: #f1f5f9; }}"
+            f"QPushButton:hover {{ background: {BG_CARD2}; }}"
         )
         self.acc_secondary_btn.clicked.connect(self._on_account_signout_clicked)
         btn_row.addWidget(self.acc_secondary_btn)
@@ -3255,23 +3255,28 @@ class MainDashboard(QWidget):
         return lbl
 
     def _input_style(self):
+        dark = THEME_MODE == "dark"
+        in_border = "rgba(255,255,255,0.14)" if dark else "rgba(15,23,42,0.16)"
+        focus_bg = "#0c0c14" if dark else "#ffffff"
+        sel_bg = "rgba(16,185,129,0.35)" if dark else "rgba(37,99,235,0.22)"
+        arrow = "rgba(255,255,255,0.45)" if dark else "rgba(15,23,42,0.45)"
         return f"""
             QLineEdit, QTextEdit, QComboBox {{
                 background: {BG_INPUT};
-                border: 1px solid rgba(255,255,255,0.14);
+                border: 1px solid {in_border};
                 border-radius: 10px;
                 padding: 10px 13px;
                 font-size: 13px;
                 color: {TEXT_DARK};
-                selection-background-color: rgba(16,185,129,0.35);
+                selection-background-color: {sel_bg};
             }}
             QLineEdit:focus, QTextEdit:focus, QComboBox:focus {{
                 border: 1px solid {BLUE};
-                background: #0c0c14;
+                background: {focus_bg};
             }}
             QComboBox::drop-down {{ border: none; width: 26px; }}
             QComboBox::down-arrow {{ image: none; border-left: 4px solid transparent;
-                border-right: 4px solid transparent; border-top: 5px solid rgba(255,255,255,0.45); margin-right: 10px; }}
+                border-right: 4px solid transparent; border-top: 5px solid {arrow}; margin-right: 10px; }}
         """
 
     # ── Monitor picker ─────────────────────────────────────────────
