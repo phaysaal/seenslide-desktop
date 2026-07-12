@@ -72,7 +72,7 @@ DARK = {
     "SIDEBAR_ACTIVE_BORDER": "#10b981",
     "SIDEBAR_TEXT": "rgba(255, 255, 255, 0.60)",
     "SIDEBAR_TEXT_DIM": "rgba(255, 255, 255, 0.40)",
-    "BG_MAIN": "#07070a",       # app ground
+    "BG_MAIN": "#101017",       # app ground org: "#07070a"
     "BG_WHITE": "#14141e",      # card surface (name kept for compatibility)
     "BG_CARD2": "#191922",      # elevated / hover
     "BG_INPUT": "#101019",
@@ -227,9 +227,10 @@ class ShadowCard(QFrame):
             }}
         """)
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(34)
-        shadow.setOffset(0, 10)
-        shadow.setColor(QColor(0, 0, 0, 150))
+        # Softer, less-raised shadow (~1/3 reduction in spread + opacity).
+        shadow.setBlurRadius(23)
+        shadow.setOffset(0, 7)
+        shadow.setColor(QColor(0, 0, 0, 100))
         self.setGraphicsEffect(shadow)
 
 
@@ -1037,7 +1038,8 @@ class MainDashboard(QWidget):
                 font-size: 12.5px; font-weight: 600; padding: 0 16px; }}
             QPushButton:hover {{ background: {BG_CARD2}; border-color: {BLUE}; }}
         """)
-        self.as_open_btn.clicked.connect(lambda: self._switch_view(4))
+        self.as_open_btn.clicked.connect(
+            lambda: self._open_session_detail(getattr(self, "_current_session_data", None)))
         as_layout.addWidget(self.as_open_btn)
 
         self.as_resume_btn = QPushButton("Resume presenting")
@@ -2907,12 +2909,20 @@ class MainDashboard(QWidget):
             except Exception as e:
                 logger.error(f"Failed to delete slide locally: {e}")
 
-            # Delete from cloud
+            # Delete from cloud. The cloud assigns its own slide_id on upload,
+            # so the local slide.slide_id won't match — delete by (talk_id,
+            # slide_number) instead, which the server resolves and which also
+            # cascades this slide's voice-sync markers. Fall back to the
+            # by-id path only if the slide has no talk association.
             cloud = self.orchestrator.storage_manager._cloud
             if cloud.enabled:
-                cloud_session_id = cloud.cloud_session_id
-                if cloud_session_id:
-                    deleted_cloud = cloud.delete_slide(cloud_session_id, slide.slide_id)
+                talk_id = slide.talk_id or getattr(cloud, "current_talk_id", None)
+                if talk_id:
+                    deleted_cloud = cloud.delete_slide_by_number(
+                        talk_id, slide.sequence_number)
+                elif cloud.cloud_session_id:
+                    deleted_cloud = cloud.delete_slide(
+                        cloud.cloud_session_id, slide.slide_id)
 
             # Delete local files
             for path in (slide.image_path, slide.thumbnail_path):
@@ -3936,13 +3946,16 @@ class MainDashboard(QWidget):
             return
         current = next((it for it in items if it.get("is_current")), None)
         if current:
+            self._current_session_data = current.get("data")
             self.as_name.setText(current["name"] or "Unnamed Session")
             self.as_id.setText(self._session_meta(current))
             self.active_session_card.setVisible(True)
         self._render_recent_sessions(items)
 
     def _render_recent_sessions(self, items):
-        """Fill the home 'Recent sessions' list with real rows (up to 4)."""
+        """Fill the home 'Recent sessions' list with the two most-recent
+        sessions other than the current one (the current one is the card
+        above). Each row opens that specific session's detail."""
         lay = self.recent_sessions_layout
         while lay.count():
             child = lay.takeAt(0)
@@ -3952,14 +3965,22 @@ class MainDashboard(QWidget):
                 # alone is async, so a rapid re-render would leave ghost rows.
                 w.setParent(None)
                 w.deleteLater()
-        if not items:
-            empty = QLabel("No recent sessions yet. Start presenting to see them here.")
+        others = [it for it in items if not it.get("is_current")][:2]
+        if not others:
+            empty = QLabel("No other sessions yet. Start presenting to see them here.")
             empty.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; background: transparent; padding: 16px;")
             empty.setAlignment(Qt.AlignCenter)
             lay.addWidget(empty)
             return
-        for item in items[:4]:
+        for item in others:
             lay.addWidget(self._make_recent_row(item))
+
+    def _open_session_detail(self, data):
+        """Go to the Sessions view and open this specific session's detail —
+        without changing which session is current."""
+        self._switch_view(4)
+        if data is not None:
+            self._on_session_selected(data)
 
     def _make_recent_row(self, item):
         row = QFrame()
@@ -4015,7 +4036,7 @@ class MainDashboard(QWidget):
         rl.addWidget(chev)
 
         col = item.get("data")
-        row.mousePressEvent = lambda e, c=col: self._switch_view(4)
+        row.mousePressEvent = lambda e, c=col: self._open_session_detail(c)
         return row
 
 

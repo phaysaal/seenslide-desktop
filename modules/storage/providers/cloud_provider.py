@@ -515,6 +515,31 @@ class CloudStorageProvider(IStorageProvider):
             logger.error(f"Failed to delete slide from cloud: {e}")
             return False
 
+    def delete_slide_by_number(self, talk_id: str, slide_number: int) -> bool:
+        """Delete a slide from the cloud by (talk_id, slide_number).
+
+        The cloud assigns its OWN slide_id on upload, so the local
+        slide.slide_id does not match the cloud row — delete-by-id silently
+        fails. talk_id + slide_number is the reliable key the desktop holds.
+        Server-side this also cascades the slide's voice-sync markers, so
+        surviving slides stay in sync.
+        """
+        if not self.enabled:
+            return True
+        if not talk_id:
+            return False
+
+        try:
+            url = f"{self.api_url}/api/cloud/talk/{talk_id}/slide/{slide_number}"
+            headers = {"Authorization": f"Bearer {self.session_token}"}
+            response = requests.delete(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            logger.info(f"Deleted slide #{slide_number} (talk {talk_id}) from cloud")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete slide #{slide_number} from cloud: {e}")
+            return False
+
     def session_exists(self, session_id: str) -> bool:
         """Check if a cloud session exists by doing a GET request.
 
