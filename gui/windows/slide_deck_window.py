@@ -384,6 +384,21 @@ class SlideDeckWindow(QWidget):
         )
         if not path:
             return
+        self.load_file(path)
+
+    def load_file(self, path: str):
+        """Load a presentation file and kick off conversion.
+
+        Public entry point so the dashboard's "browse files" link and the
+        drop zone can hand a file straight to this window without the user
+        picking it a second time.
+        """
+        if not path or not SlideConverter.is_supported(path):
+            QMessageBox.warning(
+                self, "Unsupported File",
+                "Please choose a PDF or PowerPoint file (.pdf, .pptx, .ppt, .odp).",
+            )
+            return
 
         self._file_path = path
         self._file_label.setText(Path(path).name)

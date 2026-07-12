@@ -129,6 +129,50 @@ class ShadowCard(QFrame):
         self.setGraphicsEffect(shadow)
 
 
+class DropZone(QFrame):
+    """Dashed drop target for PDF/PowerPoint files.
+
+    Highlights on drag-over and hands the first supported file it receives
+    to ``on_file``. Child widgets (the label + browse link) don't accept
+    drops, so events fall through to this frame.
+    """
+    _EXTS = (".pdf", ".pptx", ".ppt", ".odp")
+
+    def __init__(self, on_file, parent=None):
+        super().__init__(parent)
+        self._on_file = on_file
+        self.setAcceptDrops(True)
+        self._set_active(False)
+
+    def _set_active(self, active):
+        border = BLUE if active else "rgba(255, 255, 255, 0.16)"
+        bg = "rgba(16, 185, 129, 0.06)" if active else "transparent"
+        self.setStyleSheet(
+            f"QFrame {{ background: {bg}; border: 1.5px dashed {border};"
+            f" border-radius: 12px; }}")
+
+    def _supported(self, mime):
+        return mime.hasUrls() and any(
+            u.toLocalFile().lower().endswith(self._EXTS) for u in mime.urls())
+
+    def dragEnterEvent(self, e):
+        if self._supported(e.mimeData()):
+            e.acceptProposedAction()
+            self._set_active(True)
+
+    def dragLeaveEvent(self, e):
+        self._set_active(False)
+
+    def dropEvent(self, e):
+        self._set_active(False)
+        for u in e.mimeData().urls():
+            p = u.toLocalFile()
+            if p.lower().endswith(self._EXTS):
+                e.acceptProposedAction()
+                self._on_file(p)
+                return
+
+
 class SidebarButton(QPushButton):
     """Nav button with left accent bar when active."""
     def __init__(self, text, icon_char="", parent=None):
@@ -783,10 +827,8 @@ class MainDashboard(QWidget):
         cards_row.addWidget(conf_card)
         layout.addLayout(cards_row)
 
-        # Drop zone
-        upload_card = QFrame()
-        upload_card.setStyleSheet(
-            f"QFrame {{ background: transparent; border: 1.5px dashed #cfd6e0; border-radius: 12px; }}")
+        # Drop zone — drag a PDF/PPTX here, or click "browse files".
+        upload_card = DropZone(self._open_slide_deck)
         upload_layout = QHBoxLayout(upload_card)
         upload_layout.setContentsMargins(20, 18, 20, 18)
         upload_layout.setSpacing(6)
@@ -3430,10 +3472,30 @@ class MainDashboard(QWidget):
     def _on_upload_clicked(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "Open Slide File", "",
-            "Presentation Files (*.pdf *.pptx *.ppt)"
+            "Presentation Files (*.pdf *.pptx *.ppt *.odp)"
         )
         if path:
-            logger.info(f"File selected for upload: {path}")
+            self._open_slide_deck(path)
+
+    def _open_slide_deck(self, path: Optional[str] = None):
+        """Open the Upload-Slides window, optionally pre-loading a file.
+
+        Reached from the "browse files" link (with the picked path) and from
+        dropping a file on the drop zone. Keeps a reference so the window
+        isn't garbage-collected the moment this method returns.
+        """
+        from gui.windows.slide_deck_window import SlideDeckWindow
+        win = getattr(self, "_deck_window", None)
+        if win is None or not win.isVisible():
+            # Fresh window on first open or after the last one was closed, so
+            # each upload starts clean; reuse it if it's already on screen.
+            win = SlideDeckWindow()
+            self._deck_window = win
+        win.show()
+        win.raise_()
+        win.activateWindow()
+        if path:
+            win.load_file(path)
 
     def _on_sensitivity_changed(self, value):
         # Persist so the choice survives launches. The value is read at
