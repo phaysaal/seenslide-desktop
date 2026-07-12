@@ -21,12 +21,13 @@ from PyQt5.QtWidgets import (
     QScrollArea, QFileDialog, QApplication, QMessageBox,
     QGridLayout, QDialog, QProgressBar, QComboBox
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, QRectF
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QThread, QRectF, QSize
 from PyQt5.QtGui import (
-    QFont, QPixmap, QColor, QPainter, QPainterPath, QPen, QFontMetrics
+    QFont, QPixmap, QColor, QPainter, QPainterPath, QPen, QFontMetrics, QIcon
 )
 
 from gui.utils import styles
+from gui.utils.icons import icon_pixmap
 from gui.widgets.countdown_widget import CountdownWidget
 from gui.widgets.new_session_dialog import NewSessionDialog
 from gui.widgets.sign_in_dialog import SignInDialog
@@ -279,14 +280,24 @@ class DropZone(QFrame):
 
 class SidebarButton(QPushButton):
     """Nav button with left accent bar when active."""
-    def __init__(self, text, icon_char="", parent=None):
+    def __init__(self, text, icon_name="", parent=None):
         super().__init__(text, parent)
-        self.icon_char = icon_char
+        self.icon_name = icon_name
         self._active = False
         self.setCheckable(True)
         self.setFixedHeight(44)
         self.setCursor(Qt.PointingHandCursor)
+        if icon_name:
+            self.setIconSize(QSize(18, 18))
         self.apply_style()
+
+    def _refresh_icon(self):
+        if not self.icon_name:
+            return
+        # Sidebar is dark in both themes, so fixed icon colours read well:
+        # bright when active, muted otherwise.
+        color = "#ffffff" if self._active else "#9aa3b2"
+        self.setIcon(QIcon(icon_pixmap(self.icon_name, 18, color)))
 
     @property
     def active(self):
@@ -298,6 +309,7 @@ class SidebarButton(QPushButton):
         self.apply_style()
 
     def apply_style(self):
+        pad = 12 if self.icon_name else 18
         if self._active:
             self.setStyleSheet(f"""
                 QPushButton {{
@@ -306,7 +318,7 @@ class SidebarButton(QPushButton):
                     border: none;
                     border-left: 3px solid {SIDEBAR_ACTIVE_BORDER};
                     border-radius: 10px;
-                    padding-left: 15px;
+                    padding-left: {pad}px;
                     text-align: left;
                     font-size: 13.5px;
                     font-weight: 600;
@@ -318,7 +330,7 @@ class SidebarButton(QPushButton):
                     background: transparent;
                     color: {SIDEBAR_TEXT};
                     border: none;
-                    padding-left: 18px;
+                    padding-left: {pad + 3}px;
                     text-align: left;
                     font-size: 13.5px;
                     font-weight: 500;
@@ -329,6 +341,7 @@ class SidebarButton(QPushButton):
                     color: #dfe6f0;
                 }}
             """)
+        self._refresh_icon()
 
 
 class StatCard(ShadowCard):
@@ -735,16 +748,25 @@ class MainDashboard(QWidget):
         logo_area.addStretch()
         layout.addLayout(logo_area)
 
+        # Section eyebrow
+        workspace_lbl = QLabel("WORKSPACE")
+        workspace_lbl.setStyleSheet(
+            f"color: {SIDEBAR_TEXT_DIM}; font-size: 10px; font-weight: 600;"
+            f" letter-spacing: 1.2px; background: transparent; padding: 0 20px;")
+        layout.addSpacing(6)
+        layout.addWidget(workspace_lbl)
+        layout.addSpacing(6)
+
         # Nav buttons
         nav_container = QVBoxLayout()
         nav_container.setContentsMargins(8, 0, 8, 0)
         nav_container.setSpacing(4)
 
-        self.btn_home = SidebarButton("Home")
+        self.btn_home = SidebarButton("Home", "home")
         self.btn_home.active = True
-        self.btn_sessions = SidebarButton("Conference")
-        self.btn_library = SidebarButton("Sessions")
-        self.btn_account = SidebarButton("Account")
+        self.btn_sessions = SidebarButton("Conference", "conference")
+        self.btn_library = SidebarButton("Sessions", "sessions")
+        self.btn_account = SidebarButton("Account", "people")
 
         self.nav_buttons = [self.btn_home, self.btn_sessions, self.btn_library, self.btn_account]
         nav_indices = [0, 3, 4, 5]  # Map to view_stack indices
@@ -754,6 +776,13 @@ class MainDashboard(QWidget):
             nav_container.addWidget(btn)
 
         layout.addLayout(nav_container)
+
+        # Count badge on the Sessions nav item — reflects cached cloud sessions.
+        self.sessions_badge = QLabel("", self.btn_library)
+        self.sessions_badge.setAlignment(Qt.AlignCenter)
+        self.sessions_badge.hide()
+        self._sync_sessions_badge()
+
         layout.addStretch()
 
         # Live session indicator (hidden until active)
@@ -868,6 +897,25 @@ class MainDashboard(QWidget):
 
         return sidebar
 
+    def _sync_sessions_badge(self):
+        """Show a count pill on the Sessions nav item (right-aligned)."""
+        badge = getattr(self, "sessions_badge", None)
+        if badge is None:
+            return
+        count = len(getattr(self, "_cloud_sessions_cache", []) or [])
+        if count <= 0:
+            badge.hide()
+            return
+        badge.setText(str(count))
+        badge.setStyleSheet(
+            "background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.82);"
+            " border-radius: 9px; font-size: 10px; font-weight: 600;")
+        w = max(20, 12 + 8 * len(badge.text()))
+        badge.setFixedSize(w, 18)
+        badge.move(184 - w - 10, 13)   # sidebar 200 − nav margins ≈ 184 wide
+        badge.show()
+        badge.raise_()
+
     def _sync_theme_button(self):
         """Reflect the current theme on the toggle button; disable it mid-talk."""
         if self._theme_mode == "light":
@@ -924,8 +972,8 @@ class MainDashboard(QWidget):
         except Exception:
             pass
         self._show_last_collection()
-        if getattr(self, "_cloud_sessions_cache", None) and hasattr(self, "_render_recent_sessions"):
-            self._render_recent_sessions(self._cloud_sessions_cache)
+        self._render_home_sessions()
+        self._sync_sessions_badge()
 
     # ── Home View ──────────────────────────────────────────────────
 
@@ -946,24 +994,26 @@ class MainDashboard(QWidget):
         layout.addWidget(title)
         layout.addWidget(subtitle)
 
-        # Active session banner (shown when orchestrator has a session)
+        # Current session card — shown when there's a current collection.
         self.active_session_card = ShadowCard(accent_color=BLUE)
-        self.active_session_card.setFixedHeight(64)
+        self.active_session_card.setFixedHeight(76)
         as_layout = QHBoxLayout(self.active_session_card)
-        as_layout.setContentsMargins(20, 0, 20, 0)
-        as_layout.setSpacing(12)
+        as_layout.setContentsMargins(18, 0, 18, 0)
+        as_layout.setSpacing(14)
 
-        # Live dot
-        as_dot = QLabel()
-        as_dot.setFixedSize(10, 10)
-        as_dot.setStyleSheet(f"background: {GREEN}; border-radius: 5px;")
-        as_layout.addWidget(as_dot)
+        # Monitor icon tile
+        as_icon = QLabel()
+        as_icon.setFixedSize(40, 40)
+        as_icon.setAlignment(Qt.AlignCenter)
+        as_icon.setPixmap(icon_pixmap("monitor", 20, BLUE))
+        as_icon.setStyleSheet(f"background: {BLUE_LIGHT}; border-radius: 11px;")
+        as_layout.addWidget(as_icon)
 
         # Session info
         as_info = QVBoxLayout()
-        as_info.setSpacing(1)
+        as_info.setSpacing(2)
         self.as_name = QLabel("—")
-        self.as_name.setStyleSheet(f"color: {TEXT_DARK}; font-size: 14px; font-weight: 500; background: transparent;")
+        self.as_name.setStyleSheet(f"color: {TEXT_DARK}; font-size: 14.5px; font-weight: 600; background: transparent;")
         self.as_id = QLabel("")
         self.as_id.setStyleSheet(f"color: {TEXT_MUTED}; font-family: {MONO}; font-size: 11.5px; letter-spacing: 0.3px; background: transparent;")
         as_info.addWidget(self.as_name)
@@ -971,11 +1021,36 @@ class MainDashboard(QWidget):
         as_layout.addLayout(as_info, 1)
 
         # State chip
-        self.as_badge = QLabel("Current")
+        self.as_badge = QLabel("● Current")
         self.as_badge.setStyleSheet(
             f"color: {GREEN}; background: {GREEN_LIGHT}; border-radius: 999px;"
-            f" padding: 3px 10px; font-size: 11px; font-weight: 600;")
+            f" padding: 4px 11px; font-size: 11px; font-weight: 600;")
         as_layout.addWidget(self.as_badge)
+
+        # Open (ghost) + Resume presenting (primary)
+        self.as_open_btn = QPushButton("Open")
+        self.as_open_btn.setFixedHeight(34)
+        self.as_open_btn.setCursor(Qt.PointingHandCursor)
+        self.as_open_btn.setStyleSheet(f"""
+            QPushButton {{ background: transparent; color: {TEXT_DARK};
+                border: 1px solid {CARD_BORDER}; border-radius: 9px;
+                font-size: 12.5px; font-weight: 600; padding: 0 16px; }}
+            QPushButton:hover {{ background: {BG_CARD2}; border-color: {BLUE}; }}
+        """)
+        self.as_open_btn.clicked.connect(lambda: self._switch_view(4))
+        as_layout.addWidget(self.as_open_btn)
+
+        self.as_resume_btn = QPushButton("Resume presenting")
+        self.as_resume_btn.setFixedHeight(34)
+        self.as_resume_btn.setCursor(Qt.PointingHandCursor)
+        self.as_resume_btn.setStyleSheet(f"""
+            QPushButton {{ background: {GRAD_PRIMARY}; color: {PRIMARY_TEXT_ON};
+                border: none; border-radius: 9px; font-size: 12.5px;
+                font-weight: 600; padding: 0 16px; }}
+            QPushButton:hover {{ background: {BLUE_DARK}; }}
+        """)
+        self.as_resume_btn.clicked.connect(lambda: self._show_setup())
+        as_layout.addWidget(self.as_resume_btn)
 
         self.active_session_card.setVisible(False)
         layout.addWidget(self.active_session_card)
@@ -984,27 +1059,29 @@ class MainDashboard(QWidget):
         cards_row = QHBoxLayout()
         cards_row.setSpacing(20)
 
-        # Single Talk card
+        # Single Talk card — centered, primary (filled accent).
         single_card = self._build_mode_card(
             title="Single Talk",
             subtitle="One presenter, one session",
-            desc="Perfect for lectures, demos, and standalone presentations.",
-            accent=BLUE,
+            desc="Capture your slides live and share a session code — ideal for lectures and demos.",
+            icon_name="mic",
             btn_text="Start Presenting",
-            btn_color=BLUE,
-            on_click=lambda: self._show_setup()
+            on_click=lambda: self._show_setup(),
+            primary=True,
+            centered=True,
         )
         cards_row.addWidget(single_card)
 
-        # Conference card
+        # Conference card — left-aligned, outline (secondary).
         conf_card = self._build_mode_card(
             title="Conference Mode",
             subtitle="Multiple talks, one event",
-            desc="Manage sequential speakers and talks in a single collection.",
-            accent=GREEN,
+            desc="Schedule sequential speakers in one collection and hand off cleanly.",
+            icon_name="people",
             btn_text="Set Up Conference",
-            btn_color=GREEN,
-            on_click=lambda: self._switch_view(3)
+            on_click=lambda: self._switch_view(3),
+            primary=False,
+            centered=False,
         )
         cards_row.addWidget(conf_card)
         layout.addLayout(cards_row)
@@ -1047,34 +1124,44 @@ class MainDashboard(QWidget):
 
         return view
 
-    def _build_mode_card(self, title, subtitle, desc, accent, btn_text, btn_color, on_click, glyph="›"):
+    def _build_mode_card(self, title, subtitle, desc, icon_name, btn_text,
+                         on_click, primary=True, centered=False):
         card = ShadowCard()
         layout = QVBoxLayout(card)
         layout.setContentsMargins(22, 22, 22, 22)
         layout.setSpacing(4)
 
-        primary = (btn_color == BLUE)
+        align = Qt.AlignHCenter if centered else Qt.AlignLeft
 
-        # Gradient icon tile — green→indigo for the primary mode,
-        # indigo→purple for the other (the brand family from the web).
-        tile = QLabel(glyph)
-        tile.setFixedSize(44, 44)
+        # Gradient icon tile with a crisp line glyph — mic (single talk),
+        # people (conference); brand-family gradients from the web.
+        tile = QLabel()
+        tile.setFixedSize(48, 48)
         tile.setAlignment(Qt.AlignCenter)
-        if primary:
-            tile.setStyleSheet("background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #10b981, stop:1 #6366f1);"
-                               " color: white; border-radius: 13px; font-size: 20px;")
-        else:
-            tile.setStyleSheet("background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #6366f1, stop:1 #8b5cf6);"
-                               " color: white; border-radius: 13px; font-size: 20px;")
-        layout.addWidget(tile)
-        layout.addSpacing(12)
+        tile.setPixmap(icon_pixmap(icon_name, 24, "#ffffff"))
+        grad = GRAD_MIC if primary else GRAD_CONF
+        tile.setStyleSheet(f"background: {grad}; border-radius: 14px;")
+        tile_row = QHBoxLayout()
+        tile_row.setContentsMargins(0, 0, 0, 0)
+        if centered:
+            tile_row.addStretch()
+        tile_row.addWidget(tile)
+        tile_row.addStretch()
+        layout.addLayout(tile_row)
+        layout.addSpacing(14)
 
         t = QLabel(title)
+        t.setAlignment(align)
         t.setStyleSheet(f"color: {TEXT_DARK}; font-size: 16px; font-weight: 600; background: transparent;")
         s = QLabel(subtitle)
+        s.setAlignment(align)
         s.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; background: transparent;")
         d = QLabel(desc)
         d.setWordWrap(True)
+        d.setAlignment(align)
+        # Reserve room for up to 3 wrapped lines — QLabel's heightForWidth is
+        # underestimated inside nested layouts and would otherwise clip.
+        d.setMinimumHeight(54)
         d.setStyleSheet(f"color: {TEXT_BODY}; font-size: 12.5px; background: transparent; margin-top: 10px;")
 
         btn = QPushButton(btn_text)
@@ -1082,16 +1169,16 @@ class MainDashboard(QWidget):
         btn.setCursor(Qt.PointingHandCursor)
         if primary:
             btn.setStyleSheet(f"""
-                QPushButton {{ background: {GRAD_PRIMARY}; color: #06110c; border: none;
+                QPushButton {{ background: {GRAD_PRIMARY}; color: {PRIMARY_TEXT_ON}; border: none;
                     border-radius: 10px; font-size: 13px; font-weight: 600; padding: 0 18px; }}
-                QPushButton:hover {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #12c88d, stop:1 #06a874); }}
+                QPushButton:hover {{ background: {BLUE_DARK}; }}
             """)
         else:
             btn.setStyleSheet(f"""
-                QPushButton {{ background: {BG_CARD2}; color: {TEXT_DARK};
-                    border: 1px solid rgba(255,255,255,0.16); border-radius: 10px; font-size: 13px;
+                QPushButton {{ background: transparent; color: {TEXT_DARK};
+                    border: 1px solid {CARD_BORDER}; border-radius: 10px; font-size: 13px;
                     font-weight: 600; padding: 0 18px; }}
-                QPushButton:hover {{ background: #20202b; border-color: rgba(255,255,255,0.28); }}
+                QPushButton:hover {{ background: {BG_CARD2}; border-color: {BLUE}; }}
             """)
         btn.clicked.connect(on_click)
 
@@ -1102,8 +1189,14 @@ class MainDashboard(QWidget):
 
         btn_row = QHBoxLayout()
         btn_row.setContentsMargins(0, 0, 0, 0)
-        btn_row.addWidget(btn)
-        btn_row.addStretch()
+        if centered:
+            btn.setMinimumWidth(150)
+            btn_row.addStretch()
+            btn_row.addWidget(btn)
+            btn_row.addStretch()
+        else:
+            btn_row.addWidget(btn)
+            btn_row.addStretch()
         layout.addLayout(btn_row)
         layout.addStretch()
 
@@ -2153,6 +2246,8 @@ class MainDashboard(QWidget):
         )
         QTimer.singleShot(2500, lambda: self.session_status_label.setVisible(False))
         self._render_sessions_list(self._collect_known_sessions())
+        self._render_home_sessions()
+        self._sync_sessions_badge()
 
         # On first sync of a fresh machine, pick the most recent session as current
         # so the home banner and orchestrator have something to point at.
@@ -3388,19 +3483,33 @@ class MainDashboard(QWidget):
         """RegionSelector closed without a choice."""
         self._region_selector = None
 
-    def _get_greeting(self):
-        # Personalize from the cached identity record so the greeting is
-        # set synchronously at build time (no network). For a signed-in
-        # user we prefer full_name, then email, then phone. Anonymous
-        # accounts fall back to the generic greeting.
+    def _friendly_name(self):
+        """A short, friendly first name for the greeting (no full email).
+
+        Prefers the first token of full_name; else the email local part or the
+        phone number, capitalised. Returns None for anonymous accounts.
+        """
         try:
             rec = identity().record
             if rec and not rec.is_anonymous:
-                name = rec.full_name or rec.email or rec.phone_number
-                if name:
-                    return f"Welcome back, {name}"
+                if rec.full_name:
+                    first = rec.full_name.strip().split()[0]
+                    return first[:1].upper() + first[1:]
+                if rec.email:
+                    local = rec.email.split("@")[0]
+                    # strip trailing digits/separators for a cleaner handle
+                    local = local.replace(".", " ").replace("_", " ").split()[0]
+                    return local[:1].upper() + local[1:] if local else rec.email
+                if rec.phone_number:
+                    return rec.phone_number
         except Exception as e:
             logger.debug(f"Could not personalize greeting: {e}")
+        return None
+
+    def _get_greeting(self):
+        name = self._friendly_name()
+        if name:
+            return f'Welcome back, <span style="color: {BLUE};">{name}</span>'
         return "Welcome to SeenSlide"
 
     # ── Navigation ─────────────────────────────────────────────────
@@ -3778,10 +3887,131 @@ class MainDashboard(QWidget):
             logger.debug(f"Could not load last collection: {e}")
 
     def _update_session_banner(self, name: str, session_id: str):
-        """Update the current session banner on the home page."""
+        """Show the current-session card immediately with name + code; counts
+        and the recent list fill in via _render_home_sessions when data loads."""
         self.as_name.setText(name or "Unnamed Session")
-        self.as_id.setText(f"Session: {session_id}")
+        self.as_id.setText(session_id or "")
         self.active_session_card.setVisible(True)
+        self._render_home_sessions()
+
+    def _session_meta(self, item):
+        """'MHV-4490 · 6 talks · 82 slides' from a session item."""
+        parts = [item.get("cloud_id") or "—"]
+        t = item.get("talk_count", 0) or 0
+        s = item.get("total_slides", 0) or 0
+        parts.append(f"{t} talk{'' if t == 1 else 's'}")
+        parts.append(f"{s} slide{'' if s == 1 else 's'}")
+        return "   ·   ".join(parts)
+
+    def _relative_date(self, value):
+        """Today / Yesterday / 'Jul 3' from an ISO string or epoch."""
+        ts = self._iso_to_ts(value)
+        if not ts:
+            return ""
+        try:
+            d = datetime.date.fromtimestamp(ts)
+            today = datetime.date.today()
+            if d == today:
+                return "Today"
+            if (today - d).days == 1:
+                return "Yesterday"
+            return d.strftime("%b ") + str(d.day)
+        except Exception:
+            return ""
+
+    def _render_home_sessions(self):
+        """Populate the current-session card (with counts) and the recent list
+        on the home view from the known-sessions data. Safe to call repeatedly."""
+        if not hasattr(self, "as_name") or not hasattr(self, "recent_sessions_layout"):
+            return
+        try:
+            items = self._collect_known_sessions()
+        except Exception as e:
+            logger.debug(f"home sessions render skipped: {e}")
+            return
+        current = next((it for it in items if it.get("is_current")), None)
+        if current:
+            self.as_name.setText(current["name"] or "Unnamed Session")
+            self.as_id.setText(self._session_meta(current))
+            self.active_session_card.setVisible(True)
+        self._render_recent_sessions(items)
+
+    def _render_recent_sessions(self, items):
+        """Fill the home 'Recent sessions' list with real rows (up to 4)."""
+        lay = self.recent_sessions_layout
+        while lay.count():
+            child = lay.takeAt(0)
+            w = child.widget()
+            if w is not None:
+                # setParent(None) removes it from view immediately; deleteLater
+                # alone is async, so a rapid re-render would leave ghost rows.
+                w.setParent(None)
+                w.deleteLater()
+        if not items:
+            empty = QLabel("No recent sessions yet. Start presenting to see them here.")
+            empty.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 12px; background: transparent; padding: 16px;")
+            empty.setAlignment(Qt.AlignCenter)
+            lay.addWidget(empty)
+            return
+        for item in items[:4]:
+            lay.addWidget(self._make_recent_row(item))
+
+    def _make_recent_row(self, item):
+        row = QFrame()
+        row.setFixedHeight(58)
+        row.setCursor(Qt.PointingHandCursor)
+        row.setStyleSheet(f"""
+            QFrame {{ background: {BG_WHITE}; border: 1px solid {CARD_BORDER}; border-radius: 10px; }}
+            QFrame:hover {{ border-color: {BLUE}; }}
+        """)
+        rl = QHBoxLayout(row)
+        rl.setContentsMargins(12, 0, 16, 0)
+        rl.setSpacing(13)
+
+        # Mini slide-strip thumbnail (three bars)
+        thumb = QWidget()
+        thumb.setFixedSize(54, 34)
+        tl = QHBoxLayout(thumb)
+        tl.setContentsMargins(0, 0, 0, 0)
+        tl.setSpacing(3)
+        for _ in range(3):
+            bar = QLabel()
+            bar.setStyleSheet(f"background: {BLUE_LIGHT}; border: 1px solid {CARD_BORDER}; border-radius: 3px;")
+            tl.addWidget(bar)
+        rl.addWidget(thumb)
+
+        # Name + meta
+        info = QVBoxLayout()
+        info.setSpacing(2)
+        name = QLabel(item.get("name") or "Unnamed")
+        name.setStyleSheet(f"color: {TEXT_DARK}; font-size: 13px; font-weight: 600; background: transparent;")
+        meta = QLabel(self._session_meta(item))
+        meta.setStyleSheet(f"color: {TEXT_MUTED}; font-family: {MONO}; font-size: 10.5px; letter-spacing: 0.2px; background: transparent;")
+        info.addWidget(name)
+        info.addWidget(meta)
+        rl.addLayout(info, 1)
+
+        # Status badge
+        synced = item.get("status") == "synced"
+        badge = QLabel(("● Synced") if synced else ("● Local only"))
+        fg = GREEN if synced else AMBER
+        bg = GREEN_LIGHT if synced else AMBER_LIGHT
+        badge.setStyleSheet(
+            f"color: {fg}; background: {bg}; border-radius: 999px;"
+            f" padding: 3px 10px; font-size: 10.5px; font-weight: 600;")
+        rl.addWidget(badge)
+
+        # Date + chevron
+        date = QLabel(self._relative_date(item.get("last_accessed")))
+        date.setStyleSheet(f"color: {TEXT_FAINT}; font-size: 11px; background: transparent;")
+        rl.addWidget(date)
+        chev = QLabel("›")
+        chev.setStyleSheet(f"color: {TEXT_FAINT}; font-size: 16px; background: transparent;")
+        rl.addWidget(chev)
+
+        col = item.get("data")
+        row.mousePressEvent = lambda e, c=col: self._switch_view(4)
+        return row
 
 
 if __name__ == "__main__":
