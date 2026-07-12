@@ -53,52 +53,155 @@ logger = logging.getLogger(__name__)
 
 # ── Design Tokens ──────────────────────────────────────────────────
 
-# Dark theme matched to seenslide.com: near-black ground, emerald primary
-# CTA, indigo/purple secondaries, gradient brand. Semantic colours are
-# reserved strictly for state (never used as the accent).
-SIDEBAR_BG = "#0b0b12"
-SIDEBAR_BG_BOTTOM = "#08080d"
-SIDEBAR_ACTIVE_BG = "rgba(16, 185, 129, 0.13)"
-SIDEBAR_ACTIVE_BORDER = "#10b981"
-SIDEBAR_TEXT = "rgba(255, 255, 255, 0.60)"
-SIDEBAR_TEXT_DIM = "rgba(255, 255, 255, 0.40)"
-
-BG_MAIN = "#07070a"       # app ground
-BG_WHITE = "#14141e"      # card surface (name kept for compatibility)
-BG_CARD2 = "#191922"      # elevated / hover
-BG_INPUT = "#101019"
-
-# Accent (all interaction) — emerald green, with a gradient for primaries.
-BLUE = "#10b981"
-BLUE_DARK = "#059669"
-BLUE_LIGHT = "rgba(16, 185, 129, 0.14)"
-BLUE_PALE = "#34d399"
-GRAD_PRIMARY = "qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #10b981, stop:1 #059669)"
-# Brand-family secondaries (icon tiles, step markers)
-INDIGO = "#6366f1"
-PURPLE = "#8b5cf6"
-GRAD_BRAND = "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #10b981, stop:0.55 #6366f1, stop:1 #8b5cf6)"
-
-# Semantic — state only
-GREEN = "#10b981"          # synced / ok
-GREEN_DARK = "#059669"
-GREEN_LIGHT = "rgba(16, 185, 129, 0.14)"
-RED = "#f0526b"            # live / danger
-RED_DARK = "#e5484d"
-RED_LIGHT = "rgba(240, 82, 107, 0.14)"
-AMBER = "#f59e0b"          # local-only / warning
-AMBER_LIGHT = "rgba(245, 158, 11, 0.14)"
-
-TEXT_DARK = "#ffffff"                    # primary text (name kept for compat)
-TEXT_BODY = "rgba(255, 255, 255, 0.72)"
-TEXT_MUTED = "rgba(255, 255, 255, 0.55)"
-TEXT_FAINT = "rgba(255, 255, 255, 0.40)"
-BORDER = "rgba(255, 255, 255, 0.09)"
-CARD_BORDER = "rgba(255, 255, 255, 0.09)"
+# Two palettes with identical keys — DARK (matches seenslide.com: near-black
+# ground, emerald accent, gradient brand) and LIGHT (dark navy sidebar +
+# bright content, blue accent). The active palette populates the module-level
+# token names below, so every existing f-string style just works; a toggle
+# swaps the values and rebuilds the UI. Semantic colours (green/red/amber)
+# stay reserved for state, never used as the accent.
 
 # Monospace face for technical identifiers — session codes, device IDs,
-# monitor specs, timestamps — treated as first-class data.
+# monitor specs, timestamps — treated as first-class data. Theme-independent.
 MONO = "'JetBrains Mono', 'Cascadia Code', 'DejaVu Sans Mono', Menlo, Consolas, monospace"
+
+DARK = {
+    "SIDEBAR_BG": "#0b0b12",
+    "SIDEBAR_BG_BOTTOM": "#08080d",
+    "SIDEBAR_ACTIVE_BG": "rgba(16, 185, 129, 0.13)",
+    "SIDEBAR_ACTIVE_BORDER": "#10b981",
+    "SIDEBAR_TEXT": "rgba(255, 255, 255, 0.60)",
+    "SIDEBAR_TEXT_DIM": "rgba(255, 255, 255, 0.40)",
+    "BG_MAIN": "#07070a",       # app ground
+    "BG_WHITE": "#14141e",      # card surface (name kept for compatibility)
+    "BG_CARD2": "#191922",      # elevated / hover
+    "BG_INPUT": "#101019",
+    # Accent (all interaction) — emerald, with a gradient for primaries.
+    "BLUE": "#10b981",
+    "BLUE_DARK": "#059669",
+    "BLUE_LIGHT": "rgba(16, 185, 129, 0.14)",
+    "BLUE_PALE": "#34d399",
+    "GRAD_PRIMARY": "qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #10b981, stop:1 #059669)",
+    "PRIMARY_TEXT_ON": "#06110c",   # text/icon colour on a primary-filled button
+    # Brand-family secondaries (icon tiles, step markers)
+    "INDIGO": "#6366f1",
+    "PURPLE": "#8b5cf6",
+    "GRAD_BRAND": "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #10b981, stop:0.55 #6366f1, stop:1 #8b5cf6)",
+    "GRAD_MIC": "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #10b981, stop:1 #6366f1)",
+    "GRAD_CONF": "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6366f1, stop:1 #8b5cf6)",
+    # Semantic — state only
+    "GREEN": "#10b981",          # synced / ok
+    "GREEN_DARK": "#059669",
+    "GREEN_LIGHT": "rgba(16, 185, 129, 0.14)",
+    "RED": "#f0526b",            # live / danger
+    "RED_DARK": "#e5484d",
+    "RED_LIGHT": "rgba(240, 82, 107, 0.14)",
+    "AMBER": "#f59e0b",          # local-only / warning
+    "AMBER_LIGHT": "rgba(245, 158, 11, 0.14)",
+    "TEXT_DARK": "#ffffff",      # primary text (name kept for compat)
+    "TEXT_BODY": "rgba(255, 255, 255, 0.72)",
+    "TEXT_MUTED": "rgba(255, 255, 255, 0.55)",
+    "TEXT_FAINT": "rgba(255, 255, 255, 0.40)",
+    "BORDER": "rgba(255, 255, 255, 0.09)",
+    "CARD_BORDER": "rgba(255, 255, 255, 0.09)",
+    "MONO": MONO,
+}
+
+LIGHT = {
+    # Sidebar stays dark navy in both themes (as in the light mockup).
+    "SIDEBAR_BG": "#0e1524",
+    "SIDEBAR_BG_BOTTOM": "#0b111d",
+    "SIDEBAR_ACTIVE_BG": "rgba(59, 130, 246, 0.16)",
+    "SIDEBAR_ACTIVE_BORDER": "#3b82f6",
+    "SIDEBAR_TEXT": "rgba(255, 255, 255, 0.66)",
+    "SIDEBAR_TEXT_DIM": "rgba(255, 255, 255, 0.42)",
+    "BG_MAIN": "#f6f7fb",       # app ground
+    "BG_WHITE": "#ffffff",      # card surface
+    "BG_CARD2": "#f1f3f8",      # elevated / hover
+    "BG_INPUT": "#ffffff",
+    # Accent (all interaction) — blue, with a gradient for primaries.
+    "BLUE": "#2563eb",
+    "BLUE_DARK": "#1d4ed8",
+    "BLUE_LIGHT": "rgba(37, 99, 235, 0.10)",
+    "BLUE_PALE": "#3b82f6",
+    "GRAD_PRIMARY": "qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #3b82f6, stop:1 #2563eb)",
+    "PRIMARY_TEXT_ON": "#ffffff",
+    "INDIGO": "#6366f1",
+    "PURPLE": "#8b5cf6",
+    "GRAD_BRAND": "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #3b82f6, stop:0.55 #6366f1, stop:1 #8b5cf6)",
+    "GRAD_MIC": "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #3b82f6, stop:1 #6366f1)",
+    "GRAD_CONF": "qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6366f1, stop:1 #8b5cf6)",
+    # Semantic — state only
+    "GREEN": "#16a34a",
+    "GREEN_DARK": "#15803d",
+    "GREEN_LIGHT": "rgba(22, 163, 74, 0.12)",
+    "RED": "#dc2626",
+    "RED_DARK": "#b91c1c",
+    "RED_LIGHT": "rgba(220, 38, 38, 0.10)",
+    "AMBER": "#d97706",
+    "AMBER_LIGHT": "rgba(217, 119, 6, 0.12)",
+    "TEXT_DARK": "#0f172a",
+    "TEXT_BODY": "#334155",
+    "TEXT_MUTED": "#64748b",
+    "TEXT_FAINT": "#94a3b8",
+    "BORDER": "rgba(15, 23, 42, 0.10)",
+    "CARD_BORDER": "rgba(15, 23, 42, 0.08)",
+    "MONO": MONO,
+}
+
+PALETTES = {"dark": DARK, "light": LIGHT}
+
+# Explicit declarations (DARK defaults) so static analysis resolves the token
+# names; apply_palette() overwrites them at runtime when the theme changes.
+SIDEBAR_BG = DARK["SIDEBAR_BG"]
+SIDEBAR_BG_BOTTOM = DARK["SIDEBAR_BG_BOTTOM"]
+SIDEBAR_ACTIVE_BG = DARK["SIDEBAR_ACTIVE_BG"]
+SIDEBAR_ACTIVE_BORDER = DARK["SIDEBAR_ACTIVE_BORDER"]
+SIDEBAR_TEXT = DARK["SIDEBAR_TEXT"]
+SIDEBAR_TEXT_DIM = DARK["SIDEBAR_TEXT_DIM"]
+BG_MAIN = DARK["BG_MAIN"]
+BG_WHITE = DARK["BG_WHITE"]
+BG_CARD2 = DARK["BG_CARD2"]
+BG_INPUT = DARK["BG_INPUT"]
+BLUE = DARK["BLUE"]
+BLUE_DARK = DARK["BLUE_DARK"]
+BLUE_LIGHT = DARK["BLUE_LIGHT"]
+BLUE_PALE = DARK["BLUE_PALE"]
+GRAD_PRIMARY = DARK["GRAD_PRIMARY"]
+PRIMARY_TEXT_ON = DARK["PRIMARY_TEXT_ON"]
+INDIGO = DARK["INDIGO"]
+PURPLE = DARK["PURPLE"]
+GRAD_BRAND = DARK["GRAD_BRAND"]
+GRAD_MIC = DARK["GRAD_MIC"]
+GRAD_CONF = DARK["GRAD_CONF"]
+GREEN = DARK["GREEN"]
+GREEN_DARK = DARK["GREEN_DARK"]
+GREEN_LIGHT = DARK["GREEN_LIGHT"]
+RED = DARK["RED"]
+RED_DARK = DARK["RED_DARK"]
+RED_LIGHT = DARK["RED_LIGHT"]
+AMBER = DARK["AMBER"]
+AMBER_LIGHT = DARK["AMBER_LIGHT"]
+TEXT_DARK = DARK["TEXT_DARK"]
+TEXT_BODY = DARK["TEXT_BODY"]
+TEXT_MUTED = DARK["TEXT_MUTED"]
+TEXT_FAINT = DARK["TEXT_FAINT"]
+BORDER = DARK["BORDER"]
+CARD_BORDER = DARK["CARD_BORDER"]
+THEME_MODE = "dark"
+
+
+def apply_palette(mode):
+    """Populate the module-level colour tokens from the named palette.
+
+    All the ``{TOKEN}`` references in the build methods read these globals at
+    call time, so swapping them and rebuilding the UI re-themes everything.
+    """
+    globals().update(PALETTES.get(mode, DARK))
+    globals()["THEME_MODE"] = mode if mode in PALETTES else "dark"
+
+
+# Default; overridden at construction from the saved setting.
+apply_palette("dark")
 
 
 # ── Reusable Widgets ───────────────────────────────────────────────
@@ -145,8 +248,9 @@ class DropZone(QFrame):
         self._set_active(False)
 
     def _set_active(self, active):
-        border = BLUE if active else "rgba(255, 255, 255, 0.16)"
-        bg = "rgba(16, 185, 129, 0.06)" if active else "transparent"
+        idle = "rgba(255, 255, 255, 0.16)" if THEME_MODE == "dark" else "rgba(15, 23, 42, 0.18)"
+        border = BLUE if active else idle
+        bg = BLUE_LIGHT if active else "transparent"
         self.setStyleSheet(
             f"QFrame {{ background: {bg}; border: 1.5px dashed {border};"
             f" border-radius: 12px; }}")
@@ -510,6 +614,9 @@ class MainDashboard(QWidget):
         self.start_time = 0
         self.is_active = False
         self.slide_count = 0
+        self._theme_mode = app_settings.get("theme", "dark")
+        if self._theme_mode not in ("dark", "light"):
+            self._theme_mode = "dark"
 
         self._build_ui()
         self._show_last_collection()
@@ -695,7 +802,7 @@ class MainDashboard(QWidget):
         status_frame.setStyleSheet(f"""
             QFrame {{ background: {BG_WHITE}; border: 1px solid {BORDER};
                       border-radius: 12px; }}
-            QFrame:hover {{ border-color: rgba(255,255,255,0.16); }}
+            QFrame:hover {{ border-color: {BLUE}; }}
         """)
         status_frame.setToolTip(_email)
         status_layout = QHBoxLayout(status_frame)
@@ -718,7 +825,9 @@ class MainDashboard(QWidget):
         _name_font.setPixelSize(13)
         _name_font.setWeight(QFont.Medium)
         who_name.setFont(_name_font)
-        who_name.setStyleSheet("color: #eef2f7; background: transparent; border: none;")
+        # Chip sits on a BG_WHITE surface (dark card in dark theme, white card
+        # in light) so its text must follow the theme, not the sidebar.
+        who_name.setStyleSheet(f"color: {TEXT_DARK}; background: transparent; border: none;")
         # Elide against the real column budget: sidebar 200 − outer 24 − frame
         # padding 20 − avatar 32 − spacing 10 ≈ 114, kept conservative so a long
         # handle shows a clean ellipsis rather than a hard clip.
@@ -729,7 +838,7 @@ class MainDashboard(QWidget):
         self.status_dot.setFixedSize(7, 7)
         self.status_dot.setStyleSheet(f"background: {GREEN}; border-radius: 4px; border: none;")
         self.status_text = QLabel("Synced")
-        self.status_text.setStyleSheet(f"color: {SIDEBAR_TEXT}; font-size: 11px; background: transparent; border: none;")
+        self.status_text.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; background: transparent; border: none;")
         who_status = QHBoxLayout()
         who_status.setSpacing(6)
         who_status.setContentsMargins(0, 0, 0, 0)
@@ -741,9 +850,82 @@ class MainDashboard(QWidget):
         status_layout.addLayout(who, 1)
 
         status_wrap_l.addWidget(status_frame)
+
+        # Theme toggle — sun/moon; persists and re-themes the app live.
+        theme_row = QWidget()
+        theme_row_l = QHBoxLayout(theme_row)
+        theme_row_l.setContentsMargins(20, 4, 20, 0)
+        theme_row_l.setSpacing(0)
+        self._theme_btn = QPushButton()
+        self._theme_btn.setCursor(Qt.PointingHandCursor)
+        self._theme_btn.clicked.connect(self._toggle_theme)
+        self._sync_theme_button()
+        theme_row_l.addWidget(self._theme_btn)
+        theme_row_l.addStretch()
+        layout.addWidget(theme_row)
+
         layout.addWidget(status_wrap)
 
         return sidebar
+
+    def _sync_theme_button(self):
+        """Reflect the current theme on the toggle button; disable it mid-talk."""
+        if self._theme_mode == "light":
+            self._theme_btn.setText("☀  Light")
+        else:
+            self._theme_btn.setText("☾  Dark")
+        active = getattr(self, "is_active", False)
+        self._theme_btn.setEnabled(not active)
+        self._theme_btn.setToolTip(
+            "Finish presenting to switch theme" if active
+            else ("Switch to dark theme" if self._theme_mode == "light"
+                  else "Switch to light theme"))
+        self._theme_btn.setStyleSheet(f"""
+            QPushButton {{ color: {SIDEBAR_TEXT}; background: transparent; border: none;
+                           text-align: left; font-size: 12.5px; padding: 7px 10px;
+                           border-radius: 8px; }}
+            QPushButton:hover {{ background: {SIDEBAR_ACTIVE_BG}; }}
+            QPushButton:disabled {{ color: {SIDEBAR_TEXT_DIM}; }}
+        """)
+
+    def _toggle_theme(self):
+        if getattr(self, "is_active", False):
+            return
+        self._set_theme("light" if self._theme_mode == "dark" else "dark")
+
+    def _set_theme(self, mode):
+        """Persist the choice, re-apply the app palette, and rebuild the UI so
+        every baked stylesheet picks up the new colours."""
+        if mode == self._theme_mode:
+            return
+        self._theme_mode = mode
+        app_settings.set_value("theme", mode)
+        from PyQt5.QtWidgets import QApplication
+        from gui.main import apply_app_theme
+        apply_app_theme(QApplication.instance(), mode)
+        self._rebuild_ui()
+
+    def _rebuild_ui(self):
+        """Tear down and rebuild the dashboard layout in place with the active
+        palette. Orchestrator/workers live on self, not in the UI tree, so they
+        survive; the toggle is blocked mid-talk so live state isn't disturbed."""
+        idx = self.view_stack.currentIndex() if getattr(self, "view_stack", None) is not None else 0
+        old = self.layout()
+        if old is not None:
+            # Reparent the old layout (and its widgets) to a throwaway widget so
+            # they're deleted and self is free to take a fresh layout.
+            _tmp = QWidget()
+            _tmp.setLayout(old)
+            _tmp.deleteLater()
+        self.setStyleSheet(f"background-color: {BG_MAIN};")
+        self._build_ui()
+        try:
+            self.view_stack.setCurrentIndex(idx)
+        except Exception:
+            pass
+        self._show_last_collection()
+        if getattr(self, "_cloud_sessions_cache", None) and hasattr(self, "_render_recent_sessions"):
+            self._render_recent_sessions(self._cloud_sessions_cache)
 
     # ── Home View ──────────────────────────────────────────────────
 

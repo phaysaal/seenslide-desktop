@@ -9,38 +9,95 @@ from PyQt5.QtGui import QPalette, QColor, QFont
 
 # ── Colour palette ──────────────────────────────────────────────────
 
-# Dark theme matched to seenslide.com.
-BG          = "#07070a"
-CARD_BG     = "#14141e"
-CARD_BORDER = "rgba(255, 255, 255, 0.09)"
+# Two palettes with identical keys — DARK (matches seenslide.com) and LIGHT.
+# The active one populates the module-level tokens below; apply_mode() swaps
+# them so shared dialogs/windows re-theme along with the dashboard.
 
-# One accent for all interaction — emerald green.
-PRIMARY         = "#10b981"
-PRIMARY_HOVER   = "#12c88d"
-PRIMARY_PRESSED = "#059669"
-PRIMARY_TINT    = "rgba(16, 185, 129, 0.14)"
-
-SECONDARY       = "#191922"
-SECONDARY_HOVER = "#20202b"
-
-# Semantic — state only, never used as the accent.
-DANGER          = "#f0526b"
-DANGER_HOVER    = "#e5484d"
-
-SUCCESS         = "#10b981"
-SUCCESS_HOVER   = "#059669"
-
-TEXT        = "rgba(255, 255, 255, 0.95)"
-TEXT_MUTED  = "rgba(255, 255, 255, 0.60)"
-TEXT_FAINT  = "rgba(255, 255, 255, 0.40)"
-
-INPUT_BG           = "#101019"
-INPUT_BORDER       = "rgba(255, 255, 255, 0.14)"
-INPUT_FOCUS_BORDER = PRIMARY
-DISABLED_BG        = "#2b2b36"
-
-# Monospace face for technical identifiers (codes, IDs, specs).
+# Monospace face for technical identifiers (codes, IDs, specs). Theme-free.
 MONO = "'JetBrains Mono', 'Cascadia Code', 'DejaVu Sans Mono', Menlo, Consolas, monospace"
+
+_DARK = {
+    "BG": "#07070a",
+    "CARD_BG": "#14141e",
+    "CARD_BORDER": "rgba(255, 255, 255, 0.09)",
+    "PRIMARY": "#10b981",
+    "PRIMARY_HOVER": "#12c88d",
+    "PRIMARY_PRESSED": "#059669",
+    "PRIMARY_TINT": "rgba(16, 185, 129, 0.14)",
+    "PRIMARY_TEXT_ON": "#06110c",
+    "SECONDARY": "#191922",
+    "SECONDARY_HOVER": "#20202b",
+    "DANGER": "#f0526b",
+    "DANGER_HOVER": "#e5484d",
+    "SUCCESS": "#10b981",
+    "SUCCESS_HOVER": "#059669",
+    "TEXT": "rgba(255, 255, 255, 0.95)",
+    "TEXT_MUTED": "rgba(255, 255, 255, 0.60)",
+    "TEXT_FAINT": "rgba(255, 255, 255, 0.40)",
+    "INPUT_BG": "#101019",
+    "INPUT_BORDER": "rgba(255, 255, 255, 0.14)",
+    "DISABLED_BG": "#2b2b36",
+}
+
+_LIGHT = {
+    "BG": "#f6f7fb",
+    "CARD_BG": "#ffffff",
+    "CARD_BORDER": "rgba(15, 23, 42, 0.08)",
+    "PRIMARY": "#2563eb",
+    "PRIMARY_HOVER": "#3b82f6",
+    "PRIMARY_PRESSED": "#1d4ed8",
+    "PRIMARY_TINT": "rgba(37, 99, 235, 0.10)",
+    "PRIMARY_TEXT_ON": "#ffffff",
+    "SECONDARY": "#eef1f6",
+    "SECONDARY_HOVER": "#e2e7f0",
+    "DANGER": "#dc2626",
+    "DANGER_HOVER": "#b91c1c",
+    "SUCCESS": "#16a34a",
+    "SUCCESS_HOVER": "#15803d",
+    "TEXT": "#0f172a",
+    "TEXT_MUTED": "#64748b",
+    "TEXT_FAINT": "#94a3b8",
+    "INPUT_BG": "#ffffff",
+    "INPUT_BORDER": "rgba(15, 23, 42, 0.14)",
+    "DISABLED_BG": "#e2e8f0",
+}
+
+_PALETTES = {"dark": _DARK, "light": _LIGHT}
+
+# Explicit declarations (DARK defaults) so tooling resolves the names;
+# apply_mode() overwrites them at runtime when the theme changes.
+BG          = _DARK["BG"]
+CARD_BG     = _DARK["CARD_BG"]
+CARD_BORDER = _DARK["CARD_BORDER"]
+PRIMARY         = _DARK["PRIMARY"]
+PRIMARY_HOVER   = _DARK["PRIMARY_HOVER"]
+PRIMARY_PRESSED = _DARK["PRIMARY_PRESSED"]
+PRIMARY_TINT    = _DARK["PRIMARY_TINT"]
+PRIMARY_TEXT_ON = _DARK["PRIMARY_TEXT_ON"]
+SECONDARY       = _DARK["SECONDARY"]
+SECONDARY_HOVER = _DARK["SECONDARY_HOVER"]
+DANGER          = _DARK["DANGER"]
+DANGER_HOVER    = _DARK["DANGER_HOVER"]
+SUCCESS         = _DARK["SUCCESS"]
+SUCCESS_HOVER   = _DARK["SUCCESS_HOVER"]
+TEXT        = _DARK["TEXT"]
+TEXT_MUTED  = _DARK["TEXT_MUTED"]
+TEXT_FAINT  = _DARK["TEXT_FAINT"]
+INPUT_BG           = _DARK["INPUT_BG"]
+INPUT_BORDER       = _DARK["INPUT_BORDER"]
+INPUT_FOCUS_BORDER = _DARK["PRIMARY"]
+DISABLED_BG        = _DARK["DISABLED_BG"]
+THEME_MODE  = "dark"
+
+
+def apply_mode(mode):
+    """Swap the module-level colour tokens to the named palette ('dark'|'light')."""
+    pal = _PALETTES.get(mode, _DARK)
+    g = globals()
+    g.update(pal)
+    g["INPUT_FOCUS_BORDER"] = pal["PRIMARY"]
+    g["THEME_MODE"] = mode if mode in _PALETTES else "dark"
+
 
 CARD_RADIUS  = 14
 BTN_RADIUS   = 10
