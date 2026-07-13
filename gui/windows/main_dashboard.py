@@ -3580,6 +3580,39 @@ class MainDashboard(QWidget):
             self._countdown.deleteLater()
         self._switch_view(1)
 
+    def _arm_slide_gate_then_active(self):
+        """Capture a clean desktop base for the slide gate (minimize the app so
+        it isn't part of the reference), then switch capture to ACTIVE.
+
+        The whole thing is best-effort: if the setting is off, or minimizing /
+        base capture fails, we go straight to ACTIVE and the gate stays inactive
+        (every frame is kept — a real slide is never dropped by mistake)."""
+        if not app_settings.get("slide_gate_enabled", True):
+            self.orchestrator.set_capture_mode(CaptureMode.ACTIVE)
+            return
+        try:
+            self.showMinimized()
+            # Give the compositor a moment so the capture stream shows the
+            # desktop (not the app) before we grab the base.
+            QTimer.singleShot(500, self._grab_base_then_active)
+        except Exception:
+            self.orchestrator.set_capture_mode(CaptureMode.ACTIVE)
+
+    def _grab_base_then_active(self):
+        try:
+            armed = self.orchestrator.capture_base_reference()
+            logger.info("Slide gate " + ("armed from desktop base"
+                        if armed else "abstaining — no taskbar in base; all frames kept"))
+        except Exception as e:
+            logger.debug(f"Slide-gate base grab skipped: {e}")
+        finally:
+            try:
+                self.showNormal()
+                self.raise_()
+            except Exception:
+                pass
+            self.orchestrator.set_capture_mode(CaptureMode.ACTIVE)
+
     def _start_recording_after_countdown(self):
         """Start the actual recording after countdown finishes."""
         if hasattr(self, '_countdown'):
@@ -3634,7 +3667,10 @@ class MainDashboard(QWidget):
             else:
                 logger.warning("Voice recording failed to start")
 
-        self.orchestrator.set_capture_mode(CaptureMode.ACTIVE)
+        # Arm the reference-desktop slide gate (so desktop/windowed frames are
+        # kept out of the deck) from a clean base, then switch capture to
+        # ACTIVE. Deferred + fail-safe: any hiccup just goes straight to ACTIVE.
+        self._arm_slide_gate_then_active()
 
         # Update live view
         self.live_title.setText(title)

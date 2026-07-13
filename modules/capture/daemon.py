@@ -67,6 +67,17 @@ class CaptureDaemon:
             self._input_monitor = None
             logger.info("Input monitor disabled via configuration")
 
+        # Reference-desktop slide gate: rejects desktop / windowed-app frames
+        # that aren't real fullscreen slides. Inactive until a base desktop is
+        # captured (set_base_reference), and it abstains if no taskbar is found,
+        # so it can never silently drop a real slide.
+        if self._config.get("enable_slide_gate", True):
+            from modules.capture.slide_gate import SlideGate
+            self._slide_gate = SlideGate()
+        else:
+            self._slide_gate = None
+        self._gated_count = 0
+
         # Store original interval for mode switching
         self._original_interval = session.capture_interval_seconds
         self._idle_interval = 60.0  # Capture once per minute in idle mode
@@ -375,6 +386,25 @@ class CaptureDaemon:
 
         logger.debug("Capture loop ended")
 
+    def set_base_reference(self) -> bool:
+        """Capture one frame now and use it as the slide gate's desktop base.
+
+        Call this at talk start while the presenter's normal desktop (taskbar
+        visible) is on screen — e.g. after minimizing the app window. Returns
+        True if a taskbar/panel was found and the gate is now armed, else False
+        (the gate abstains and every frame is kept).
+        """
+        if self._slide_gate is None:
+            return False
+        try:
+            cap = self._provider.capture()
+            armed = self._slide_gate.set_base(cap.image)
+            self._gated_count = 0
+            return armed
+        except Exception as e:
+            logger.warning(f"Slide gate: base capture failed ({e}); gate stays inactive")
+            return False
+
     def _perform_capture(self) -> None:
         """Perform a single screen capture."""
         try:
@@ -386,6 +416,19 @@ class CaptureDaemon:
             # Only publish SLIDE_CAPTURED event in ACTIVE mode
             # In IDLE mode, we capture to keep the portal session alive but don't process
             if self._mode == CaptureMode.ACTIVE:
+                # Slide gate: drop frames that still show the desktop taskbar
+                # (a windowed app / editor / file manager), keeping only real
+                # fullscreen slides out of the deck. Inactive gate => keeps all.
+                if self._slide_gate is not None and self._slide_gate.active:
+                    is_desktop, score = self._slide_gate.is_desktop(capture.image)
+                    if is_desktop:
+                        self._gated_count += 1
+                        logger.info(
+                            f"Slide gate: skipped desktop frame #{self._capture_count} "
+                            f"(taskbar match {score:.2f}); gated so far={self._gated_count}"
+                        )
+                        return
+
                 # Publish capture event
                 self._event_bus.publish(Event(
                     type=EventType.SLIDE_CAPTURED,

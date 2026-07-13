@@ -497,6 +497,16 @@ class SeenSlideOrchestrator:
             return self.voice_recorder.get_stats()
         return None
 
+    def capture_base_reference(self) -> bool:
+        """Arm the slide gate using the current screen as the desktop base.
+
+        Intended to be called at talk start while the presenter's normal
+        desktop (taskbar visible) is shown. Returns True if the gate is armed.
+        """
+        if not self.capture_daemon:
+            return False
+        return self.capture_daemon.set_base_reference()
+
     def pause_capture(self) -> bool:
         """Pause capture without stopping the session.
 
