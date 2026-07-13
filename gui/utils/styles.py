@@ -17,7 +17,7 @@ from PyQt5.QtGui import QPalette, QColor, QFont
 MONO = "'JetBrains Mono', 'Cascadia Code', 'DejaVu Sans Mono', Menlo, Consolas, monospace"
 
 _DARK = {
-    "BG": "#07070a",
+    "BG": "#101017",
     "CARD_BG": "#14141e",
     "CARD_BORDER": "rgba(255, 255, 255, 0.09)",
     "PRIMARY": "#10b981",

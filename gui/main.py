@@ -62,7 +62,7 @@ def apply_app_theme(app, mode):
             QComboBox QAbstractItemView { background: #ffffff; color: #0f172a; border: 1px solid rgba(15,23,42,0.10); selection-background-color: rgba(37,99,235,0.18); outline: none; }
         """
     else:
-        pal.setColor(QPalette.Window, QColor("#07070a"))
+        pal.setColor(QPalette.Window, QColor("#101017"))
         pal.setColor(QPalette.Base, QColor("#101019"))
         pal.setColor(QPalette.AlternateBase, QColor("#14141e"))
         pal.setColor(QPalette.Text, QColor(255, 255, 255, 242))
@@ -75,7 +75,7 @@ def apply_app_theme(app, mode):
         pal.setColor(QPalette.HighlightedText, QColor("#06110c"))
         pal.setColor(QPalette.PlaceholderText, QColor(255, 255, 255, 102))
         sheet = """
-            QMainWindow, QDialog, QWidget { background-color: #07070a; color: rgba(255,255,255,0.92); }
+            QMainWindow, QDialog, QWidget { background-color: #101017; color: rgba(255,255,255,0.92); }
             QToolTip { background: #191922; color: #eef2f7; border: 1px solid rgba(255,255,255,0.12); padding: 5px 8px; border-radius: 6px; }
             QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
             QScrollBar::handle:vertical { background: rgba(255,255,255,0.16); border-radius: 5px; min-height: 30px; }
