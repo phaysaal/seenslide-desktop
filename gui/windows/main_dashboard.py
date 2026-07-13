@@ -1480,29 +1480,30 @@ class MainDashboard(QWidget):
         preview_row = QHBoxLayout()
         preview_row.setSpacing(16)
 
-        # Live preview (large)
+        # Live preview (large) — a dark "projector screen" bezel in both themes
+        # (captured slides show centered on it, letterboxed).
         preview_card = ShadowCard()
-        preview_card.setStyleSheet(f"""
-            QFrame#shadowCard {{
-                background: {TEXT_DARK};
+        preview_card.setStyleSheet("""
+            QFrame#shadowCard {
+                background: #0f1118;
                 border: none;
                 border-radius: 10px;
-            }}
+            }
         """)
         preview_layout = QVBoxLayout(preview_card)
         preview_layout.setContentsMargins(12, 10, 12, 12)
         preview_layout.setSpacing(6)
 
         preview_label = QLabel("LIVE PREVIEW")
-        preview_label.setStyleSheet(f"color: {TEXT_FAINT}; font-size: 10px; letter-spacing: 0.5px; background: transparent;")
+        preview_label.setStyleSheet("color: rgba(255,255,255,0.40); font-size: 10px; letter-spacing: 0.5px; background: transparent;")
         preview_layout.addWidget(preview_label)
 
         self.slide_preview = QLabel()
         self.slide_preview.setMinimumHeight(200)
-        self.slide_preview.setStyleSheet("background: white; border-radius: 6px;")
+        self.slide_preview.setStyleSheet("background: #08090e; border-radius: 6px;")
         self.slide_preview.setAlignment(Qt.AlignCenter)
         no_slide = QLabel("Waiting for first slide...", self.slide_preview)
-        no_slide.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px; background: transparent;")
+        no_slide.setStyleSheet("color: rgba(255,255,255,0.45); font-size: 13px; background: transparent;")
         no_slide.setAlignment(Qt.AlignCenter)
         preview_layout.addWidget(self.slide_preview, 1)
 
