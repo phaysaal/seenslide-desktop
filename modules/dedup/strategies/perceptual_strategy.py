@@ -160,6 +160,33 @@ class PerceptualDeduplicationStrategy(IDeduplicationStrategy):
             logger.error(f"❌ Perceptual comparison failed: {e}", exc_info=True)
             raise DeduplicationError(f"Perceptual comparison failed: {e}")
 
+    def fingerprint(self, capture: RawCapture,
+                    crop_region: Optional[Dict[str, int]] = None):
+        """Compute the compact perceptual fingerprint (dhash) for a capture.
+
+        Storing this instead of the full frame lets the dedup engine compare a
+        new slide against the entire history using a few bytes per slide rather
+        than holding every full-resolution image in memory.
+        """
+        img = capture.image
+        if crop_region:
+            x, y = crop_region['x'], crop_region['y']
+            w, h = crop_region['width'], crop_region['height']
+            img = img.crop((x, y, x + w, y + h))
+        return imagehash.dhash(img, hash_size=self._hash_size)
+
+    def compare_fingerprints(self, current_fp, previous_fp) -> bool:
+        """Duplicate check from two precomputed fingerprints — no pixels.
+
+        Identical Hamming-distance / threshold decision as is_duplicate(),
+        just without re-reading the images. Updates the last similarity score.
+        """
+        max_distance = self._hash_size * self._hash_size
+        hamming_distance = current_fp - previous_fp
+        similarity = 1.0 - (hamming_distance / max_distance)
+        self._last_similarity_score = similarity
+        return bool(similarity >= self._threshold)
+
     def get_similarity_score(self) -> float:
         """Get similarity score from last comparison.
 

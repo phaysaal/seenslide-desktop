@@ -45,7 +45,13 @@ class DeduplicationEngine:
         self._crop_region = crop_region
 
         self._previous_capture: Optional[RawCapture] = None
-        self._unique_history: list = []  # All unique captures for full dedup
+        # History used to dedup a new slide against every prior unique slide.
+        # When the strategy supports fingerprints we store only a few bytes per
+        # slide (its perceptual hash) instead of the full frame — otherwise a
+        # long talk accumulates GBs of full-resolution images in memory.
+        self._unique_history: list = []
+        self._fp_mode = (hasattr(self._strategy, "fingerprint")
+                         and hasattr(self._strategy, "compare_fingerprints"))
         self._running = False
 
         # Statistics
@@ -188,13 +194,18 @@ class DeduplicationEngine:
             else:
                 logger.info(f"  Crop region: None (comparing full images)")
 
+            # Compact fingerprint, computed once. The whole-history dedup below
+            # then works on a few bytes per slide instead of full frames in RAM.
+            current_fp = (self._strategy.fingerprint(capture, crop_region=self._crop_region)
+                          if self._fp_mode else None)
+
             # First capture is always unique
             if not self._unique_history:
                 logger.info("  Decision: UNIQUE (first capture)")
                 logger.info("  Reason: This is the first screenshot captured")
                 self._mark_as_unique(capture, event)
                 self._previous_capture = capture
-                self._unique_history.append(capture)
+                self._remember_unique(capture, current_fp)
                 return
 
             # Compare against ALL previous unique captures (not just the last one)
@@ -205,22 +216,27 @@ class DeduplicationEngine:
             best_match_id = None
             is_duplicate = False
 
-            for prev_capture in self._unique_history:
-                dup = self._strategy.is_duplicate(
-                    capture,
-                    prev_capture,
-                    crop_region=self._crop_region
-                )
+            for entry in self._unique_history:
+                if self._fp_mode:
+                    prev_id, prev_fp = entry
+                    dup = self._strategy.compare_fingerprints(current_fp, prev_fp)
+                else:
+                    prev_id = entry.capture_id
+                    dup = self._strategy.is_duplicate(
+                        capture,
+                        entry,
+                        crop_region=self._crop_region
+                    )
                 score = self._strategy.get_similarity_score()
 
                 if score > best_match_score:
                     best_match_score = score
-                    best_match_id = prev_capture.capture_id
+                    best_match_id = prev_id
 
                 if dup:
                     is_duplicate = True
                     best_match_score = score
-                    best_match_id = prev_capture.capture_id
+                    best_match_id = prev_id
                     break  # Found a duplicate, no need to check more
 
             similarity_score = best_match_score
@@ -237,7 +253,7 @@ class DeduplicationEngine:
                 logger.info(f"  Reason: Similarity {similarity_score:.4f} < threshold (different from all {len(self._unique_history)} previous)")
                 self._mark_as_unique(capture, event, similarity_score)
                 self._previous_capture = capture
-                self._unique_history.append(capture)
+                self._remember_unique(capture, current_fp)
 
             logger.info("=" * 80)
 
@@ -254,6 +270,18 @@ class DeduplicationEngine:
                 },
                 source="dedup_engine"
             ))
+
+    def _remember_unique(self, capture: RawCapture, fingerprint) -> None:
+        """Record a unique slide so future captures can dedup against it.
+
+        Stores only the compact fingerprint (a few bytes) when the strategy
+        supports it, so memory stays flat over a long talk; otherwise keeps the
+        full capture (legacy strategies that need the image to compare).
+        """
+        if self._fp_mode:
+            self._unique_history.append((capture.capture_id, fingerprint))
+        else:
+            self._unique_history.append(capture)
 
     def _mark_as_unique(
         self,
