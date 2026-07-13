@@ -507,6 +507,12 @@ class SeenSlideOrchestrator:
             return False
         return self.capture_daemon.set_base_reference()
 
+    def get_gated_count(self) -> int:
+        """Desktop/windowed frames the slide gate has filtered this talk."""
+        if not self.capture_daemon:
+            return 0
+        return getattr(self.capture_daemon, "_gated_count", 0)
+
     def pause_capture(self) -> bool:
         """Pause capture without stopping the session.
 

@@ -1465,10 +1465,13 @@ class MainDashboard(QWidget):
         stats_row.setSpacing(12)
         self.stat_elapsed = StatCard("ELAPSED", "00:00")
         self.stat_slides = StatCard("SLIDES", "0")
+        self.stat_filtered = StatCard("FILTERED", "0")
+        self.stat_filtered.setToolTip("Desktop / windowed-app frames kept out of the deck by the slide gate")
         self.stat_viewers = StatCard("VIEWERS", "0")
         self.stat_queries = StatCard("AI QUERIES", "0")
         stats_row.addWidget(self.stat_elapsed)
         stats_row.addWidget(self.stat_slides)
+        stats_row.addWidget(self.stat_filtered)
         stats_row.addWidget(self.stat_viewers)
         stats_row.addWidget(self.stat_queries)
         body.addLayout(stats_row)
@@ -3777,6 +3780,7 @@ class MainDashboard(QWidget):
         stats = self.orchestrator.get_statistics()
         slides = stats.get('storage', {}).get('slides_stored', 0)
         self.stat_slides.val.setText(str(slides))
+        self.stat_filtered.val.setText(str(self.orchestrator.get_gated_count()))
 
     def _on_slide_stored(self, event):
         # Record for nudge logic regardless of UI state.
