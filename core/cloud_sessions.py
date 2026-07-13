@@ -109,6 +109,7 @@ class CloudSessionsClient:
         url = f"{self.api_url}/api/cloud/session/create"
         body: Dict[str, Any] = {
             "presenter_name": title,
+            "name": title,  # explicit collection name (server also falls back to presenter_name)
             "max_slides": max_slides,
         }
         if presenter_email:
