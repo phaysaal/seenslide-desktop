@@ -134,6 +134,27 @@ class DeduplicationEngine:
         """
         return self._running
 
+    def reset(self) -> None:
+        """Clear dedup state so a new talk is compared only against its own
+        slides.
+
+        Called when a new talk begins. Without this the engine keeps every
+        prior talk's fingerprints for the whole app run, so (a) a genuine slide
+        in a later talk can be rejected as a duplicate of an earlier talk's
+        slide, and (b) the per-talk sequence number (used for cloud upload and
+        voice markers) would keep counting instead of restarting at 1.
+
+        Reassigns rather than mutates the history list so a capture handler
+        that may be mid-iteration on the capture thread finishes safely against
+        the old list instead of seeing it cleared underneath it.
+        """
+        self._unique_history = []
+        self._previous_capture = None
+        self._total_captures = 0
+        self._unique_slides = 0
+        self._duplicate_slides = 0
+        logger.info("Dedup state reset — new talk; comparing within this talk only")
+
     def get_statistics(self) -> Dict[str, Any]:
         """Get deduplication statistics.
 

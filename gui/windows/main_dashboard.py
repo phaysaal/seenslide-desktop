@@ -1465,8 +1465,8 @@ class MainDashboard(QWidget):
         stats_row.setSpacing(12)
         self.stat_elapsed = StatCard("ELAPSED", "00:00")
         self.stat_slides = StatCard("SLIDES", "0")
-        self.stat_filtered = StatCard("FILTERED", "0")
-        self.stat_filtered.setToolTip("Desktop / windowed-app frames kept out of the deck by the slide gate")
+        self.stat_filtered = StatCard("HIDDEN", "0")
+        self.stat_filtered.setToolTip("Frames the slide gate flagged as probable desktop / windowed-app — kept and shown blurred in the session view, not pushed to the cloud deck")
         self.stat_viewers = StatCard("VIEWERS", "0")
         self.stat_queries = StatCard("AI QUERIES", "0")
         stats_row.addWidget(self.stat_elapsed)
@@ -2831,13 +2831,22 @@ class MainDashboard(QWidget):
             self.sd_slides_grid.addWidget(card, i // cols, i % cols)
 
     def _make_slide_card(self, slide, index):
-        """Create a slide thumbnail card with delete button."""
+        """Create a slide thumbnail card with delete button.
+
+        Slides the capture gate flagged as "probably not a slide" (desktop /
+        windowed-app frames) are kept locally but marked hidden — they render
+        blurred with an amber badge so the presenter can see exactly what the
+        gate is filtering out of the cloud deck.
+        """
+        is_hidden = bool(getattr(slide, "metadata", None) and slide.metadata.get("hidden"))
+        AMBER = "#f59e0b"
+
         card = QFrame()
-        card.setFixedSize(160, 140)
+        card.setFixedSize(160, 158 if is_hidden else 140)
         card.setStyleSheet(f"""
             QFrame {{
                 background: {BG_WHITE};
-                border: 1px solid {BORDER};
+                border: {'2px solid ' + AMBER if is_hidden else '1px solid ' + BORDER};
                 border-radius: 8px;
             }}
         """)
@@ -2861,7 +2870,28 @@ class MainDashboard(QWidget):
             thumb.setText(f"Slide {slide.sequence_number}")
             thumb.setStyleSheet(f"background: #f1f5f9; border-radius: 4px; border: none; color: {TEXT_MUTED}; font-size: 11px;")
 
+        # Blur hidden slides so it's obvious at a glance they're set aside,
+        # while still recognisable enough to judge whether the gate was right.
+        if is_hidden:
+            from PyQt5.QtWidgets import QGraphicsBlurEffect
+            blur = QGraphicsBlurEffect()
+            blur.setBlurRadius(7)
+            thumb.setGraphicsEffect(blur)
+
         layout.addWidget(thumb)
+
+        # Amber "hidden" badge with the gate's match score, so the presenter
+        # can gauge how confident the gate was when it set the slide aside.
+        if is_hidden:
+            score = slide.metadata.get("gate_score")
+            score_txt = f" · {score:.2f}" if isinstance(score, (int, float)) else ""
+            badge = QLabel(f"⚠ not a slide?{score_txt}")
+            badge.setAlignment(Qt.AlignCenter)
+            badge.setStyleSheet(
+                f"color: #7c4a03; background: {AMBER}; border: none; "
+                f"border-radius: 4px; font-size: 9px; font-weight: 700; padding: 1px 4px;"
+            )
+            layout.addWidget(badge)
 
         # Bottom row: number + delete
         bottom = QHBoxLayout()
@@ -3381,7 +3411,12 @@ class MainDashboard(QWidget):
             ok, _ = validate_region(saved, monitor_width, monitor_height)
             if ok:
                 return saved
-        return calculate_default_region(monitor_width, monitor_height, 0.5)
+        # Default to the middle 80% (per dimension). The old 50% box was too
+        # small — slides whose only change was near the edges (footer page
+        # number, a revealed line low on the slide, a corner figure) fell
+        # outside it and got wrongly deduplicated. 80% keeps the outer chrome
+        # / letterbox bars out while covering essentially all slide content.
+        return calculate_default_region(monitor_width, monitor_height, 0.8)
 
     def _region_summary(self, region: dict) -> str:
         if not region:
@@ -3420,7 +3455,7 @@ class MainDashboard(QWidget):
         if isinstance(saved, dict):
             current_text = self._region_summary(saved)
         else:
-            current_text = "Default — middle 50% of screen"
+            current_text = "Default — middle 80% of screen"
 
         self.region_status = QLabel(current_text)
         self.region_status.setStyleSheet(
@@ -3591,7 +3626,12 @@ class MainDashboard(QWidget):
         The whole thing is best-effort: if the setting is off, or minimizing /
         base capture fails, we go straight to ACTIVE and the gate stays inactive
         (every frame is kept — a real slide is never dropped by mistake)."""
-        if not app_settings.get("slide_gate_enabled", True):
+        # Slide gate defaults OFF: its auto-base-capture (minimize → grab) is
+        # unreliable when the slides are already fullscreen — minimizing reveals
+        # the slideshow, not the desktop, so the gate learns slide content as
+        # its "taskbar" and then hides real slides. Kept opt-in until the base
+        # capture is made robust.
+        if not app_settings.get("slide_gate_enabled", False):
             self.orchestrator.set_capture_mode(CaptureMode.ACTIVE)
             return
         try:

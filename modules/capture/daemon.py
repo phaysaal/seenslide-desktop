@@ -77,6 +77,7 @@ class CaptureDaemon:
         else:
             self._slide_gate = None
         self._gated_count = 0
+        self._blank_count = 0
 
         # Store original interval for mode switching
         self._original_interval = session.capture_interval_seconds
@@ -405,6 +406,23 @@ class CaptureDaemon:
             logger.warning(f"Slide gate: base capture failed ({e}); gate stays inactive")
             return False
 
+    def _is_blank_frame(self, image, thresh: float = 6.0) -> bool:
+        """True if the frame is featureless (a solid colour, e.g. a black-out).
+
+        Downscales to a small thumbnail and measures grayscale spread: a pure
+        black / white / solid screen has ~0 std-dev, while any real slide (text,
+        figures, even a letterboxed one) has plenty. Cheap (~1ms) and runs on a
+        thumbnail so it never becomes a capture-rate bottleneck. Fail-safe:
+        returns False on any error so a real slide is never dropped by mistake.
+        """
+        try:
+            from PIL import ImageStat
+            small = image.convert("L").resize((96, 96))
+            return ImageStat.Stat(small).stddev[0] < thresh
+        except Exception as e:
+            logger.debug(f"blank-frame check failed ({e}) — keeping frame")
+            return False
+
     def _perform_capture(self) -> None:
         """Perform a single screen capture."""
         try:
@@ -416,18 +434,38 @@ class CaptureDaemon:
             # Only publish SLIDE_CAPTURED event in ACTIVE mode
             # In IDLE mode, we capture to keep the portal session alive but don't process
             if self._mode == CaptureMode.ACTIVE:
-                # Slide gate: drop frames that still show the desktop taskbar
-                # (a windowed app / editor / file manager), keeping only real
-                # fullscreen slides out of the deck. Inactive gate => keeps all.
+                # Blank-frame guard: drop featureless frames (a pure-black
+                # blackout key, an exited/ended slideshow, or a Wayland surface
+                # briefly unmapped during a window switch all produce a solid
+                # black screen). These carry no slide content, so uploading one
+                # as a slide just pollutes the deck. Reference-free and always
+                # on; fail-safe (never drops a frame on error).
+                if self._is_blank_frame(capture.image):
+                    self._blank_count += 1
+                    logger.info(
+                        f"Skipped blank/featureless frame #{self._capture_count} "
+                        f"(e.g. black-out / transition); blank so far={self._blank_count}"
+                    )
+                    return
+                # Slide gate: flag frames that still show the desktop taskbar
+                # (a windowed app / editor / file manager) as "probably not a
+                # slide" instead of dropping them. They still flow through the
+                # pipeline and are stored locally so the presenter can review
+                # them (blurred) in the session window and see exactly what the
+                # gate is doing — but they're kept out of the cloud deck viewers
+                # see (StorageManager skips the cloud upload for hidden slides).
+                # Inactive gate => nothing flagged.
                 if self._slide_gate is not None and self._slide_gate.active:
                     is_desktop, score = self._slide_gate.is_desktop(capture.image)
                     if is_desktop:
                         self._gated_count += 1
+                        capture.metadata["hidden"] = True
+                        capture.metadata["gate_score"] = round(float(score), 3)
                         logger.info(
-                            f"Slide gate: skipped desktop frame #{self._capture_count} "
-                            f"(taskbar match {score:.2f}); gated so far={self._gated_count}"
+                            f"Slide gate: flagged frame #{self._capture_count} as probable "
+                            f"desktop (taskbar match {score:.2f}) — kept hidden, not dropped; "
+                            f"hidden so far={self._gated_count}"
                         )
-                        return
 
                 # Publish capture event
                 self._event_bus.publish(Event(

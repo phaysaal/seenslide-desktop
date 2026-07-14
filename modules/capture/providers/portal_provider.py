@@ -99,6 +99,11 @@ class PortalCaptureProvider(ICaptureProvider):
         self._latest_frame = None
         self._frame_lock = threading.Lock()
         self._frame_callback = None
+        # Diagnostic: count frames actually delivered by the PipeWire/GStreamer
+        # stream. If this barely advances between capture() calls, the portal's
+        # GLib delivery thread is starved (frozen frames), not a dedup issue.
+        self._frame_count = 0
+        self._last_capture_frame_count = 0
 
         # Async response handling
         self._response_received = threading.Event()
@@ -529,6 +534,7 @@ class PortalCaptureProvider(ICaptureProvider):
                 # Store latest frame
                 with self._frame_lock:
                     self._latest_frame = image
+                    self._frame_count += 1
 
                 # Call frame callback if provided
                 if self._frame_callback:
@@ -569,6 +575,20 @@ class PortalCaptureProvider(ICaptureProvider):
                 raise CaptureError("No frames available yet (stream starting up)")
 
             image = self._latest_frame.copy()
+            # Diagnostic: how many fresh frames the stream delivered since the
+            # previous capture. ~0 here while the screen is changing means the
+            # portal delivery thread is starved → the same stale frame is being
+            # served (root cause of exact-1.0000 dedup duplicates).
+            delivered = self._frame_count - self._last_capture_frame_count
+            self._last_capture_frame_count = self._frame_count
+
+        # Debug-level: a healthy stream delivers dozens of fresh frames between
+        # captures. If this ever reads ~0 while the screen is changing, the
+        # delivery thread is starved (frozen frames) — flip to info to watch.
+        logger.debug(
+            f"portal: {delivered} fresh frame(s) delivered since last capture "
+            f"(total {self._frame_count})"
+        )
 
         # Create RawCapture object
         timestamp = time.time()

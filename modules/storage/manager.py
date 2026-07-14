@@ -317,18 +317,32 @@ class StorageManager:
             # Save to database
             self._database.save_slide(slide)
 
-            # Upload to cloud if enabled
-            try:
-                import io
-                # JPEG for cloud upload to save bandwidth. Quality 75 balances
-                # bandwidth vs visible artifacts on screen-content captures —
-                # text stays readable, slide backgrounds stay clean.
-                img_byte_arr = io.BytesIO()
-                capture.image.convert('RGB').save(img_byte_arr, format='JPEG', quality=75, optimize=True)
-                img_byte_arr.seek(0)
-                self._cloud.save_slide(slide, img_byte_arr.getvalue())
-            except Exception as e:
-                logger.warning(f"Failed to upload slide to cloud: {e}")
+            # Upload to cloud if enabled — UNLESS the slide gate flagged this
+            # frame as "probably not a slide" (desktop / windowed app). Hidden
+            # slides are kept locally for the presenter to review (blurred) in
+            # the session window, but are deliberately not pushed to the cloud
+            # deck so viewers never see desktop junk. The cloud slide number
+            # equals sequence_number, so skipping simply leaves a gap there,
+            # which the viewer's navigation already tolerates.
+            is_hidden = bool(capture.metadata.get("hidden"))
+            if is_hidden:
+                logger.info(
+                    f"Slide #{sequence_number} flagged hidden (gate score "
+                    f"{capture.metadata.get('gate_score')}) — stored locally, "
+                    f"not uploaded to cloud"
+                )
+            else:
+                try:
+                    import io
+                    # JPEG for cloud upload to save bandwidth. Quality 75 balances
+                    # bandwidth vs visible artifacts on screen-content captures —
+                    # text stays readable, slide backgrounds stay clean.
+                    img_byte_arr = io.BytesIO()
+                    capture.image.convert('RGB').save(img_byte_arr, format='JPEG', quality=75, optimize=True)
+                    img_byte_arr.seek(0)
+                    self._cloud.save_slide(slide, img_byte_arr.getvalue())
+                except Exception as e:
+                    logger.warning(f"Failed to upload slide to cloud: {e}")
 
             self._slides_stored += 1
 

@@ -115,7 +115,9 @@ class SeenSlideOrchestrator:
 
             # Initialize capture daemon
             registry = PluginRegistry()
-            provider_name = capture_config.get("provider", "mss")
+            provider_name = self._resolve_capture_provider(
+                capture_config.get("provider", "auto")
+            )
             provider_class = registry.get_capture_provider(provider_name)
 
             if not provider_class:
@@ -342,6 +344,14 @@ class SeenSlideOrchestrator:
         on screen when voice recording began was visible from the start,
         even though it took until the first capture+dedup cycle to confirm.
         """
+        # Skip slides the gate flagged as "probably not a slide" — they're
+        # kept locally for review but never uploaded to the cloud, so a voice
+        # marker pointing at that slide number would reference a slide the
+        # viewer doesn't have. The surviving real slides stay correctly synced.
+        capture = event.data.get("capture")
+        if capture is not None and capture.metadata.get("hidden"):
+            return
+
         sequence_number = event.data.get("sequence_number", 0)
         if self.voice_recorder and sequence_number > 0:
             is_first = len(self.voice_recorder.markers) == 0
@@ -629,6 +639,12 @@ class SeenSlideOrchestrator:
             # Update session in dedup engine
             if self.dedup_engine:
                 self.dedup_engine._session = new_session
+                # A new talk = a fresh dedup scope. Clear the history so this
+                # talk's slides are only compared against each other (and so
+                # its slide numbering restarts at 1). Only when actually
+                # starting a talk — a plain session re-point keeps its history.
+                if create_talk:
+                    self.dedup_engine.reset()
                 logger.info(f"Updated dedup engine session from {old_session_id} to {new_session.session_id}")
 
             logger.info(f"Session updated successfully: {new_session.name} ({new_session.session_id})")
@@ -681,6 +697,38 @@ class SeenSlideOrchestrator:
             stats["voice"] = self.voice_recorder.get_stats()
 
         return stats
+
+    def _resolve_capture_provider(self, configured: str) -> str:
+        """Pick the capture backend that matches the running display server.
+
+        The portal backend (xdg-desktop-portal + PipeWire) is the correct
+        choice on Wayland, but on X11 it adds an indirection that brings a
+        permission prompt, restore-token reuse, and occasional stale / black
+        frames. X11 has a direct, reliable grabber (mss), so we prefer it there.
+
+        - "auto" (the default): mss on X11, portal on Wayland.
+        - explicit "portal" on an X11 session: downgraded to mss with a warning
+          — portal-on-X11 is exactly the source of the capture flakiness.
+        - any other explicit value ("mss", "portal" on Wayland): honored as-is.
+        """
+        import os
+        session = os.environ.get("XDG_SESSION_TYPE", "").lower()
+        is_wayland = session == "wayland"
+        if configured in (None, "", "auto"):
+            chosen = "portal" if is_wayland else "mss"
+            logger.info(
+                f"Capture provider auto-selected: '{chosen}' "
+                f"(XDG_SESSION_TYPE={session or 'unknown'})"
+            )
+            return chosen
+        if configured == "portal" and session and not is_wayland:
+            logger.warning(
+                f"Config requests 'portal' but this is an {session} session — "
+                f"using 'mss' (native X11 capture) for reliable frames"
+            )
+            return "mss"
+        logger.info(f"Capture provider (from config): '{configured}'")
+        return configured
 
     def _create_dedup_strategy(self, config: dict, capture_provider=None):
         """Create deduplication strategy based on configuration.

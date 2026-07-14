@@ -3,8 +3,10 @@
 
 # Screen capture settings
 capture:
-  # Provider to use: "portal" for Wayland, "mss" for X11
-  provider: "portal"
+  # Provider to use: "auto" (recommended), "portal" for Wayland, "mss" for X11
+  # "auto" picks mss on an X11/Xorg session and portal on Wayland — portal on
+  # X11 goes through PipeWire and causes a permission prompt + stale/black frames.
+  provider: "auto"
 
   # Capture interval in seconds (how often to capture screenshots)
   interval_seconds: 2.0
