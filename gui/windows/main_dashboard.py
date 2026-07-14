@@ -2014,9 +2014,24 @@ class MainDashboard(QWidget):
         self.sd_talks_label.setStyleSheet(f"color: {TEXT_DARK}; font-size: 14px; background: transparent;")
         detail_layout.addWidget(self.sd_talks_label)
 
-        self.sd_talks_layout = QVBoxLayout()
+        # Fixed-height, vertically scrollable panel — a conference session can
+        # hold dozens of talks; without a cap the list pushed the slides grid
+        # off the bottom of the screen.
+        self.sd_talks_scroll = QScrollArea()
+        self.sd_talks_scroll.setWidgetResizable(True)
+        self.sd_talks_scroll.setFixedHeight(240)
+        self.sd_talks_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.sd_talks_scroll.setStyleSheet(
+            f"QScrollArea {{ border: 1px solid {BORDER}; border-radius: 8px;"
+            f" background: {BG_MAIN}; }}"
+        )
+        self.sd_talks_container = QWidget()
+        self.sd_talks_container.setStyleSheet("background: transparent;")
+        self.sd_talks_layout = QVBoxLayout(self.sd_talks_container)
+        self.sd_talks_layout.setContentsMargins(8, 8, 8, 8)
         self.sd_talks_layout.setSpacing(6)
-        detail_layout.addLayout(self.sd_talks_layout)
+        self.sd_talks_scroll.setWidget(self.sd_talks_container)
+        detail_layout.addWidget(self.sd_talks_scroll)
 
         # Slides section
         slides_header = QHBoxLayout()
@@ -2029,6 +2044,7 @@ class MainDashboard(QWidget):
         # Slide grid in scroll area
         self.sd_slides_scroll = QScrollArea()
         self.sd_slides_scroll.setWidgetResizable(True)
+        self.sd_slides_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.sd_slides_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
         self.sd_slides_grid_widget = QWidget()
         self.sd_slides_grid_widget.setStyleSheet("background: transparent;")
@@ -2749,6 +2765,9 @@ class MainDashboard(QWidget):
             )
             self.sd_talks_layout.addWidget(row)
 
+        # Keep rows top-aligned within the fixed-height panel.
+        self.sd_talks_layout.addStretch()
+
         # Default: show all slides
         self._load_slides_for_session_all(session_id)
 
@@ -2824,11 +2843,20 @@ class MainDashboard(QWidget):
         self._populate_slide_grid(slides)
 
     def _populate_slide_grid(self, slides):
-        """Fill the slide grid with thumbnail cards."""
-        cols = 4
+        """Fill the slide grid with thumbnail cards.
+
+        Column count adapts to the panel width so cards never overflow into a
+        horizontal scrollbar (each card is 160px + 12px spacing).
+        """
+        vw = 0
+        if hasattr(self, "sd_slides_scroll"):
+            vw = self.sd_slides_scroll.viewport().width()
+        cols = max(2, (vw or 640) // 172)
         for i, slide in enumerate(slides):
             card = self._make_slide_card(slide, i)
-            self.sd_slides_grid.addWidget(card, i // cols, i % cols)
+            self.sd_slides_grid.addWidget(
+                card, i // cols, i % cols, Qt.AlignTop | Qt.AlignLeft
+            )
 
     def _make_slide_card(self, slide, index):
         """Create a slide thumbnail card with delete button.
