@@ -1856,8 +1856,25 @@ class MainDashboard(QWidget):
                 padding: 7px 13px; font-size: 12px; font-weight: 600;            }}
             QPushButton:hover {{ background: #d7e6fb; }}
         """)
-        self.btn_add_talk.clicked.connect(self._add_conference_talk)
+        # clicked(bool) would land in the optional `title` param — wrap it.
+        self.btn_add_talk.clicked.connect(lambda: self._add_conference_talk())
         talks_header.addWidget(self.btn_add_talk)
+
+        self.btn_import_talks = QPushButton("Import CSV…")
+        self.btn_import_talks.setCursor(Qt.PointingHandCursor)
+        self.btn_import_talks.setToolTip(
+            "Import the schedule from a CSV/text file: one talk per line,\n"
+            "title first, presenter second (comma, semicolon or tab separated)."
+        )
+        self.btn_import_talks.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {BLUE};
+                border: 1px solid {BLUE}; border-radius: 8px;
+                padding: 6px 13px; font-size: 12px; font-weight: 600;            }}
+            QPushButton:hover {{ background: {BLUE_LIGHT}; }}
+        """)
+        self.btn_import_talks.clicked.connect(self._import_conference_csv)
+        talks_header.addWidget(self.btn_import_talks)
         talks_layout.addLayout(talks_header)
 
         # Talk list scroll area
@@ -1892,8 +1909,9 @@ class MainDashboard(QWidget):
         outer.addLayout(content_row, 1)
         return view
 
-    def _add_conference_talk(self):
-        """Add a new talk entry to the conference schedule."""
+    def _add_conference_talk(self, title: str = "", speaker: str = ""):
+        """Add a new talk entry to the conference schedule, optionally
+        prefilled (CSV import)."""
         # Hide empty label
         self.conf_empty_label.setVisible(False)
 
@@ -1928,6 +1946,7 @@ class MainDashboard(QWidget):
         fields.setSpacing(4)
 
         title_input = QLineEdit()
+        title_input.setText(title)
         title_input.setPlaceholderText(f"Talk {talk_num} title")
         title_input.setStyleSheet(f"""
             QLineEdit {{
@@ -1939,6 +1958,7 @@ class MainDashboard(QWidget):
         fields.addWidget(title_input)
 
         speaker_input = QLineEdit()
+        speaker_input.setText(speaker)
         speaker_input.setPlaceholderText("Speaker name")
         speaker_input.setStyleSheet(f"""
             QLineEdit {{
@@ -2013,6 +2033,115 @@ class MainDashboard(QWidget):
             if item and item.widget() and isinstance(item.widget(), QFrame) and item.widget() != self.conf_empty_label:
                 count += 1
         self.conf_talk_count.setText(f"{count} talk{'s' if count != 1 else ''} scheduled")
+
+    @staticmethod
+    def _parse_talk_csv(path: str):
+        """Parse a schedule file into [(title, presenter), ...].
+
+        Tolerant by design — conference organizers hand over whatever their
+        spreadsheet exported:
+          * comma / semicolon / tab separated (auto-detected), or plain lines
+            with just a title;
+          * optional header row ("title", "presenter"/"speaker"/"name" in any
+            column order — column order is taken from it);
+          * UTF-8 with or without BOM, latin-1 fallback;
+          * blank lines and empty rows skipped; extra columns ignored.
+        """
+        import csv
+
+        try:
+            raw = Path(path).read_text(encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            raw = Path(path).read_text(encoding="latin-1")
+        lines = [ln for ln in raw.splitlines() if ln.strip()]
+        if not lines:
+            return []
+
+        # Delimiter: prefer the sniffer, fall back to whichever candidate
+        # actually appears; a file with neither is title-only lines.
+        sample = "\n".join(lines[:10])
+        try:
+            delim = csv.Sniffer().sniff(sample, delimiters=",;\t").delimiter
+        except csv.Error:
+            delim = next((d for d in (",", ";", "\t") if d in sample), ",")
+
+        rows = [r for r in csv.reader(lines, delimiter=delim) if any(c.strip() for c in r)]
+        if not rows:
+            return []
+
+        # Header detection + column order
+        title_idx, presenter_idx = 0, 1
+        first = [c.strip().lower() for c in rows[0]]
+        is_header = any(c in ("title", "talk", "talk title") for c in first) or \
+                    any(c in ("presenter", "speaker", "presenter name", "speaker name", "name") for c in first)
+        if is_header:
+            for i, c in enumerate(first):
+                if c in ("title", "talk", "talk title"):
+                    title_idx = i
+                elif c in ("presenter", "speaker", "presenter name", "speaker name", "name"):
+                    presenter_idx = i
+            rows = rows[1:]
+
+        schedule = []
+        for r in rows:
+            title = r[title_idx].strip() if len(r) > title_idx else ""
+            presenter = r[presenter_idx].strip() if len(r) > presenter_idx else ""
+            if not title and not presenter:
+                continue
+            schedule.append((title or f"Talk {len(schedule) + 1}", presenter))
+        return schedule
+
+    def _import_conference_csv(self):
+        """Import the talk schedule from a CSV/text file."""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import Talk Schedule", "",
+            "Schedule files (*.csv *.tsv *.txt);;All files (*)"
+        )
+        if not path:
+            return
+
+        try:
+            schedule = self._parse_talk_csv(path)
+        except Exception as e:
+            QMessageBox.warning(
+                self, "Import Failed",
+                f"Couldn't read the schedule file:\n\n{e}",
+            )
+            return
+
+        if not schedule:
+            QMessageBox.warning(
+                self, "Nothing to Import",
+                "No talks found in the file. Expected one talk per line: "
+                "title first, presenter second (comma, semicolon or tab "
+                "separated).",
+            )
+            return
+
+        # Existing rows: let the user choose replace vs append.
+        if self._conf_row_count():
+            box = QMessageBox(self)
+            box.setWindowTitle("Import Talk Schedule")
+            box.setText(
+                f"Found {len(schedule)} talk(s) in the file.\n"
+                f"The schedule already has {self._conf_row_count()} talk(s)."
+            )
+            replace_btn = box.addButton("Replace schedule", QMessageBox.AcceptRole)
+            box.addButton("Append", QMessageBox.ActionRole)
+            cancel_btn = box.addButton(QMessageBox.Cancel)
+            box.exec_()
+            if box.clickedButton() == cancel_btn:
+                return
+            if box.clickedButton() == replace_btn:
+                for row in self._conf_talk_rows():
+                    row.setParent(None)
+                    row.deleteLater()
+
+        for title, presenter in schedule:
+            self._add_conference_talk(title, presenter)
+        self._renumber_conference_talks()
+        self._update_conf_talk_count()
+        logger.info(f"Imported {len(schedule)} talks from {path}")
 
     def _collect_conference_schedule(self):
         """Read the scheduled talks from the UI rows.
