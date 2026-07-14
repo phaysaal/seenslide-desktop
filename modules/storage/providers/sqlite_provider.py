@@ -2,6 +2,8 @@
 
 import logging
 import sqlite3
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional, List
 import json
@@ -28,6 +30,12 @@ class SQLiteStorageProvider(IStorageProvider):
         self._initialized = False
         self._db_path = None
         self._conn = None
+        # Serializes write transactions on the shared connection. Slides are
+        # written from the storage thread while the upload-outbox retry thread,
+        # voice paths, and GUI actions also write — without this, two threads'
+        # statements can interleave inside one transaction and commit each
+        # other's half-done work.
+        self._write_lock = threading.RLock()
 
     def initialize(self, config: dict) -> bool:
         """Initialize storage provider with configuration.
@@ -57,6 +65,14 @@ class SQLiteStorageProvider(IStorageProvider):
             # Connect to database
             self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
+
+            # WAL lets the web/admin servers (own connections) read while we
+            # write; busy_timeout makes cross-process contention wait instead
+            # of raising "database is locked"; synchronous=NORMAL is the
+            # standard safe pairing with WAL.
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA busy_timeout=5000")
+            self._conn.execute("PRAGMA synchronous=NORMAL")
 
             # Create tables
             self._create_tables()
@@ -177,6 +193,28 @@ class SQLiteStorageProvider(IStorageProvider):
 
         self._conn.commit()
 
+    @contextmanager
+    def _write(self):
+        """Serialized write transaction: yields a cursor, commits on success,
+        rolls back on error.
+
+        All writes go through here so (a) two threads can never interleave
+        statements inside each other's transactions, and (b) a failure mid-way
+        through a multi-statement operation (e.g. delete_session's three
+        DELETEs) rolls back instead of leaving orphaned rows.
+        """
+        with self._write_lock:
+            cursor = self._conn.cursor()
+            try:
+                yield cursor
+                self._conn.commit()
+            except Exception:
+                try:
+                    self._conn.rollback()
+                except Exception:
+                    pass
+                raise
+
     def create_session(self, session: Session) -> str:
         """Create a new session in the database.
 
@@ -193,29 +231,28 @@ class SQLiteStorageProvider(IStorageProvider):
             raise StorageError("Provider not initialized")
 
         try:
-            cursor = self._conn.cursor()
-            cursor.execute("""
-                INSERT INTO sessions (
-                    session_id, user_id, cloud_session_id, name, description, presenter_name,
-                    start_time, end_time, status, total_slides,
-                    capture_interval_seconds, dedup_strategy, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                session.session_id,
-                session.user_id,
-                session.cloud_session_id,
-                session.name,
-                session.description,
-                session.presenter_name,
-                session.start_time,
-                session.end_time,
-                session.status,
-                session.total_slides,
-                session.capture_interval_seconds,
-                session.dedup_strategy,
-                json.dumps(session.metadata)
-            ))
-            self._conn.commit()
+            with self._write() as cursor:
+                cursor.execute("""
+                    INSERT INTO sessions (
+                        session_id, user_id, cloud_session_id, name, description, presenter_name,
+                        start_time, end_time, status, total_slides,
+                        capture_interval_seconds, dedup_strategy, metadata
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    session.session_id,
+                    session.user_id,
+                    session.cloud_session_id,
+                    session.name,
+                    session.description,
+                    session.presenter_name,
+                    session.start_time,
+                    session.end_time,
+                    session.status,
+                    session.total_slides,
+                    session.capture_interval_seconds,
+                    session.dedup_strategy,
+                    json.dumps(session.metadata)
+                ))
 
             logger.info(f"Created session in database: {session.session_id}")
             return session.session_id
@@ -425,38 +462,37 @@ class SQLiteStorageProvider(IStorageProvider):
             return False
 
         try:
-            cursor = self._conn.cursor()
-            cursor.execute("""
-                UPDATE sessions SET
-                    user_id = ?,
-                    cloud_session_id = ?,
-                    name = ?,
-                    description = ?,
-                    presenter_name = ?,
-                    start_time = ?,
-                    end_time = ?,
-                    status = ?,
-                    total_slides = ?,
-                    capture_interval_seconds = ?,
-                    dedup_strategy = ?,
-                    metadata = ?
-                WHERE session_id = ?
-            """, (
-                session.user_id,
-                session.cloud_session_id,
-                session.name,
-                session.description,
-                session.presenter_name,
-                session.start_time,
-                session.end_time,
-                session.status,
-                session.total_slides,
-                session.capture_interval_seconds,
-                session.dedup_strategy,
-                json.dumps(session.metadata),
-                session.session_id
-            ))
-            self._conn.commit()
+            with self._write() as cursor:
+                cursor.execute("""
+                    UPDATE sessions SET
+                        user_id = ?,
+                        cloud_session_id = ?,
+                        name = ?,
+                        description = ?,
+                        presenter_name = ?,
+                        start_time = ?,
+                        end_time = ?,
+                        status = ?,
+                        total_slides = ?,
+                        capture_interval_seconds = ?,
+                        dedup_strategy = ?,
+                        metadata = ?
+                    WHERE session_id = ?
+                """, (
+                    session.user_id,
+                    session.cloud_session_id,
+                    session.name,
+                    session.description,
+                    session.presenter_name,
+                    session.start_time,
+                    session.end_time,
+                    session.status,
+                    session.total_slides,
+                    session.capture_interval_seconds,
+                    session.dedup_strategy,
+                    json.dumps(session.metadata),
+                    session.session_id
+                ))
 
             logger.debug(f"Updated session: {session.session_id}")
             return cursor.rowcount > 0
@@ -481,29 +517,28 @@ class SQLiteStorageProvider(IStorageProvider):
             raise StorageError("Provider not initialized")
 
         try:
-            cursor = self._conn.cursor()
-            cursor.execute("""
-                INSERT INTO slides (
-                    slide_id, session_id, talk_id, sequence_number, timestamp,
-                    image_path, thumbnail_path, width, height,
-                    file_size_bytes, image_hash, similarity_score, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                slide.slide_id,
-                slide.session_id,
-                slide.talk_id,
-                slide.sequence_number,
-                slide.timestamp,
-                slide.image_path,
-                slide.thumbnail_path,
-                slide.width,
-                slide.height,
-                slide.file_size_bytes,
-                slide.image_hash,
-                slide.similarity_score,
-                json.dumps(slide.metadata)
-            ))
-            self._conn.commit()
+            with self._write() as cursor:
+                cursor.execute("""
+                    INSERT INTO slides (
+                        slide_id, session_id, talk_id, sequence_number, timestamp,
+                        image_path, thumbnail_path, width, height,
+                        file_size_bytes, image_hash, similarity_score, metadata
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    slide.slide_id,
+                    slide.session_id,
+                    slide.talk_id,
+                    slide.sequence_number,
+                    slide.timestamp,
+                    slide.image_path,
+                    slide.thumbnail_path,
+                    slide.width,
+                    slide.height,
+                    slide.file_size_bytes,
+                    slide.image_hash,
+                    slide.similarity_score,
+                    json.dumps(slide.metadata)
+                ))
 
             logger.debug(f"Saved slide to database: {slide.slide_id}")
             return slide.slide_id
@@ -667,12 +702,11 @@ class SQLiteStorageProvider(IStorageProvider):
             created_at = time.time()
             metadata_json = json.dumps(metadata or {})
 
-            cursor = self._conn.cursor()
-            cursor.execute("""
-                INSERT INTO talks (talk_id, session_id, title, presenter_name, description, created_at, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (talk_id, session_id, title, presenter_name, description, created_at, metadata_json))
-            self._conn.commit()
+            with self._write() as cursor:
+                cursor.execute("""
+                    INSERT INTO talks (talk_id, session_id, title, presenter_name, description, created_at, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (talk_id, session_id, title, presenter_name, description, created_at, metadata_json))
 
             logger.info(f"Created talk {talk_id} in session {session_id}: {title}")
             return talk_id
@@ -796,11 +830,11 @@ class SQLiteStorageProvider(IStorageProvider):
                 WHERE talk_id = ?
             """
 
-            cursor = self._conn.cursor()
-            cursor.execute(query, values)
-            self._conn.commit()
+            with self._write() as cursor:
+                cursor.execute(query, values)
+                rowcount = cursor.rowcount
 
-            if cursor.rowcount == 0:
+            if rowcount == 0:
                 logger.warning(f"Talk {talk_id} not found for update")
                 return False
 
@@ -824,14 +858,12 @@ class SQLiteStorageProvider(IStorageProvider):
             return False
 
         try:
-            cursor = self._conn.cursor()
+            with self._write() as cursor:
+                # Unassign slides from this talk
+                cursor.execute("UPDATE slides SET talk_id = NULL WHERE talk_id = ?", (talk_id,))
 
-            # Unassign slides from this talk
-            cursor.execute("UPDATE slides SET talk_id = NULL WHERE talk_id = ?", (talk_id,))
-
-            # Delete the talk
-            cursor.execute("DELETE FROM talks WHERE talk_id = ?", (talk_id,))
-            self._conn.commit()
+                # Delete the talk
+                cursor.execute("DELETE FROM talks WHERE talk_id = ?", (talk_id,))
 
             logger.info(f"Deleted talk {talk_id}")
             return True
@@ -853,18 +885,15 @@ class SQLiteStorageProvider(IStorageProvider):
             return False
 
         try:
-            cursor = self._conn.cursor()
+            with self._write() as cursor:
+                # Delete all slides for this session
+                cursor.execute("DELETE FROM slides WHERE session_id = ?", (session_id,))
 
-            # Delete all slides for this session
-            cursor.execute("DELETE FROM slides WHERE session_id = ?", (session_id,))
+                # Delete all talks for this session
+                cursor.execute("DELETE FROM talks WHERE session_id = ?", (session_id,))
 
-            # Delete all talks for this session
-            cursor.execute("DELETE FROM talks WHERE session_id = ?", (session_id,))
-
-            # Delete the session
-            cursor.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
-
-            self._conn.commit()
+                # Delete the session
+                cursor.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
 
             logger.info(f"Deleted session {session_id} and all associated data")
             return True
