@@ -628,6 +628,13 @@ class MainDashboard(QWidget):
         self.start_time = 0
         self.is_active = False
         self.slide_count = 0
+        # Conference mode: a pre-planned schedule of sequential talks driven
+        # through the same live pipeline as Direct Talk. None = not in
+        # conference mode.
+        self._conf_schedule: Optional[list] = None   # [(title, speaker), ...]
+        self._conf_index = 0
+        self._conf_organizer = ""
+        self._conf_transitioning = False
         self._theme_mode = app_settings.get("theme", "dark")
         if self._theme_mode not in ("dark", "light"):
             self._theme_mode = "dark"
@@ -1463,6 +1470,15 @@ class MainDashboard(QWidget):
         self.live_title = QLabel("Presentation")
         self.live_title.setStyleSheet(f"color: {TEXT_DARK}; font-size: 17px; background: transparent;")
         top_layout.addWidget(self.live_title)
+
+        # Conference progress ("Talk 2 of 5") — hidden outside conference mode
+        self.live_talk_progress = QLabel("")
+        self.live_talk_progress.setStyleSheet(
+            f"color: {BLUE}; font-size: 12px; font-weight: 600; background: {BLUE_LIGHT};"
+            f" border-radius: 9px; padding: 3px 10px;"
+        )
+        self.live_talk_progress.setVisible(False)
+        top_layout.addWidget(self.live_talk_progress)
         top_layout.addStretch()
 
         # LIVE badge
@@ -1630,7 +1646,31 @@ class MainDashboard(QWidget):
         voice_layout.addStretch()
         body.addWidget(self.voice_bar)
 
-        # End button
+        # Bottom controls: Next Talk (conference mode only) + End button
+        controls_row = QHBoxLayout()
+        controls_row.setSpacing(12)
+
+        self.btn_next_talk = QPushButton("Next Talk  ▸")
+        self.btn_next_talk.setFixedHeight(48)
+        self.btn_next_talk.setCursor(Qt.PointingHandCursor)
+        self.btn_next_talk.setStyleSheet(f"""
+            QPushButton {{
+                background: {GRAD_PRIMARY};
+                color: {PRIMARY_TEXT_ON};
+                border: none;
+                border-radius: 10px;
+                font-size: 15px;
+                font-weight: 600;
+            }}
+            QPushButton:disabled {{
+                background: {BG_CARD2};
+                color: {TEXT_MUTED};
+            }}
+        """)
+        self.btn_next_talk.clicked.connect(self._conf_next_talk)
+        self.btn_next_talk.setVisible(False)
+        controls_row.addWidget(self.btn_next_talk, 1)
+
         self.btn_stop = QPushButton("End Presentation")
         self.btn_stop.setFixedHeight(48)
         self.btn_stop.setCursor(Qt.PointingHandCursor)
@@ -1647,7 +1687,9 @@ class MainDashboard(QWidget):
             }}
         """)
         self.btn_stop.clicked.connect(self._stop_recording)
-        body.addWidget(self.btn_stop)
+        controls_row.addWidget(self.btn_stop, 2)
+
+        body.addLayout(controls_row)
 
         outer.addLayout(body, 1)
         return view
@@ -1907,8 +1949,37 @@ class MainDashboard(QWidget):
                 count += 1
         self.conf_talk_count.setText(f"{count} talk{'s' if count != 1 else ''} scheduled")
 
+    def _collect_conference_schedule(self):
+        """Read the scheduled talks from the UI rows.
+
+        Returns a list of (title, speaker) tuples in schedule order. Rows
+        whose title AND speaker are both empty are skipped; an empty title
+        with a speaker becomes "Talk N".
+        """
+        schedule = []
+        for i in range(self.conf_talk_list.count()):
+            item = self.conf_talk_list.itemAt(i)
+            w = item.widget() if item else None
+            if not isinstance(w, QFrame) or w is self.conf_empty_label:
+                continue
+            inputs = w.findChildren(QLineEdit)
+            if len(inputs) < 2:
+                continue
+            title = inputs[0].text().strip()
+            speaker = inputs[1].text().strip()
+            if not title and not speaker:
+                continue
+            schedule.append((title or f"Talk {len(schedule) + 1}", speaker))
+        return schedule
+
     def _on_launch_conference(self):
-        """Launch the conference mode."""
+        """Launch conference mode: a dedicated cloud collection + the talk
+        schedule run sequentially through the live capture pipeline.
+
+        The organizer advances between talks with the "Next Talk" button in
+        the live view; each talk gets its own cloud talk, voice recording,
+        per-talk dedup scope, and slide numbering.
+        """
         name = self.conf_name.text().strip()
         if not name:
             self.conf_name.setFocus()
@@ -1916,8 +1987,199 @@ class MainDashboard(QWidget):
             QTimer.singleShot(2000, lambda: self.conf_name.setStyleSheet(self._input_style()))
             return
 
-        logger.info(f"Launching conference: {name}")
-        # TODO: Connect to ConferenceLauncher / admin server startup
+        schedule = self._collect_conference_schedule()
+        if not schedule:
+            QMessageBox.warning(
+                self, "No Talks Scheduled",
+                "Add at least one talk to the schedule before launching.",
+            )
+            return
+
+        if not self.orchestrator:
+            QMessageBox.warning(
+                self, "Not Ready",
+                "The capture engine isn't ready yet. Wait a moment and try again.",
+            )
+            return
+
+        if self.is_active:
+            QMessageBox.warning(
+                self, "Talk in Progress",
+                "End the current presentation before launching a conference.",
+            )
+            return
+
+        logger.info(f"Launching conference: {name} ({len(schedule)} talks)")
+
+        # Conference state
+        self._conf_schedule = schedule
+        self._conf_index = 0
+        self._conf_organizer = self.conf_organizer.text().strip() or "Organizer"
+        self._conf_transitioning = False
+
+        # First talk drives the normal start path
+        title, speaker = schedule[0]
+        self._pending_title = title
+        self._pending_presenter = speaker or self._conf_organizer
+        self._pending_desc = self.conf_desc.toPlainText()
+        self._pending_sensitivity = self.conf_slider.value()
+
+        # Create the conference's own cloud collection (the page promises
+        # "a collection with multiple sequential talks"), then count down
+        # into the first talk. If the cloud isn't reachable we proceed
+        # local-only rather than blocking the event.
+        if self.cloud_sessions_client.is_configured():
+            self.btn_launch_conf.setEnabled(False)
+            self.btn_launch_conf.setText("Creating collection…")
+            worker = CloudSessionsWorker(
+                self.cloud_sessions_client, op="create", title=name
+            )
+            worker.finished_create.connect(self._on_conf_collection_created)
+            worker.failed.connect(self._on_conf_collection_failed)
+            worker.finished.connect(lambda w=worker: self._clear_sessions_worker_ref(w, "create"))
+            self._sessions_create_worker = worker
+            worker.start()
+        else:
+            logger.warning("Cloud not configured — conference runs local-only")
+            self._conf_begin_countdown()
+
+    def _on_conf_collection_created(self, result: dict):
+        """Conference collection exists in the cloud — register it as the
+        current collection and start the first talk."""
+        self._restore_launch_button()
+        # Reuses the standard create path: registry add + set current +
+        # re-point orchestrator + home banner.
+        self._on_session_created(result)
+        self._conf_begin_countdown()
+
+    def _on_conf_collection_failed(self, message: str):
+        self._restore_launch_button()
+        reply = QMessageBox.question(
+            self, "Cloud Unavailable",
+            f"Couldn't create the conference collection in the cloud:\n\n"
+            f"{message}\n\nStart the conference locally anyway? "
+            f"(Slides won't reach online viewers.)",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes,
+        )
+        if reply == QMessageBox.Yes:
+            self._conf_begin_countdown()
+        else:
+            self._conf_schedule = None
+
+    def _restore_launch_button(self):
+        self.btn_launch_conf.setEnabled(True)
+        self.btn_launch_conf.setText("Launch Conference")
+
+    def _conf_begin_countdown(self):
+        """Countdown into the first scheduled talk (same as Direct Talk)."""
+        self._switch_view(2)
+        self.live_title.setText("Starting soon...")
+        self._countdown = CountdownWidget(
+            duration=10,
+            title="Switch to the first presentation",
+            parent=self.view_stack.widget(2),
+        )
+        self._countdown.setStyleSheet("background: rgba(15,18,25,0.92); border-radius: 12px;")
+        self._countdown.setGeometry(self.view_stack.widget(2).rect())
+        self._countdown.countdown_finished.connect(self._start_recording_after_countdown)
+        self._countdown.countdown_cancelled.connect(self._cancel_conf_countdown)
+        self._countdown.show()
+        self._countdown.raise_()
+        self._countdown.start()
+
+    def _cancel_conf_countdown(self):
+        """Countdown aborted — leave conference mode and go back to setup."""
+        if hasattr(self, '_countdown'):
+            self._countdown.hide()
+            self._countdown.deleteLater()
+        self._conf_schedule = None
+        self._switch_view(3)
+
+    def _sync_conf_live_ui(self):
+        """Reflect conference state in the live view (progress chip, Next
+        Talk button, End button label)."""
+        in_conf = bool(self._conf_schedule)
+        self.live_talk_progress.setVisible(in_conf)
+        self.btn_next_talk.setVisible(in_conf)
+        self.btn_stop.setText("End Conference" if in_conf else "End Presentation")
+        if in_conf:
+            total = len(self._conf_schedule)
+            self.live_talk_progress.setText(f"Talk {self._conf_index + 1} of {total}")
+            is_last = self._conf_index + 1 >= total
+            self.btn_next_talk.setEnabled(not is_last)
+            self.btn_next_talk.setText(
+                "Last talk" if is_last
+                else f"Next Talk  ▸  {self._conf_schedule[self._conf_index + 1][0]}"
+            )
+
+    def _conf_next_talk(self):
+        """Finalize the current talk and start the next scheduled one.
+
+        Capture pauses during the swap so speaker-change desktop frames don't
+        land in the ending talk. Voice + cloud end_talk finalize on a
+        background thread (same as _stop_recording) to keep the GUI live.
+        """
+        if self._conf_transitioning or not self._conf_schedule:
+            return
+        if self._conf_index + 1 >= len(self._conf_schedule):
+            return
+        self._conf_transitioning = True
+        self.btn_next_talk.setEnabled(False)
+        self.btn_next_talk.setText("Switching…")
+        self.status_text.setText("Finalizing talk...")
+
+        self.orchestrator.set_capture_mode(CaptureMode.IDLE)
+
+        import threading
+        def _finalize():
+            try:
+                self.orchestrator.stop_voice_recording()
+            except Exception as e:
+                logger.error(f"Voice finalization error (next talk): {e}")
+            try:
+                cloud = self.orchestrator.storage_manager._cloud
+                if cloud and cloud.current_talk_id:
+                    cloud.end_talk()
+            except Exception as e:
+                logger.error(f"end_talk error (next talk): {e}")
+            QTimer.singleShot(0, self._conf_start_next)
+
+        threading.Thread(target=_finalize, daemon=True).start()
+
+    def _conf_start_next(self):
+        """Previous talk finalized — bring up the next one."""
+        self._conf_index += 1
+        title, speaker = self._conf_schedule[self._conf_index]
+
+        session = self.orchestrator.session
+        session.name = title
+        session.presenter_name = speaker or self._conf_organizer
+        # Creates the cloud + local talk, points storage at it, and resets
+        # the dedup scope so this talk's slides start at #1.
+        self.orchestrator.update_session(session)
+
+        # New voice recording bound to the new talk (order matters: the
+        # uploader reads the cloud talk id set by update_session above).
+        if self.voice_toggle.isChecked():
+            self.orchestrator.set_voice_enabled(True)
+            if not self.orchestrator.start_voice_recording():
+                logger.warning("Voice recording failed to start for next talk")
+
+        self.orchestrator.set_capture_mode(CaptureMode.ACTIVE)
+
+        # UI
+        self.live_title.setText(title)
+        self.slide_count = 0
+        self.stat_slides.val.setText("0")
+        self._update_session_banner(title, self.share_code.text() or "Local")
+        self.status_text.setText("Recording...")
+        self.status_text.setStyleSheet(f"color: {RED}; font-size: 11px; background: transparent;")
+        self._conf_transitioning = False
+        self._sync_conf_live_ui()
+        logger.info(
+            f"Conference: started talk {self._conf_index + 1}/"
+            f"{len(self._conf_schedule)}: {title}"
+        )
 
     # ── Sessions View ─────────────────────────────────────────────
 
@@ -3648,6 +3910,9 @@ class MainDashboard(QWidget):
         if not self.orchestrator:
             return
 
+        # A Direct Talk is never part of a conference schedule.
+        self._conf_schedule = None
+
         # Store form values for use after countdown
         self._pending_title = self.in_title.text().strip() or "Untitled Talk"
         self._pending_presenter = self.in_presenter.text().strip() or "Presenter"
@@ -3783,6 +4048,10 @@ class MainDashboard(QWidget):
         # Update live view
         self.live_title.setText(title)
         self.slide_count = 0
+        self.is_active = True
+        # Conference controls (progress chip + Next Talk) when a schedule is
+        # driving this talk; hidden for a plain Direct Talk.
+        self._sync_conf_live_ui()
 
         # Show session code
         cloud_id = ""
@@ -3873,6 +4142,18 @@ class MainDashboard(QWidget):
         self.btn_stop.setText("End Presentation")
         self.btn_stop.setCursor(Qt.PointingHandCursor)
         self._finalizing = False
+        self.is_active = False
+
+        # Leave conference mode (End ends the whole conference).
+        if self._conf_schedule:
+            logger.info(
+                f"Conference ended after talk {self._conf_index + 1}/"
+                f"{len(self._conf_schedule)}"
+            )
+        self._conf_schedule = None
+        self._conf_transitioning = False
+        self.live_talk_progress.setVisible(False)
+        self.btn_next_talk.setVisible(False)
 
         self._switch_view(0)
 

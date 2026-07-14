@@ -25,9 +25,12 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done
       SQLite `upload_outbox`; a background worker retries every 30s and
       backfills across restarts (drops on 404 / missing image / 100 attempts /
       7 days). Verified with a mocked cloud. (commit `084b493`)
-- [ ] **Conference mode: wire it or hide the tab.** Launch button is a no-op
-      `# TODO` (`gui/windows/main_dashboard.py:1892`); the tab collects input
-      that goes nowhere. Connect to `ConferenceLauncher`/admin server, or hide.
+- [x] **Conference mode: wired.** Launch now creates a dedicated cloud
+      collection, runs the talk schedule sequentially through the live
+      pipeline (per-talk cloud talk, voice recording, dedup scope, slide
+      numbering), with a "Next Talk ▸" button + progress chip in the live
+      view; End ends the conference. Also fixed the never-set `is_active`
+      guard. (this commit)
 
 ## 🟠 Important (before scaling users)
 
