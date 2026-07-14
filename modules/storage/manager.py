@@ -334,11 +334,15 @@ class StorageManager:
             else:
                 try:
                     import io
-                    # JPEG for cloud upload to save bandwidth. Quality 75 balances
-                    # bandwidth vs visible artifacts on screen-content captures —
-                    # text stays readable, slide backgrounds stay clean.
+                    # JPEG for cloud upload to save bandwidth. Quality is
+                    # user-controllable (Setup → Image quality); default 75
+                    # balances bandwidth vs visible artifacts on screen-content
+                    # captures. Read live from config each upload so a change
+                    # takes effect without restarting the session.
+                    quality = int(self._config.get("storage", {}).get("jpeg_quality", 75))
+                    quality = max(30, min(95, quality))
                     img_byte_arr = io.BytesIO()
-                    capture.image.convert('RGB').save(img_byte_arr, format='JPEG', quality=75, optimize=True)
+                    capture.image.convert('RGB').save(img_byte_arr, format='JPEG', quality=quality, optimize=True)
                     img_byte_arr.seek(0)
                     self._cloud.save_slide(slide, img_byte_arr.getvalue())
                 except Exception as e:

@@ -85,6 +85,11 @@ storage:
   # Image format: "png" or "jpg"
   image_format: "png"
 
+  # JPEG quality (30-95) for slides uploaded to the cloud. Higher = crisper
+  # slides for viewers but larger uploads. Overridden live by the in-app
+  # Setup → Image quality slider.
+  jpeg_quality: 75
+
   # JPG quality (1-100, only used if image_format is "jpg")
   jpg_quality: 95
 

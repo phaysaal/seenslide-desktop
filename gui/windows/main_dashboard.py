@@ -1343,6 +1343,34 @@ class MainDashboard(QWidget):
 
         form_layout.addLayout(row)
 
+        # Image quality — JPEG quality used for cloud slide uploads. Higher =
+        # crisper slides for viewers but larger uploads; lower = smaller/faster
+        # on poor connections.
+        form_layout.addWidget(self._field_label("IMAGE QUALITY"))
+        self.slider_quality = QSlider(Qt.Horizontal)
+        self.slider_quality.setRange(40, 95)
+        self.slider_quality.setSingleStep(5)
+        self.slider_quality.setPageStep(5)
+        self.slider_quality.setValue(int(app_settings.get("slide_quality", 75)))
+        self.slider_quality.setStyleSheet(f"""
+            QSlider::groove:horizontal {{
+                height: 6px; background: {BORDER}; border-radius: 3px;
+            }}
+            QSlider::handle:horizontal {{
+                background: {BLUE}; border: 2px solid white;
+                width: 16px; height: 16px; margin: -6px 0; border-radius: 9px;
+            }}
+            QSlider::sub-page:horizontal {{
+                background: {BLUE}; border-radius: 3px;
+            }}
+        """)
+        self.quality_hint = QLabel("")
+        self.quality_hint.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; background: transparent;")
+        self.slider_quality.valueChanged.connect(self._on_quality_changed)
+        form_layout.addWidget(self.slider_quality)
+        form_layout.addWidget(self.quality_hint)
+        self._on_quality_changed(self.slider_quality.value())
+
         # Description
         form_layout.addWidget(self._field_label("DESCRIPTION (OPTIONAL)"))
         self.in_desc = QTextEdit()
@@ -3701,6 +3729,14 @@ class MainDashboard(QWidget):
         self.orchestrator.config['deduplication']['perceptual_threshold'] = threshold
         logger.info(f"Applied dedup threshold: {threshold:.2f} (sensitivity {self._pending_sensitivity}%)")
 
+        # Apply the chosen slide image quality to the storage pipeline.
+        try:
+            q = max(40, min(95, int(app_settings.get("slide_quality", 75))))
+            self.orchestrator.config.setdefault("storage", {})["jpeg_quality"] = q
+            logger.info(f"Applied slide image quality: JPEG {q}%")
+        except Exception as e:
+            logger.debug(f"could not apply slide_quality: {e}")
+
         # Resolve which cloud collection this talk should attach to.
         # The user may have switched the current collection since the
         # orchestrator was last started; we honor that choice here.
@@ -3932,6 +3968,29 @@ class MainDashboard(QWidget):
             label = "High"
             tail = "treats even subtle changes as a new slide"
         self.sens_hint.setText(f"{label} — {tail}")
+
+    def _on_quality_changed(self, value):
+        # Snap to steps of 5 for tidy levels; persist and apply live to the
+        # running storage pipeline (the storage manager reads jpeg_quality from
+        # the same config dict on every upload).
+        value = int(round(value / 5.0) * 5)
+        try:
+            app_settings.set_value("slide_quality", value)
+        except Exception as e:
+            logger.debug(f"could not save slide_quality: {e}")
+
+        if value <= 50:
+            level = "Low — smallest uploads"
+        elif value <= 68:
+            level = "Medium — balanced"
+        elif value <= 84:
+            level = "High — crisp slides"
+        else:
+            level = "Maximum — largest uploads"
+        self.quality_hint.setText(f"JPEG quality {value}% · {level}")
+
+        if self.orchestrator and getattr(self.orchestrator, "config", None) is not None:
+            self.orchestrator.config.setdefault("storage", {})["jpeg_quality"] = value
 
     def _on_voice_toggle(self):
         if self.voice_toggle.isChecked():
