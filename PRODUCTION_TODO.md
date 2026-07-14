@@ -21,24 +21,24 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done
       MITM/compromised server = RCE. Add signature verification. Also make
       "Install & restart" actually self-update + restart instead of `xdg-open`
       (`core/updater/update_banner.py:297-320`).
-- [ ] **Slide-upload retry / offline outbox.** `cloud_provider.save_slide`
-      uploads once; a network blip drops the slide from the cloud forever →
-      silent holes in the viewer deck (`modules/storage/manager.py:344`).
-      Add a persistent outbox + retry/backfill (mirror the voice uploader).
+- [x] **Slide-upload retry / offline outbox.** Failed uploads now queue in a
+      SQLite `upload_outbox`; a background worker retries every 30s and
+      backfills across restarts (drops on 404 / missing image / 100 attempts /
+      7 days). Verified with a mocked cloud. (commit `084b493`)
 - [ ] **Conference mode: wire it or hide the tab.** Launch button is a no-op
       `# TODO` (`gui/windows/main_dashboard.py:1892`); the tab collects input
       that goes nowhere. Connect to `ConferenceLauncher`/admin server, or hide.
 
 ## 🟠 Important (before scaling users)
 
-- [ ] **Make SQLite concurrency-safe.** Shared connection, `check_same_thread=
-      False`, no lock / WAL / busy_timeout (`modules/storage/providers/
-      sqlite_provider.py:58`) while multiple threads + servers write. Add
-      `PRAGMA journal_mode=WAL`, `busy_timeout`, and a write lock.
-- [ ] **File logging + crash reporting.** No file log handler (main app logs to
-      discarded stdout; `core/models/config.py:69` `log_file` is unused), no
-      `sys.excepthook`, no crash reporter → users can't send logs. Add a
-      rotating file handler + global excepthook (consider Sentry).
+- [x] **Make SQLite concurrency-safe.** WAL + busy_timeout=5000 +
+      synchronous=NORMAL; all writes serialized through a `_write()` lock with
+      commit/rollback (multi-statement deletes now atomic). Verified with a
+      6-thread concurrency test. (commit `02d5bcf`)
+- [x] **File logging + crash reporting.** `core/logging_setup.py`: rotating
+      file log (2MB×3, utf-8) in a platform log dir + `sys.excepthook` (Qt
+      slots) + `threading.excepthook`. Verified. Sentry still optional/open.
+      (commit `2c11d1f`)
 - [ ] **DB backups + corruption recovery.** A corrupt `seenslide.db` = total
       local data loss. Add `PRAGMA integrity_check` on open + periodic backup.
 - [ ] **Automated test suite + CI gate.** ~20 ad-hoc manual scripts, no
