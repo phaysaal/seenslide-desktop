@@ -21,6 +21,10 @@ evdev>=1.6.0; sys_platform == 'linux'
 Pillow>=10.0.0
 imagehash>=4.3.1
 
+# Slide-text OCR for conference auto-advance (pip-only, no system binary;
+# pytesseract + system tesseract is used instead when present)
+rapidocr-onnxruntime>=1.3.0
+
 # Configuration
 python-dotenv>=1.0.0
 PyYAML>=6.0.1

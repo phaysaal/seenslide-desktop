@@ -605,6 +605,12 @@ class CloudSessionsWorker(QThread):
 # ── Main Dashboard ─────────────────────────────────────────────────
 
 class MainDashboard(QWidget):
+    # Emitted from the background OCR thread when a stored slide matches the
+    # next scheduled conference talk — queued to the GUI thread, which runs
+    # the auto-advance. (QTimer.singleShot from a non-Qt thread is unreliable;
+    # a signal is the safe cross-thread dispatch.)
+    conf_title_matched = pyqtSignal(object)
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SeenSlide Pro")
@@ -635,6 +641,8 @@ class MainDashboard(QWidget):
         self._conf_index = 0
         self._conf_organizer = ""
         self._conf_transitioning = False
+        self._conf_ocr_busy = False   # one OCR title-check in flight at a time
+        self.conf_title_matched.connect(self._on_conf_title_matched)
         self._theme_mode = app_settings.get("theme", "dark")
         if self._theme_mode not in ("dark", "light"):
             self._theme_mode = "dark"
@@ -1778,6 +1786,38 @@ class MainDashboard(QWidget):
         """)
         form_layout.addWidget(self.conf_slider)
 
+        # Auto-advance: OCR each new slide and jump to the next scheduled
+        # talk when its title slide (title + presenter) appears on screen.
+        form_layout.addWidget(self._field_label("AUTO-ADVANCE TALKS"))
+        self.conf_auto_toggle = QPushButton("Enabled")
+        self.conf_auto_toggle.setCheckable(True)
+        self.conf_auto_toggle.setChecked(bool(app_settings.get("conf_auto_advance", True)))
+        self.conf_auto_toggle.setCursor(Qt.PointingHandCursor)
+        self.conf_auto_toggle.setFixedHeight(28)
+        self.conf_auto_toggle.setFixedWidth(100)
+        self.conf_auto_toggle.setToolTip(
+            "Detects the next scheduled talk's title slide on screen (OCR) and "
+            "switches talks automatically. You can always use Next Talk manually."
+        )
+        self.conf_auto_toggle.setStyleSheet(f"""
+            QPushButton {{
+                background: {GRAD_PRIMARY};
+                color: {PRIMARY_TEXT_ON};
+                border: none;
+                border-radius: 14px;
+                font-size: 12px;
+                font-weight: 600;
+            }}
+            QPushButton:!checked {{
+                background: {BG_CARD2};
+                color: {TEXT_MUTED};
+                border: 1px solid {CARD_BORDER};
+            }}
+        """)
+        self.conf_auto_toggle.clicked.connect(self._on_conf_auto_toggle)
+        self._on_conf_auto_toggle()
+        form_layout.addWidget(self.conf_auto_toggle)
+
         form_layout.addStretch()
 
         # Launch button
@@ -1857,7 +1897,9 @@ class MainDashboard(QWidget):
         # Hide empty label
         self.conf_empty_label.setVisible(False)
 
-        talk_num = self.conf_talk_list.count()  # includes stretch + empty label
+        # Number = existing talk rows + 1 (the layout also holds the empty
+        # label and a stretch, so count() would start at 2).
+        talk_num = self._conf_row_count() + 1
 
         row = QFrame()
         row.setFixedHeight(64)
@@ -1873,8 +1915,9 @@ class MainDashboard(QWidget):
         row_layout.setContentsMargins(12, 8, 12, 8)
         row_layout.setSpacing(10)
 
-        # Number badge
+        # Number badge (objectName lets _renumber_conference_talks find it)
         num_label = QLabel(str(talk_num))
+        num_label.setObjectName("confTalkNum")
         num_label.setFixedSize(24, 24)
         num_label.setAlignment(Qt.AlignCenter)
         num_label.setStyleSheet(f"background: {GREEN_LIGHT}; color: {GREEN}; border-radius: 12px; font-size: 11px;")
@@ -1925,10 +1968,32 @@ class MainDashboard(QWidget):
         self.conf_talk_list.insertWidget(self.conf_talk_list.count() - 1, row)
         self._update_conf_talk_count()
 
+    def _conf_talk_rows(self):
+        """The actual talk-row frames, in schedule order (excludes the empty
+        label and the trailing stretch)."""
+        rows = []
+        for i in range(self.conf_talk_list.count()):
+            item = self.conf_talk_list.itemAt(i)
+            w = item.widget() if item else None
+            if isinstance(w, QFrame) and w is not self.conf_empty_label:
+                rows.append(w)
+        return rows
+
+    def _conf_row_count(self):
+        return len(self._conf_talk_rows())
+
+    def _renumber_conference_talks(self):
+        """Keep the number badges contiguous (1, 2, 3, ...) after removals."""
+        for n, row in enumerate(self._conf_talk_rows(), start=1):
+            badge = row.findChild(QLabel, "confTalkNum")
+            if badge:
+                badge.setText(str(n))
+
     def _remove_conference_talk(self, row):
         """Remove a talk row from the schedule."""
         row.setParent(None)
         row.deleteLater()
+        self._renumber_conference_talks()
         self._update_conf_talk_count()
 
         # Show empty label if no talks
@@ -1957,11 +2022,7 @@ class MainDashboard(QWidget):
         with a speaker becomes "Talk N".
         """
         schedule = []
-        for i in range(self.conf_talk_list.count()):
-            item = self.conf_talk_list.itemAt(i)
-            w = item.widget() if item else None
-            if not isinstance(w, QFrame) or w is self.conf_empty_label:
-                continue
+        for w in self._conf_talk_rows():
             inputs = w.findChildren(QLineEdit)
             if len(inputs) < 2:
                 continue
@@ -2112,18 +2173,60 @@ class MainDashboard(QWidget):
                 else f"Next Talk  ▸  {self._conf_schedule[self._conf_index + 1][0]}"
             )
 
+    def _on_conf_auto_toggle(self):
+        checked = self.conf_auto_toggle.isChecked()
+        self.conf_auto_toggle.setText("Enabled" if checked else "Disabled")
+        try:
+            app_settings.set_value("conf_auto_advance", bool(checked))
+        except Exception:
+            pass
+
     def _conf_next_talk(self):
+        """Manual advance via the Next Talk button."""
+        self._conf_advance(trigger_slide=None)
+
+    def _on_conf_title_matched(self, slide):
+        """Background OCR matched the next talk's title slide (GUI thread).
+
+        Stale-guard: the match was computed against the talk that was live
+        when the slide stored — if we've already moved on (manual click or an
+        earlier match), drop it.
+        """
+        if self._conf_transitioning or not self._conf_schedule:
+            return
+        try:
+            cloud = self.orchestrator.storage_manager._cloud
+            if slide.talk_id and cloud.current_talk_id and slide.talk_id != cloud.current_talk_id:
+                return
+        except Exception:
+            pass
+        next_title = self._conf_schedule[self._conf_index + 1][0] if \
+            self._conf_index + 1 < len(self._conf_schedule) else "?"
+        logger.info(
+            f"Auto-advance: slide #{slide.sequence_number} is the title slide "
+            f"of '{next_title}' — switching talks"
+        )
+        self._conf_advance(trigger_slide=slide)
+
+    def _conf_advance(self, trigger_slide=None):
         """Finalize the current talk and start the next scheduled one.
 
         Capture pauses during the swap so speaker-change desktop frames don't
         land in the ending talk. Voice + cloud end_talk finalize on a
         background thread (same as _stop_recording) to keep the GUI live.
+
+        trigger_slide: when the advance was triggered by OCR detecting the
+        NEXT talk's title slide, that slide was captured into the ENDING talk
+        — it's removed from there (local + cloud) and, after the new talk is
+        live, an immediate capture re-takes the same screen so the title
+        slide becomes slide #1 of the talk it belongs to.
         """
         if self._conf_transitioning or not self._conf_schedule:
             return
         if self._conf_index + 1 >= len(self._conf_schedule):
             return
         self._conf_transitioning = True
+        self._conf_trigger_slide = trigger_slide
         self.btn_next_talk.setEnabled(False)
         self.btn_next_talk.setText("Switching…")
         self.status_text.setText("Finalizing talk...")
@@ -2136,6 +2239,11 @@ class MainDashboard(QWidget):
                 self.orchestrator.stop_voice_recording()
             except Exception as e:
                 logger.error(f"Voice finalization error (next talk): {e}")
+            # Remove the OCR trigger slide from the ending talk AFTER voice
+            # stop (so marker reconciliation runs first, then the cloud's
+            # slide-delete cascades that slide's marker away).
+            if trigger_slide is not None:
+                self._conf_remove_trigger_slide(trigger_slide)
             try:
                 cloud = self.orchestrator.storage_manager._cloud
                 if cloud and cloud.current_talk_id:
@@ -2145,6 +2253,28 @@ class MainDashboard(QWidget):
             QTimer.singleShot(0, self._conf_start_next)
 
         threading.Thread(target=_finalize, daemon=True).start()
+
+    def _conf_remove_trigger_slide(self, slide):
+        """Delete the auto-advance trigger slide from the talk it ended."""
+        try:
+            db = self.orchestrator.storage_manager._database
+            with db._write() as cursor:
+                cursor.execute("DELETE FROM slides WHERE slide_id = ?", (slide.slide_id,))
+            cloud = self.orchestrator.storage_manager._cloud
+            if cloud.enabled and slide.talk_id:
+                cloud.delete_slide_by_number(slide.talk_id, slide.sequence_number)
+            for path in (slide.image_path, slide.thumbnail_path):
+                if path and os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except Exception:
+                        pass
+            logger.info(
+                f"Removed auto-advance trigger slide #{slide.sequence_number} "
+                f"from ending talk {slide.talk_id}"
+            )
+        except Exception as e:
+            logger.warning(f"Could not remove trigger slide: {e}")
 
     def _conf_start_next(self):
         """Previous talk finalized — bring up the next one."""
@@ -2166,6 +2296,17 @@ class MainDashboard(QWidget):
                 logger.warning("Voice recording failed to start for next talk")
 
         self.orchestrator.set_capture_mode(CaptureMode.ACTIVE)
+
+        # If OCR triggered this advance, the next talk's title slide is on
+        # screen right now — capture it immediately so it lands as slide #1
+        # of the talk it belongs to (its stray copy in the previous talk was
+        # already removed during finalize).
+        if getattr(self, "_conf_trigger_slide", None) is not None:
+            self._conf_trigger_slide = None
+            try:
+                self.orchestrator.capture_daemon.request_immediate_capture()
+            except Exception as e:
+                logger.debug(f"immediate recapture failed: {e}")
 
         # UI
         self.live_title.setText(title)
@@ -4200,6 +4341,45 @@ class MainDashboard(QWidget):
 
             # Insert at top (before stretch)
             self.thumb_layout.insertWidget(0, thumb)
+
+            # Conference auto-advance: check (on a worker thread — OCR takes
+            # ~2-3s) whether this slide is the NEXT scheduled talk's title
+            # slide. One check in flight at a time; extra slides that store
+            # meanwhile are simply not checked — the title slide stays on
+            # screen long enough that the next capture catches it anyway.
+            self._maybe_check_conf_title(slide)
+
+    def _maybe_check_conf_title(self, slide):
+        if (not self._conf_schedule
+                or self._conf_transitioning
+                or self._conf_ocr_busy
+                or self._conf_index + 1 >= len(self._conf_schedule)
+                or not app_settings.get("conf_auto_advance", True)):
+            return
+        next_title, next_speaker = self._conf_schedule[self._conf_index + 1]
+        self._conf_ocr_busy = True
+
+        import threading
+        def _check():
+            try:
+                from modules.slides import title_matcher as tm
+                from PIL import Image
+                if not tm.ocr_available():
+                    return
+                text = tm.extract_text(Image.open(slide.image_path))
+                matched, score = tm.matches_talk(text, next_title, next_speaker)
+                logger.debug(
+                    f"Auto-advance check: slide #{slide.sequence_number} vs "
+                    f"'{next_title}' -> matched={matched} score={score:.2f}"
+                )
+                if matched:
+                    self.conf_title_matched.emit(slide)
+            except Exception as e:
+                logger.debug(f"Auto-advance check failed: {e}")
+            finally:
+                self._conf_ocr_busy = False
+
+        threading.Thread(target=_check, daemon=True, name="conf-title-ocr").start()
 
     def _on_upload_clicked(self):
         path, _ = QFileDialog.getOpenFileName(
