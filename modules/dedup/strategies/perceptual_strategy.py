@@ -5,6 +5,7 @@ import time
 from typing import Dict, Any, Optional
 
 import imagehash
+import numpy as np
 
 from core.interfaces.dedup import IDeduplicationStrategy, DeduplicationError
 from core.models.slide import RawCapture
@@ -46,6 +47,20 @@ class PerceptualDeduplicationStrategy(IDeduplicationStrategy):
             self._config = config
             self._threshold = config.get('perceptual_threshold', 0.95)
             self._hash_size = config.get('perceptual_hash_size', 8)
+            # Localized-change detection (catches a single revealed line that a
+            # global perceptual hash averages away). The crop is downscaled to a
+            # tile_px square grayscale thumbnail, split into a tile_grid × grid
+            # of tiles; if any tile's mean abs brightness change exceeds
+            # tile_tol, the frame is treated as a NEW slide even when the global
+            # hash says "duplicate". Tuned so text changes trigger it but cursor
+            # blink / compression noise do not.
+            self._tile_px = config.get('perceptual_tile_px', 144)
+            self._tile_grid = config.get('perceptual_tile_grid', 8)
+            # Mean abs brightness change (0-255) a tile must exceed to count as a
+            # real change. Measured noise floor (JPEG recompression) is ~0.5 and
+            # a realistic single line of slide text scores ~7-20, so 4.0 catches
+            # line-level changes with a wide margin over cursor/compression noise.
+            self._tile_tol = config.get('perceptual_tile_tol', 4.0)
 
             # Validate threshold
             if not 0.0 <= self._threshold <= 1.0:
@@ -173,19 +188,66 @@ class PerceptualDeduplicationStrategy(IDeduplicationStrategy):
             x, y = crop_region['x'], crop_region['y']
             w, h = crop_region['width'], crop_region['height']
             img = img.crop((x, y, x + w, y + h))
-        return imagehash.dhash(img, hash_size=self._hash_size)
+        # Fingerprint = coarse global hash (fast whole-history compare) plus a
+        # small grayscale thumbnail for localized-change detection. The thumb is
+        # a few KB, so memory stays flat over a long talk.
+        thumb = np.asarray(
+            img.convert("L").resize((self._tile_px, self._tile_px)),
+            dtype=np.uint8,
+        )
+        return {
+            "dhash": imagehash.dhash(img, hash_size=self._hash_size),
+            "thumb": thumb,
+        }
 
     def compare_fingerprints(self, current_fp, previous_fp) -> bool:
         """Duplicate check from two precomputed fingerprints — no pixels.
 
-        Identical Hamming-distance / threshold decision as is_duplicate(),
-        just without re-reading the images. Updates the last similarity score.
+        Two-stage: the global perceptual hash decides "clearly different"; if it
+        says "duplicate", a tiled pixel-diff still promotes the frame to unique
+        when a localized change (e.g. one revealed line) is present, which a
+        global hash averages away. Updates the last similarity score.
         """
+        cur_dh, prev_dh = current_fp["dhash"], previous_fp["dhash"]
         max_distance = self._hash_size * self._hash_size
-        hamming_distance = current_fp - previous_fp
+        hamming_distance = cur_dh - prev_dh
         similarity = 1.0 - (hamming_distance / max_distance)
         self._last_similarity_score = similarity
-        return bool(similarity >= self._threshold)
+
+        if similarity < self._threshold:
+            return False  # globally different -> unique
+
+        # Global hash says duplicate — check for a localized change it smoothed
+        # over (incremental slide reveal). If found, treat as a new slide.
+        if self._has_local_change(current_fp.get("thumb"), previous_fp.get("thumb")):
+            # Report just-below-threshold so downstream logs read as "unique".
+            self._last_similarity_score = min(similarity, self._threshold - 1e-6)
+            return False
+        return True
+
+    def _has_local_change(self, a, b) -> bool:
+        """True if any tile of the two thumbnails differs beyond tolerance.
+
+        Splits the frames into a tile_grid × tile_grid grid and compares each
+        tile's mean absolute brightness change. A single line of text lands in
+        one or two tiles and drives their mean well past tile_tol, while cursor
+        blink / JPEG noise stays a fraction of it. Fail-safe: any problem (shape
+        mismatch, missing thumb) returns False so the global decision stands.
+        """
+        try:
+            if a is None or b is None or a.shape != b.shape:
+                return False
+            diff = np.abs(a.astype(np.int16) - b.astype(np.int16))
+            n = a.shape[0]
+            step = max(1, n // self._tile_grid)
+            for i in range(0, n, step):
+                for j in range(0, n, step):
+                    tile = diff[i:i + step, j:j + step]
+                    if tile.size and float(tile.mean()) > self._tile_tol:
+                        return True
+            return False
+        except Exception:
+            return False
 
     def get_similarity_score(self) -> float:
         """Get similarity score from last comparison.

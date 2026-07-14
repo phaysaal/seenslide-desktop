@@ -3411,12 +3411,12 @@ class MainDashboard(QWidget):
             ok, _ = validate_region(saved, monitor_width, monitor_height)
             if ok:
                 return saved
-        # Default to the middle 80% (per dimension). The old 50% box was too
-        # small — slides whose only change was near the edges (footer page
-        # number, a revealed line low on the slide, a corner figure) fell
-        # outside it and got wrongly deduplicated. 80% keeps the outer chrome
-        # / letterbox bars out while covering essentially all slide content.
-        return calculate_default_region(monitor_width, monitor_height, 0.8)
+        # Default to ~85% of screen AREA (linear 0.92 per dimension). Slides
+        # whose only change is near the edges (footer page number, a line low
+        # on the slide, a corner figure) must fall inside the compared region,
+        # so we keep the crop between 80% and 90% of the screen — large enough
+        # to catch edge changes, small enough to trim the very outer chrome.
+        return calculate_default_region(monitor_width, monitor_height, 0.92)
 
     def _region_summary(self, region: dict) -> str:
         if not region:
@@ -3455,7 +3455,7 @@ class MainDashboard(QWidget):
         if isinstance(saved, dict):
             current_text = self._region_summary(saved)
         else:
-            current_text = "Default — middle 80% of screen"
+            current_text = "Default — middle ~85% of screen"
 
         self.region_status = QLabel(current_text)
         self.region_status.setStyleSheet(

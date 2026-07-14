@@ -78,6 +78,11 @@ class CaptureDaemon:
             self._slide_gate = None
         self._gated_count = 0
         self._blank_count = 0
+        # Window-state gate (X11): when filtering is armed, keep only frames
+        # whose foreground app is a real presentation (fullscreen OR maximized).
+        # Authoritative on X11; the reference-desktop gate above is the Wayland
+        # fallback. Activated by set_base_reference() at talk start.
+        self._window_gate_active = False
 
         # Store original interval for mode switching
         self._original_interval = session.capture_interval_seconds
@@ -395,16 +400,25 @@ class CaptureDaemon:
         True if a taskbar/panel was found and the gate is now armed, else False
         (the gate abstains and every frame is kept).
         """
+        self._gated_count = 0
+        # Turn on the X11 window-state gate (no base image needed). On X11 this
+        # is what actually does the filtering; the reference-desktop base below
+        # is only used as a Wayland fallback.
+        from modules.capture.window_state import is_available as _winstate_available
+        self._window_gate_active = True
+        window_ok = _winstate_available()
+        if window_ok:
+            logger.info("Slide filtering armed via X11 window-state (fullscreen/maximized detection)")
+
         if self._slide_gate is None:
-            return False
+            return window_ok
         try:
             cap = self._provider.capture()
             armed = self._slide_gate.set_base(cap.image)
-            self._gated_count = 0
-            return armed
+            return armed or window_ok
         except Exception as e:
-            logger.warning(f"Slide gate: base capture failed ({e}); gate stays inactive")
-            return False
+            logger.warning(f"Slide gate: base capture failed ({e}); using window-state gate only")
+            return window_ok
 
     def _is_blank_frame(self, image, thresh: float = 6.0) -> bool:
         """True if the frame is featureless (a solid colour, e.g. a black-out).
@@ -447,15 +461,41 @@ class CaptureDaemon:
                         f"(e.g. black-out / transition); blank so far={self._blank_count}"
                     )
                     return
-                # Slide gate: flag frames that still show the desktop taskbar
-                # (a windowed app / editor / file manager) as "probably not a
-                # slide" instead of dropping them. They still flow through the
-                # pipeline and are stored locally so the presenter can review
-                # them (blurred) in the session window and see exactly what the
-                # gate is doing — but they're kept out of the cloud deck viewers
-                # see (StorageManager skips the cloud upload for hidden slides).
-                # Inactive gate => nothing flagged.
-                if self._slide_gate is not None and self._slide_gate.active:
+                # Slide filtering: mark frames that aren't a real presentation
+                # as hidden (kept locally + shown blurred in the Sessions view,
+                # not uploaded) instead of dropping them, so a false positive is
+                # always recoverable.
+                #
+                # Primary (X11): window-state gate — the foreground app must be
+                # fullscreen OR maximized. This correctly keeps a maximized (not
+                # fullscreen) slide viewer and filters ordinary windowed apps /
+                # the desktop, which the taskbar heuristic can't distinguish.
+                # Fallback (Wayland, no window introspection): reference-desktop
+                # taskbar gate.
+                handled_by_window_gate = False
+                if self._window_gate_active:
+                    try:
+                        from modules.capture.window_state import foreground_state
+                        st = foreground_state()
+                    except Exception:
+                        st = {"available": False}
+                    if st.get("available"):
+                        handled_by_window_gate = True
+                        # Our own window focused => can't judge; keep the frame.
+                        if not st["own"] and not st["presentation"]:
+                            self._gated_count += 1
+                            capture.metadata["hidden"] = True
+                            capture.metadata["gate_reason"] = (
+                                f"foreground not fullscreen/maximized ({st['wm_class']})"
+                            )
+                            logger.info(
+                                f"Slide filter: flagged frame #{self._capture_count} — "
+                                f"foreground window is not maximized/fullscreen "
+                                f"({st['wm_class']}); kept hidden; hidden so far={self._gated_count}"
+                            )
+
+                if (not handled_by_window_gate
+                        and self._slide_gate is not None and self._slide_gate.active):
                     is_desktop, score = self._slide_gate.is_desktop(capture.image)
                     if is_desktop:
                         self._gated_count += 1
