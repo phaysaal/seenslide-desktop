@@ -92,10 +92,11 @@ def apply_app_theme(app, mode):
     app.setPalette(pal)
     app.setStyleSheet(sheet)
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
+# Console + rotating file log (~/.local/share/seenslide/logs on Linux) and
+# crash hooks, so exceptions in Qt slots / background threads — which never
+# reach the try/except in main() — end up in a file users can send us.
+from core.logging_setup import setup_logging
+setup_logging()
 logger = logging.getLogger(__name__)
 
 
