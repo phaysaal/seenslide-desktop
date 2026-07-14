@@ -165,6 +165,24 @@ class SQLiteStorageProvider(IStorageProvider):
             cursor.execute("ALTER TABLE sessions ADD COLUMN cloud_session_id TEXT")
             logger.info("Added cloud_session_id column to sessions table")
 
+        # Upload outbox: cloud slide uploads that failed (network blip,
+        # server error) and must be retried/backfilled so the viewer deck
+        # doesn't develop permanent holes. One row per (talk, slide number);
+        # re-queuing the same slide replaces the old row.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS upload_outbox (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                talk_id TEXT NOT NULL,
+                slide_number INTEGER NOT NULL,
+                image_path TEXT NOT NULL,
+                session_id TEXT,
+                created_at REAL NOT NULL,
+                attempts INTEGER DEFAULT 0,
+                last_attempt REAL,
+                UNIQUE(talk_id, slide_number)
+            )
+        """)
+
         # Create indexes
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_slides_session
@@ -901,6 +919,71 @@ class SQLiteStorageProvider(IStorageProvider):
         except Exception as e:
             logger.error(f"Failed to delete session: {e}")
             return False
+
+    # ------------------------------------------------------------------
+    # Upload outbox (failed cloud slide uploads awaiting retry/backfill)
+    # ------------------------------------------------------------------
+
+    def outbox_add(self, talk_id: str, slide_number: int, image_path: str,
+                   session_id: str = "") -> bool:
+        """Queue a failed slide upload for retry. Replaces any existing row
+        for the same (talk, slide number)."""
+        if not self._initialized:
+            return False
+        try:
+            import time
+            with self._write() as cursor:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO upload_outbox
+                        (talk_id, slide_number, image_path, session_id, created_at, attempts, last_attempt)
+                    VALUES (?, ?, ?, ?, ?, 0, NULL)
+                """, (talk_id, slide_number, image_path, session_id, time.time()))
+            return True
+        except Exception as e:
+            logger.error(f"Failed to queue slide upload for retry: {e}")
+            return False
+
+    def outbox_pending(self, limit: int = 25) -> List[dict]:
+        """Oldest pending upload retries first."""
+        if not self._initialized:
+            return []
+        try:
+            cursor = self._conn.cursor()
+            cursor.execute("""
+                SELECT id, talk_id, slide_number, image_path, session_id,
+                       created_at, attempts
+                FROM upload_outbox
+                ORDER BY created_at ASC
+                LIMIT ?
+            """, (limit,))
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Failed to read upload outbox: {e}")
+            return []
+
+    def outbox_remove(self, row_id: int) -> None:
+        """Drop an outbox row (upload succeeded, or given up)."""
+        if not self._initialized:
+            return
+        try:
+            with self._write() as cursor:
+                cursor.execute("DELETE FROM upload_outbox WHERE id = ?", (row_id,))
+        except Exception as e:
+            logger.error(f"Failed to remove outbox row {row_id}: {e}")
+
+    def outbox_bump(self, row_id: int) -> None:
+        """Record a failed retry attempt."""
+        if not self._initialized:
+            return
+        try:
+            import time
+            with self._write() as cursor:
+                cursor.execute(
+                    "UPDATE upload_outbox SET attempts = attempts + 1, last_attempt = ? WHERE id = ?",
+                    (time.time(), row_id),
+                )
+        except Exception as e:
+            logger.error(f"Failed to bump outbox row {row_id}: {e}")
 
     def cleanup(self) -> None:
         """Clean up resources."""

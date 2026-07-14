@@ -1,6 +1,8 @@
 """Storage manager for coordinating file and metadata storage."""
 
 import logging
+import threading
+import time
 from typing import Optional
 from PIL import Image
 import tempfile
@@ -48,6 +50,13 @@ class StorageManager:
         self._running = False
         self._slides_stored = 0
         self._current_talk_id: Optional[str] = None
+
+        # Upload-outbox retry worker: backfills cloud slide uploads that
+        # failed (network blip, server error), including rows left over from
+        # a previous run. Without it, a failed upload is a permanent hole in
+        # the deck viewers see.
+        self._outbox_stop = threading.Event()
+        self._outbox_thread: Optional[threading.Thread] = None
 
         logger.info(
             f"StorageManager initialized for session: {session.session_id}"
@@ -167,6 +176,17 @@ class StorageManager:
                 self._handle_slide_unique
             )
 
+            # Start the upload-outbox retry worker (also backfills rows left
+            # over from a previous run once the cloud is reachable).
+            if self._cloud.enabled:
+                self._outbox_stop.clear()
+                self._outbox_thread = threading.Thread(
+                    target=self._outbox_loop,
+                    name="upload-outbox",
+                    daemon=True,
+                )
+                self._outbox_thread.start()
+
             self._running = True
             logger.info("Storage manager started")
             return True
@@ -186,6 +206,13 @@ class StorageManager:
             return False
 
         try:
+            # Stop the outbox worker (pending rows persist in SQLite and are
+            # backfilled on the next launch).
+            self._outbox_stop.set()
+            if self._outbox_thread and self._outbox_thread.is_alive():
+                self._outbox_thread.join(timeout=2.0)
+            self._outbox_thread = None
+
             # Unsubscribe from events
             self._event_bus.unsubscribe(
                 EventType.SLIDE_UNIQUE,
@@ -332,6 +359,7 @@ class StorageManager:
                     f"not uploaded to cloud"
                 )
             else:
+                uploaded = None
                 try:
                     import io
                     # JPEG for cloud upload to save bandwidth. Quality is
@@ -344,9 +372,26 @@ class StorageManager:
                     img_byte_arr = io.BytesIO()
                     capture.image.convert('RGB').save(img_byte_arr, format='JPEG', quality=quality, optimize=True)
                     img_byte_arr.seek(0)
-                    self._cloud.save_slide(slide, img_byte_arr.getvalue())
+                    uploaded = self._cloud.save_slide(slide, img_byte_arr.getvalue())
                 except Exception as e:
                     logger.warning(f"Failed to upload slide to cloud: {e}")
+
+                # Upload failed → queue for retry so the viewer deck doesn't
+                # get a permanent hole. The slide image is already safe on
+                # disk (filesystem provider above); the outbox worker re-reads
+                # it from there and backfills when the network recovers —
+                # including across app restarts.
+                if uploaded is None and self._cloud.enabled:
+                    talk_id = slide.talk_id or self._cloud.current_talk_id
+                    if talk_id and slide.image_path:
+                        self._database.outbox_add(
+                            talk_id, slide.sequence_number,
+                            slide.image_path, slide.session_id,
+                        )
+                        logger.warning(
+                            f"Slide #{slide.sequence_number} queued for upload "
+                            f"retry (talk {talk_id})"
+                        )
 
             self._slides_stored += 1
 
@@ -370,6 +415,111 @@ class StorageManager:
         except Exception as e:
             logger.error(f"Failed to save slide: {e}", exc_info=True)
             raise
+
+    # ------------------------------------------------------------------
+    # Upload-outbox retry worker
+    # ------------------------------------------------------------------
+
+    _OUTBOX_INITIAL_DELAY = 10.0   # let identity/network settle after start
+    _OUTBOX_INTERVAL = 30.0        # seconds between drain attempts
+    _OUTBOX_MAX_ATTEMPTS = 100     # give up after this many failed retries
+    _OUTBOX_MAX_AGE = 7 * 24 * 3600  # ...or when the row is a week old
+
+    def _outbox_loop(self) -> None:
+        """Background worker: periodically retry failed slide uploads."""
+        if self._outbox_stop.wait(self._OUTBOX_INITIAL_DELAY):
+            return
+        while True:
+            try:
+                self._drain_outbox()
+            except Exception as e:
+                logger.error(f"Upload-outbox drain failed: {e}", exc_info=True)
+            if self._outbox_stop.wait(self._OUTBOX_INTERVAL):
+                return
+
+    def _drain_outbox(self) -> None:
+        """Retry pending uploads, oldest first.
+
+        Success → row removed (deck hole healed). HTTP 404 → the talk no
+        longer exists, drop the row. Other failures → bump the attempt count
+        and stop this cycle (if the network is down, the rest would fail too).
+        Rows past the attempt/age limits are dropped with a warning.
+        """
+        if not self._cloud.enabled:
+            return
+        rows = self._database.outbox_pending(limit=25)
+        if not rows:
+            return
+
+        import io
+        import os
+        now = time.time()
+        healed = 0
+        for row in rows:
+            if self._outbox_stop.is_set():
+                break
+
+            if (row["attempts"] >= self._OUTBOX_MAX_ATTEMPTS
+                    or now - row["created_at"] > self._OUTBOX_MAX_AGE):
+                logger.warning(
+                    f"Giving up on upload retry for slide #{row['slide_number']} "
+                    f"(talk {row['talk_id']}, {row['attempts']} attempts)"
+                )
+                self._database.outbox_remove(row["id"])
+                continue
+
+            if not os.path.exists(row["image_path"]):
+                logger.warning(
+                    f"Dropping upload retry for slide #{row['slide_number']}: "
+                    f"image file gone ({row['image_path']})"
+                )
+                self._database.outbox_remove(row["id"])
+                continue
+
+            try:
+                quality = int(self._config.get("storage", {}).get("jpeg_quality", 75))
+                quality = max(30, min(95, quality))
+                buf = io.BytesIO()
+                Image.open(row["image_path"]).convert('RGB').save(
+                    buf, format='JPEG', quality=quality, optimize=True
+                )
+                image_data = buf.getvalue()
+            except Exception as e:
+                logger.warning(
+                    f"Dropping upload retry for slide #{row['slide_number']}: "
+                    f"cannot read image ({e})"
+                )
+                self._database.outbox_remove(row["id"])
+                continue
+
+            ok, cloud_slide_id, status = self._cloud.upload_slide_image(
+                row["talk_id"], row["slide_number"], image_data
+            )
+            if ok:
+                self._database.outbox_remove(row["id"])
+                healed += 1
+                # Keep voice markers able to resolve this slide's stable id
+                # if the talk is still the live one.
+                if (cloud_slide_id
+                        and row["talk_id"] == self._cloud.current_talk_id):
+                    self._cloud.slide_ids_by_number[row["slide_number"]] = cloud_slide_id
+                logger.info(
+                    f"Backfilled slide #{row['slide_number']} to talk "
+                    f"{row['talk_id']} (upload retry succeeded)"
+                )
+            elif status == 404:
+                logger.info(
+                    f"Dropping upload retry for slide #{row['slide_number']}: "
+                    f"talk {row['talk_id']} no longer exists"
+                )
+                self._database.outbox_remove(row["id"])
+            else:
+                self._database.outbox_bump(row["id"])
+                # Network is likely down — the remaining rows would fail too.
+                break
+
+        if healed:
+            logger.info(f"Upload outbox: backfilled {healed} slide(s)")
 
     def get_session(self) -> Session:
         """Get the current session.

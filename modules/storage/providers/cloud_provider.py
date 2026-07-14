@@ -390,7 +390,58 @@ class CloudStorageProvider(IStorageProvider):
         finally:
             self._live = False
 
-    def save_slide(self, slide: ProcessedSlide, image_data: bytes = None) -> str:
+    def upload_slide_image(self, talk_id: str, slide_number: int,
+                           image_data: bytes):
+        """Low-level slide upload by explicit (talk_id, slide_number).
+
+        Used both by save_slide (live pipeline) and by the storage manager's
+        upload-outbox retry worker, which backfills slides whose original
+        upload failed.
+
+        Returns:
+            (ok, cloud_slide_id, http_status):
+              ok             – True if the server accepted the upload
+              cloud_slide_id – the cloud's stable slide id (may be None)
+              http_status    – HTTP status on failure (None for network errors);
+                               lets the retry worker drop rows for talks that
+                               no longer exist (404) instead of retrying forever
+        """
+        try:
+            url = f"{self.api_url}/api/cloud/talk/{talk_id}/upload-slide?slide_number={slide_number}"
+            headers = {
+                "Authorization": f"Bearer {self.session_token}"
+            }
+            files = {
+                "file": (f"slide_{slide_number:03d}.jpg", image_data, "image/jpeg")
+            }
+
+            logger.debug(f"Uploading slide {slide_number} to talk {talk_id}...")
+            response = requests.post(url, headers=headers, files=files, timeout=30)
+            response.raise_for_status()
+
+            cloud_slide_id = None
+            try:
+                body = response.json()
+                cloud_slide_id = (
+                    body.get("slide_id")
+                    or body.get("slide", {}).get("slide_id")
+                )
+            except Exception:
+                pass
+            return True, cloud_slide_id, response.status_code
+
+        except Exception as e:
+            status = None
+            if hasattr(e, 'response') and e.response is not None:
+                status = e.response.status_code
+                try:
+                    logger.error(f"Response body: {e.response.text}")
+                except Exception:
+                    pass
+            logger.error(f"Failed to upload slide {slide_number}: {e}")
+            return False, None, status
+
+    def save_slide(self, slide: ProcessedSlide, image_data: bytes = None) -> Optional[str]:
         """Upload slide to cloud.
 
         Args:
@@ -398,7 +449,9 @@ class CloudStorageProvider(IStorageProvider):
             image_data: Image data in bytes (optional, reads from slide.image_path if not provided)
 
         Returns:
-            Slide ID if successful
+            Slide ID on success or intentional skip (cloud disabled / no
+            talk), None on a genuine upload failure — the caller queues
+            failures in the upload outbox for retry.
         """
         if not self.enabled:
             return slide.slide_id
@@ -410,61 +463,34 @@ class CloudStorageProvider(IStorageProvider):
             logger.warning(f"No talk_id for slide {slide.sequence_number}, skipping cloud upload")
             return slide.slide_id
 
-        try:
-            # Use talk-specific endpoint for correct hierarchy (verified to work)
-            url = f"{self.api_url}/api/cloud/talk/{talk_id}/upload-slide?slide_number={slide.sequence_number}"
-            headers = {
-                "Authorization": f"Bearer {self.session_token}"
-            }
+        ok, cloud_slide_id, _status = self.upload_slide_image(
+            talk_id, slide.sequence_number, image_data
+        )
+        if not ok:
+            # Don't disable on single slide failure; caller retries via outbox.
+            return None
 
-            # Prepare image file
-            files = {
-                "file": (f"slide_{slide.sequence_number:03d}.jpg", image_data, "image/jpeg")
-            }
+        # Remember the cloud's stable slide_id for this slide number —
+        # voice markers prefer it over the reorder-fragile slide_number.
+        if cloud_slide_id:
+            self.slide_ids_by_number[slide.sequence_number] = cloud_slide_id
 
-            logger.debug(f"Uploading slide {slide.sequence_number} to talk {talk_id}...")
-            response = requests.post(url, headers=headers, files=files, timeout=30)
-            response.raise_for_status()
+        logger.info(f"✅ Uploaded slide {slide.sequence_number} to talk {talk_id}")
 
-            # Remember the cloud's stable slide_id for this slide number —
-            # voice markers prefer it over the reorder-fragile slide_number.
-            try:
-                body = response.json()
-                cloud_slide_id = (
-                    body.get("slide_id")
-                    or body.get("slide", {}).get("slide_id")
-                )
-                if cloud_slide_id:
-                    self.slide_ids_by_number[slide.sequence_number] = cloud_slide_id
-            except Exception:
-                pass
+        # Tell live viewers the presenter is now on this slide. The
+        # newest unique slide IS the current slide during a talk.
+        # Fire-and-forget: this runs on the slide-storage thread, and a
+        # slow server (observed 10s+ read timeouts under load) must not
+        # stall the capture→store pipeline for a best-effort UI ping.
+        if self._live:
+            threading.Thread(
+                target=self.navigate_slide,
+                args=(slide.sequence_number, talk_id),
+                daemon=True,
+                name="live-navigate",
+            ).start()
 
-            logger.info(f"✅ Uploaded slide {slide.sequence_number} to talk {talk_id}")
-
-            # Tell live viewers the presenter is now on this slide. The
-            # newest unique slide IS the current slide during a talk.
-            # Fire-and-forget: this runs on the slide-storage thread, and a
-            # slow server (observed 10s+ read timeouts under load) must not
-            # stall the capture→store pipeline for a best-effort UI ping.
-            if self._live:
-                threading.Thread(
-                    target=self.navigate_slide,
-                    args=(slide.sequence_number, talk_id),
-                    daemon=True,
-                    name="live-navigate",
-                ).start()
-
-            return slide.slide_id
-
-        except Exception as e:
-            logger.error(f"Failed to upload slide {slide.sequence_number}: {e}")
-            if hasattr(e, 'response') and e.response is not None:
-                try:
-                    logger.error(f"Response body: {e.response.text}")
-                except Exception:
-                    pass
-            # Don't disable on single slide failure
-            return slide.slide_id
+        return slide.slide_id
 
     def get_slide(self, slide_id: str) -> Optional[ProcessedSlide]:
         """Get slide from cloud (not implemented - use local storage)."""
