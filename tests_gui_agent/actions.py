@@ -9,6 +9,7 @@ points the cloud at a dead localhost port so nothing leaves the machine.
 """
 import logging
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -49,13 +50,46 @@ def press_key(key: str):
 
 # Global offset of the last-captured monitor: screenshot pixel coords ->
 # X11 desktop coords for xdotool. On a single monitor this is (0,0); with
-# multiple monitors it's what kept clicks from landing on the wrong screen.
+# multiple monitors it's what keeps clicks from landing on the wrong screen.
 _monitor_offset = (0, 0)
+_primary_idx = None
 
 
-def screenshot(path: str, monitor: int = 1):
-    """Full-monitor PNG. Returns (width, height)."""
+def primary_monitor() -> int:
+    """mss index of the PRIMARY monitor (via xrandr), cached.
+
+    With multiple monitors, mss's ordering is arbitrary — the harness must
+    capture, click, and place the app window on the same physical screen,
+    and that screen should be the user's primary.
+    """
+    global _primary_idx
+    if _primary_idx is not None:
+        return _primary_idx
+    idx = 1  # sensible fallback
+    try:
+        out = subprocess.run(["xrandr", "--query"], capture_output=True,
+                             text=True, timeout=5).stdout
+        import re
+        m = re.search(r" connected primary (\d+)x(\d+)\+(\d+)\+(\d+)", out)
+        if m:
+            w, h, x, y = map(int, m.groups())
+            with mss.mss() as sct:
+                for i, mon in enumerate(sct.monitors[1:], start=1):
+                    if (mon["left"], mon["top"], mon["width"], mon["height"]) == (x, y, w, h):
+                        idx = i
+                        break
+    except Exception as e:
+        logger.warning(f"primary-monitor detection failed ({e}); using monitor 1")
+    _primary_idx = idx
+    logger.info(f"primary monitor -> mss index {idx}")
+    return idx
+
+
+def screenshot(path: str, monitor: int = None):
+    """Primary-monitor PNG (or an explicit mss index). Returns (width, height)."""
     global _monitor_offset
+    if monitor is None:
+        monitor = primary_monitor()
     with mss.mss() as sct:
         mon = sct.monitors[monitor]
         _monitor_offset = (mon.get("left", 0), mon.get("top", 0))
@@ -119,19 +153,60 @@ class App:
             raise RuntimeError(f"app exited immediately (code {self.proc.returncode})")
         self.position_window()
 
-    def position_window(self, x: int = 60, y: int = 40):
-        """Fixed position → stable screenshots → the coordinate cache stays
-        valid across runs."""
-        try:
+    def _app_window_ids(self):
+        """Our app's window ids — PID-scoped when possible, so another
+        SeenSlide instance (or any window with a matching title) can't be
+        moved by mistake."""
+        if self.proc and self.proc.poll() is None:
             out = subprocess.run(
-                ["xdotool", "search", "--name", APP_WINDOW_TITLE],
+                ["xdotool", "search", "--pid", str(self.proc.pid)],
                 capture_output=True, text=True, timeout=10)
-            wid = (out.stdout.split() or [""])[0]
-            if wid:
-                _xdo("windowmove", wid, str(x), str(y))
-                _xdo("windowactivate", wid)
-                _xdo("windowraise", wid)
+            wids = out.stdout.split()
+            if wids:
+                return wids
+        out = subprocess.run(
+            ["xdotool", "search", "--name", APP_WINDOW_TITLE],
+            capture_output=True, text=True, timeout=10)
+        return out.stdout.split()
+
+    def position_window(self, x: int = 60, y: int = 40):
+        """Fixed position ON THE PRIMARY MONITOR, verified.
+
+        GNOME opens new windows on the monitor holding the mouse pointer —
+        on a two-monitor setup that put the app on the wrong screen and a
+        single unverified move raced the WM's initial placement. Move, then
+        read the geometry back; retry until it actually sits inside the
+        primary monitor."""
+        try:
+            idx = primary_monitor()
+            with mss.mss() as sct:
+                mon = sct.monitors[idx]
+            gx, gy = mon["left"] + x, mon["top"] + y
+            wids = self._app_window_ids()
+            if not wids:
+                logger.warning("app window not found for positioning")
+                return
+            for attempt in range(4):
+                for wid in wids:
+                    try:
+                        _xdo("windowmove", wid, str(gx), str(gy))
+                        _xdo("windowactivate", wid)
+                        _xdo("windowraise", wid)
+                    except Exception:
+                        pass
                 time.sleep(0.5)
+                geo = subprocess.run(
+                    ["xdotool", "getwindowgeometry", wids[-1]],
+                    capture_output=True, text=True, timeout=5).stdout
+                m = re.search(r"Position:\s*(-?\d+),(-?\d+)", geo)
+                if m:
+                    wx, wy = int(m.group(1)), int(m.group(2))
+                    inside = (mon["left"] <= wx < mon["left"] + mon["width"]
+                              and mon["top"] <= wy < mon["top"] + mon["height"])
+                    if inside:
+                        return
+                logger.info(f"window not on primary yet (attempt {attempt + 1}) — retrying")
+            logger.warning("could not verify window on primary monitor")
         except Exception as e:
             logger.warning(f"could not position window: {e}")
 
