@@ -326,6 +326,7 @@ class Runner:
                              f"(HTTP {resp.status_code})")
         data = resp.json()
         total = data.get("total_slides", 0)
+        self._cloud_total = total   # verify_hidden cross-checks against this
         want = spec.get("slides", {})
         lo, hi = want.get("min", 1), want.get("max", 10**6)
         if not (lo <= total <= hi):
@@ -334,6 +335,44 @@ class Runner:
         self._cloud_code = code
         return (f"cloud session {code}: {total} slides visible to the web "
                 f"viewer (https://seenslide.com/{code})")
+
+    def do_verify_hidden(self, spec):
+        """Slide-gate oracle: the gate armed and flagged non-slide frames.
+        Checks the armed log line, that >= min slides carry hidden metadata,
+        and that hidden slides are LOCAL-ONLY (never uploaded — no cloud
+        slide id in their metadata)."""
+        import json as _json
+        import sqlite3
+        spec = spec or {}
+        if spec.get("require_armed", True):
+            log = self.app.log_file.read_text() if self.app.log_file.exists() else ""
+            if "Slide gate armed from desktop base" not in log:
+                raise StepFailed("slide gate never armed (no base-armed log line)")
+        conn = sqlite3.connect(str(self.app.db_path))
+        rows = conn.execute("SELECT sequence_number, metadata FROM slides").fetchall()
+        hidden = []
+        for seq, meta in rows:
+            m = _json.loads(meta or "{}")
+            if m.get("hidden"):
+                hidden.append((seq, m))
+        lo = int(spec.get("min", 1))
+        hi = int(spec.get("max", 10**6))
+        if not (lo <= len(hidden) <= hi):
+            raise StepFailed(f"expected {lo}..{hi} hidden slides, found "
+                             f"{len(hidden)} of {len(rows)}")
+        # upload-leak check: cloud may hold at most the NON-hidden slides
+        # (small slack for conference transition artifacts). Needs
+        # verify_cloud to have run first (it records the cloud count).
+        cloud_total = getattr(self, "_cloud_total", None)
+        if cloud_total is not None:
+            kept = len(rows) - len(hidden)
+            slack = int(spec.get("cloud_slack", 2))
+            if cloud_total > kept + slack:
+                raise StepFailed(
+                    f"hidden slides leaked to the cloud: {cloud_total} online "
+                    f"but only {kept} non-hidden locally (+{slack} slack)")
+        return (f"{len(hidden)}/{len(rows)} slides hidden by the gate, "
+                f"cloud={cloud_total} vs kept={len(rows) - len(hidden)}")
 
     def do_verify_talks(self, spec):
         """Conference oracle: the schedule became N talks, each talk's

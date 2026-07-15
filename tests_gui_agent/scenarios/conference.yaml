@@ -67,7 +67,11 @@ steps:
       title_pages: [1, 4, 7]
       max_distance: 16
   - verify_slides_match_pdf: {file: conference2026.pdf, max_distance: 16, min_matched: 7}
-  - verify_cloud: {slides: {min: 6, max: 20}}
+  # 9 real pages (+small slack for talk-transition artifacts) — the tail
+  # app-screen frames must NOT be here now that the gate hides them
+  - verify_cloud: {slides: {min: 8, max: 12}}
+  # slide gate: armed at countdown start, tail frames hidden, none uploaded
+  - verify_hidden: {min: 1, max: 8}
   # last talk's recording: ~30s of narration with markers on its slides
   - verify_voice: {min_duration: 15, min_markers: 2, min_peak: 0.05}
   - kill: {}

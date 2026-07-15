@@ -137,8 +137,10 @@ class App:
         cfg_dir = self.sandbox / ".config" / "seenslide"
         cfg_dir.mkdir(parents=True)
         consent = "true" if cloud else "false"
+        # no slide_gate_enabled override: scenarios exercise the app's REAL
+        # default (gate on, armed at countdown start)
         (cfg_dir / ".app_settings.json").write_text(
-            f'{{"cloud_consent": {consent}, "theme": "dark", "slide_gate_enabled": false}}'
+            f'{{"cloud_consent": {consent}, "theme": "dark"}}'
         )
         # Suppress the anonymous-account sign-in nudges: a fresh identity
         # always triggers tier A on the first slide, and the dialog popped up
