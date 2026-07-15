@@ -67,12 +67,13 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done
 
 ## 🟡 Polish / product decisions
 
-- [ ] **Conference transitions leave already-uploaded tail slides in the
-      cloud.** `_conf_remove_trigger_slide` deletes the transition tail from
-      the old talk locally, but frames uploaded before the deletion stay in
-      the cloud session (~+2 slides per auto-advance; observed in harness
-      runs JJY-8540/DXJ-2040). Needs a cloud-side delete when removing the
-      local tail.
+- [x] **Conference transitions leave already-uploaded tail slides in the
+      cloud.** Root cause was server-side: the deletes worked, but
+      `cloud_sessions.total_slides` was never decremented on any delete
+      path, so the public endpoint over-reported. Fixed in the backend
+      (decrement_slide_count on all delete paths + migration 046 recount
+      backfill, deployed Jul 15). Harness verify_hidden now enforces
+      cloud == kept with zero slack (run WRF-7119: 9 == 9).
 - [x] **Settings/Preferences screen.** New sidebar Settings page: theme,
       capture backend + interval, slide filtering, microphone picker (by
       name, index-shift safe), image quality, cloud sync on/off (gives the
