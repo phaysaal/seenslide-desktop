@@ -64,7 +64,52 @@ class Runner:
 
     def do_launch(self, spec):
         self.app.launch(wait=float(spec.get("wait", 8)),
-                        cloud=bool(spec.get("cloud", False)))
+                        cloud=bool(spec.get("cloud", False)),
+                        api_url=spec.get("api_url"))
+
+    def do_relay(self, spec):
+        """Local HTTP relay to the real cloud — stopping it simulates a
+        network outage (instant connection-refused), starting it restores
+        service. The offline-resilience scenario's whole premise."""
+        import subprocess
+        action = spec.get("action", "start")
+        port = int(spec.get("port", 8899))
+        if action == "start":
+            if getattr(self, "_relay", None) and self._relay.poll() is None:
+                return "relay already running"
+            self._relay = subprocess.Popen(
+                [str(HERE.parent / "venv" / "bin" / "python3"),
+                 "-m", "tests_gui_agent.relay", "--port", str(port),
+                 "--target", spec.get("target", "https://seenslide.com")],
+                cwd=str(HERE.parent),
+                stdout=open(self.run_dir / "relay.log", "ab"),
+                stderr=subprocess.STDOUT)
+            time.sleep(1.0)
+            if self._relay.poll() is not None:
+                raise StepFailed("relay exited immediately — see relay.log")
+            return f"relay up on 127.0.0.1:{port}"
+        if action == "stop":
+            r = getattr(self, "_relay", None)
+            if not r or r.poll() is not None:
+                raise StepFailed("relay is not running")
+            r.terminate()
+            r.wait(timeout=5)
+            return "relay stopped — cloud unreachable"
+        raise StepFailed(f"unknown relay action: {action}")
+
+    def do_verify_outbox(self, spec):
+        """The upload outbox holds exactly the expected number of pending
+        rows (0 after a successful backfill)."""
+        import sqlite3
+        conn = sqlite3.connect(str(self.app.db_path))
+        n = conn.execute("SELECT COUNT(*) FROM upload_outbox").fetchone()[0]
+        conn.close()
+        want = int(spec.get("pending", 0))
+        lo = int(spec.get("min", want))
+        hi = int(spec.get("max", want))
+        if not (lo <= n <= hi):
+            raise StepFailed(f"outbox has {n} pending row(s), expected {lo}..{hi}")
+        return f"outbox: {n} pending row(s)"
 
     def do_kill(self, spec):
         self.app.kill()
@@ -588,6 +633,8 @@ class Runner:
                     self._mic.destroy()
                 except Exception:
                     logger.exception("virtual mic teardown failed")
+            if getattr(self, "_relay", None) and self._relay.poll() is None:
+                self._relay.kill()
             # final state + app log land in the artifacts
             try:
                 self.shot("final")

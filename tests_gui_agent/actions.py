@@ -113,7 +113,7 @@ class App:
         self.proc = None
         self.sandbox = None
 
-    def make_sandbox(self, cloud: bool = False) -> Path:
+    def make_sandbox(self, cloud: bool = False, api_url: str = None) -> Path:
         """Fresh HOME with consent pre-answered.
 
         cloud=False (default): fully offline — cloud disabled and pointed at
@@ -158,7 +158,10 @@ class App:
         cfg.setdefault("cloud", {})
         if cloud:
             cfg["cloud"]["enabled"] = True
-            cfg["cloud"]["api_url"] = "https://seenslide.com"
+            # api_url override: offline-resilience scenarios route through a
+            # local relay (kill = outage); identity.py allows http for
+            # localhost only, so the override stays loopback-safe.
+            cfg["cloud"]["api_url"] = api_url or "https://seenslide.com"
             (cfg_dir / ".device_id").write_text(f"gui-test-{uuid.uuid4()}")
         else:
             cfg["cloud"]["enabled"] = False
@@ -172,8 +175,8 @@ class App:
     def db_path(self) -> Path:
         return self.sandbox / "data" / "db" / "seenslide.db"
 
-    def launch(self, wait: float = 8.0, cloud: bool = False):
-        self.make_sandbox(cloud=cloud)
+    def launch(self, wait: float = 8.0, cloud: bool = False, api_url: str = None):
+        self.make_sandbox(cloud=cloud, api_url=api_url)
         env = dict(os.environ)
         env["HOME"] = str(self.sandbox)
         env["XDG_DATA_HOME"] = str(self.sandbox / ".local" / "share")

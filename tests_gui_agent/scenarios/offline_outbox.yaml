@@ -1,0 +1,54 @@
+# P5: offline resilience — the upload outbox heals the deck after an outage.
+# The app talks to the cloud through a local relay; killing the relay is a
+# clean network outage (instant connection-refused). Timeline:
+#   pages 1-3 upload live -> OUTAGE -> pages 4-6 fail and queue in the
+#   upload_outbox -> relay restored -> the 30s retry worker backfills ->
+#   outbox empty and the web viewer shows the complete deck.
+name: offline-outbox
+steps:
+  - relay: {action: start, port: 8899}
+  - launch: {wait: 12, cloud: true, api_url: "http://127.0.0.1:8899"}
+  - virtual_mic: {}
+  # -- collection + talk ------------------------------------------------------
+  - click: {find: "the 'Sessions' item in the left sidebar"}
+  - wait: 2
+  - click: {find: "the blue '+ New' button at the top of the sessions list panel"}
+  - wait: 1
+  - click: {find: "the text input field inside the new-session dialog"}
+  - type: "P5 Outbox"
+  - click: {find: "the confirm button of the dialog (OK or Create)"}
+  - wait: 4
+  - click: {find: "the 'Home' item in the left sidebar"}
+  - wait: 1
+  - click: {find: "the green 'Start Presenting' button inside the Single Talk card"}
+  - wait: 1
+  - click: {find: "the text input field directly under the TALK TITLE label"}
+  - type: "P5 Outbox Talk"
+  - click: {find: "the text input field directly under the PRESENTER NAME label"}
+  - type: "Harness"
+  - click: {find: "the large green 'Start Presenting' button at the bottom of the form"}
+  # -- online: pages 1-3 upload as they're captured ---------------------------
+  - present_pdf: {file: FLOPS2022Slide.pdf, start_page: 1, max_pages: 3,
+                  page_interval: 5, hold_first: 14}
+  - wait_presenter: {timeout: 120}
+  # -- OUTAGE: pages 4-6 must queue, not vanish -------------------------------
+  - relay: {action: stop}
+  - present_pdf: {file: FLOPS2022Slide.pdf, start_page: 4, max_pages: 3,
+                  page_interval: 5, hold_first: 8}
+  - wait_presenter: {timeout: 120}
+  - verify_log: {pattern: "queued for upload retry", min: 2}
+  - verify_outbox: {min: 2, max: 8}
+  # -- recovery: the retry worker (30s cadence) backfills ---------------------
+  - relay: {action: start, port: 8899}
+  - wait: 45
+  - verify_log: {pattern: "Upload outbox: backfilled"}
+  - verify_outbox: {pending: 0}
+  # -- end + full-deck oracles ------------------------------------------------
+  - click: {find: "the red 'End Presentation' button"}
+  - wait: 10
+  - verify_db: {slides: {min: 5, max: 18}}
+  - verify_slides_match_pdf: {file: FLOPS2022Slide.pdf, max_pages: 6,
+                              max_distance: 16, min_matched: 5}
+  - verify_cloud: {slides: {min: 5, max: 9}}
+  - verify_hidden: {min: 1, cloud_slack: 0}
+  - kill: {}
