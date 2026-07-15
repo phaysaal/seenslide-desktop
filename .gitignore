@@ -49,8 +49,8 @@ sample_gui/
 testing_scripts/
 tools/
 
-# Test scripts
-test_*.py
+# Ad-hoc test scripts in the repo root (the real suite lives in tests/)
+/test_*.py
 check_cloud_config.py
 
 # Viewer experiments
