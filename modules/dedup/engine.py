@@ -134,6 +134,23 @@ class DeduplicationEngine:
         """
         return self._running
 
+    def inject_capture(self, capture: RawCapture) -> None:
+        """Run a capture straight through the unique path, skipping comparison.
+
+        Conference auto-advance uses this to carry the detected title slide
+        into the newly started talk: it becomes the talk's first slide
+        (publishing SLIDE_UNIQUE so storage/cloud/voice all treat it like a
+        real capture), and it seeds the fresh dedup history so the same frame
+        still on screen isn't stored a second time.
+        """
+        current_fp = (self._strategy.fingerprint(capture, crop_region=self._crop_region)
+                      if self._fp_mode else None)
+        self._total_captures += 1
+        self._mark_as_unique(capture, None)
+        self._previous_capture = capture
+        self._remember_unique(capture, current_fp)
+        logger.info(f"Injected capture as slide #{self._unique_slides} (carried into new talk)")
+
     def reset(self) -> None:
         """Clear dedup state so a new talk is compared only against its own
         slides.

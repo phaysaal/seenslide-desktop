@@ -2363,6 +2363,16 @@ class MainDashboard(QWidget):
             return
         self._conf_transitioning = True
         self._conf_trigger_slide = trigger_slide
+        # Keep the trigger frame in memory: its file is deleted with the old
+        # talk's tail during finalize, but the image itself becomes slide #1
+        # of the NEW talk.
+        self._conf_trigger_image = None
+        if trigger_slide is not None:
+            try:
+                from PIL import Image as _PILImage
+                self._conf_trigger_image = _PILImage.open(trigger_slide.image_path).convert("RGB")
+            except Exception as e:
+                logger.warning(f"Could not preload trigger slide image: {e}")
         self.btn_next_talk.setEnabled(False)
         self.btn_next_talk.setText("Switching…")
         self.status_text.setText("Finalizing talk...")
@@ -2391,26 +2401,55 @@ class MainDashboard(QWidget):
         threading.Thread(target=_finalize, daemon=True).start()
 
     def _conf_remove_trigger_slide(self, slide):
-        """Delete the auto-advance trigger slide from the talk it ended."""
+        """Remove the trigger slide AND everything after it from the ending
+        talk.
+
+        The trigger slide is the next talk's title slide — but OCR takes a
+        few seconds, and captures keep landing in the old talk during that
+        window (e.g. the presenter already advancing to their second slide).
+        Every slide from the trigger onward was captured after the next talk
+        appeared on screen, so none of it belongs to the ending talk.
+        """
         try:
             db = self.orchestrator.storage_manager._database
-            with db._write() as cursor:
-                cursor.execute("DELETE FROM slides WHERE slide_id = ?", (slide.slide_id,))
             cloud = self.orchestrator.storage_manager._cloud
-            if cloud.enabled and slide.talk_id:
-                cloud.delete_slide_by_number(slide.talk_id, slide.sequence_number)
-            for path in (slide.image_path, slide.thumbnail_path):
-                if path and os.path.exists(path):
-                    try:
-                        os.remove(path)
-                    except Exception:
-                        pass
+
+            # Collect the tail (trigger + anything stored during the OCR /
+            # transition window) before deleting, so files and cloud copies
+            # can be cleaned up too.
+            cursor = db._conn.cursor()
+            cursor.execute(
+                "SELECT slide_id, sequence_number, image_path, thumbnail_path "
+                "FROM slides WHERE talk_id = ? AND sequence_number >= ?",
+                (slide.talk_id, slide.sequence_number),
+            )
+            tail = [dict(r) for r in cursor.fetchall()]
+            if not tail:
+                return
+
+            with db._write() as w:
+                w.execute(
+                    "DELETE FROM slides WHERE talk_id = ? AND sequence_number >= ?",
+                    (slide.talk_id, slide.sequence_number),
+                )
+
+            for row in tail:
+                if cloud.enabled and slide.talk_id:
+                    cloud.delete_slide_by_number(slide.talk_id, row["sequence_number"])
+                for path in (row["image_path"], row["thumbnail_path"]):
+                    if path and os.path.exists(path):
+                        try:
+                            os.remove(path)
+                        except Exception:
+                            pass
+
+            nums = [r["sequence_number"] for r in tail]
             logger.info(
-                f"Removed auto-advance trigger slide #{slide.sequence_number} "
-                f"from ending talk {slide.talk_id}"
+                f"Removed slide(s) {nums} from ending talk {slide.talk_id} "
+                f"(next talk's title slide + frames captured during the switch)"
             )
         except Exception as e:
-            logger.warning(f"Could not remove trigger slide: {e}")
+            logger.warning(f"Could not remove trigger slides: {e}")
 
     def _conf_start_next(self):
         """Previous talk finalized — bring up the next one."""
@@ -2431,12 +2470,20 @@ class MainDashboard(QWidget):
             if not self.orchestrator.start_voice_recording():
                 logger.warning("Voice recording failed to start for next talk")
 
+        # OCR-triggered advance: the matched title slide becomes slide #1 of
+        # THIS talk — injected from the exact frame OCR matched (its copy in
+        # the previous talk was removed during finalize). Injection also
+        # seeds the fresh dedup history, so if the same frame is still on
+        # screen the next capture dedups instead of storing it twice; if the
+        # presenter already advanced, the immediate capture below stores the
+        # current slide as #2.
+        img = getattr(self, "_conf_trigger_image", None)
+        if getattr(self, "_conf_trigger_slide", None) is not None and img is not None:
+            self.orchestrator.inject_slide_image(img)
+        self._conf_trigger_image = None
+
         self.orchestrator.set_capture_mode(CaptureMode.ACTIVE)
 
-        # If OCR triggered this advance, the next talk's title slide is on
-        # screen right now — capture it immediately so it lands as slide #1
-        # of the talk it belongs to (its stray copy in the previous talk was
-        # already removed during finalize).
         if getattr(self, "_conf_trigger_slide", None) is not None:
             self._conf_trigger_slide = None
             try:

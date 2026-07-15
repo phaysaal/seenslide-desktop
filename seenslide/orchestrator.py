@@ -517,6 +517,32 @@ class SeenSlideOrchestrator:
             return False
         return self.capture_daemon.set_base_reference()
 
+    def inject_slide_image(self, image) -> bool:
+        """Insert a PIL image as the next unique slide of the current talk.
+
+        Conference auto-advance carries the detected title slide into the new
+        talk this way: the frame becomes slide #1 and seeds the fresh dedup
+        history, so the identical frame still on screen isn't stored twice.
+        """
+        if not self.dedup_engine:
+            return False
+        try:
+            from core.models.slide import RawCapture
+            img = image.convert("RGB")
+            cap = RawCapture(
+                image=img,
+                timestamp=time.time(),
+                monitor_id=0,
+                width=img.width,
+                height=img.height,
+                metadata={"injected": True},
+            )
+            self.dedup_engine.inject_capture(cap)
+            return True
+        except Exception as e:
+            logger.warning(f"Could not inject slide image: {e}")
+            return False
+
     def get_gated_count(self) -> int:
         """Desktop/windowed frames the slide gate has filtered this talk."""
         if not self.capture_daemon:
