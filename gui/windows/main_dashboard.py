@@ -2300,6 +2300,8 @@ class MainDashboard(QWidget):
         self._countdown.show()
         self._countdown.raise_()
         self._countdown.start()
+        # base grab at countdown start — see _pregrab_gate_base
+        self._pregrab_gate_base()
 
     def _cancel_conf_countdown(self):
         """Countdown aborted — leave conference mode and go back to setup."""
@@ -3889,7 +3891,7 @@ class MainDashboard(QWidget):
         self.set_gate_combo = QComboBox()
         self.set_gate_combo.addItem("Off — keep every capture", False)
         self.set_gate_combo.addItem("On — hide non-presentation frames", True)
-        self.set_gate_combo.setCurrentIndex(1 if app_settings.get("slide_gate_enabled", False) else 0)
+        self.set_gate_combo.setCurrentIndex(1 if app_settings.get("slide_gate_enabled", True) else 0)
         self.set_gate_combo.setFixedWidth(280)
         self.set_gate_combo.setStyleSheet(combo_style)
         self.set_gate_combo.currentIndexChanged.connect(
@@ -4053,7 +4055,7 @@ class MainDashboard(QWidget):
             self.set_quality_slider.blockSignals(False)
             self._on_settings_quality_changed(self.set_quality_slider.value())
             self.set_gate_combo.setCurrentIndex(
-                1 if app_settings.get("slide_gate_enabled", False) else 0)
+                1 if app_settings.get("slide_gate_enabled", True) else 0)
             self.set_cloud_combo.setCurrentIndex(
                 0 if app_settings.get("cloud_consent", True) is not False else 1)
             self._populate_mic_combo()
@@ -4651,6 +4653,12 @@ class MainDashboard(QWidget):
         self._countdown.raise_()
         self._countdown.start()
 
+        # Grab the slide-gate desktop base NOW, at countdown start — the one
+        # moment the desktop is reliably visible. By countdown end the deck
+        # is often already fullscreen and minimizing reveals slides, not the
+        # desktop (the old arming bug that forced the gate off by default).
+        self._pregrab_gate_base()
+
     def _cancel_countdown(self):
         """Handle countdown cancellation — go back to setup."""
         if hasattr(self, '_countdown'):
@@ -4658,19 +4666,46 @@ class MainDashboard(QWidget):
             self._countdown.deleteLater()
         self._switch_view(1)
 
-    def _arm_slide_gate_then_active(self):
-        """Capture a clean desktop base for the slide gate (minimize the app so
-        it isn't part of the reference), then switch capture to ACTIVE.
+    def _pregrab_gate_base(self):
+        """Capture the slide-gate desktop base at COUNTDOWN START (minimize
+        the app so it isn't part of the reference, grab, restore).
 
-        The whole thing is best-effort: if the setting is off, or minimizing /
-        base capture fails, we go straight to ACTIVE and the gate stays inactive
-        (every frame is kept — a real slide is never dropped by mistake)."""
-        # Slide gate defaults OFF: its auto-base-capture (minimize → grab) is
-        # unreliable when the slides are already fullscreen — minimizing reveals
-        # the slideshow, not the desktop, so the gate learns slide content as
-        # its "taskbar" and then hides real slides. Kept opt-in until the base
-        # capture is made robust.
-        if not app_settings.get("slide_gate_enabled", False):
+        Best-effort: if the setting is off or the grab fails, the gate simply
+        stays unarmed and every frame is kept — a real slide is never dropped
+        by mistake."""
+        self._gate_prearmed = False
+        if not app_settings.get("slide_gate_enabled", True):
+            return
+        try:
+            self.showMinimized()
+            # Give the compositor a moment so the capture stream shows the
+            # desktop (not the app) before we grab the base.
+            QTimer.singleShot(600, self._pregrab_gate_base_finish)
+        except Exception as e:
+            logger.debug(f"Slide-gate base pre-grab skipped: {e}")
+
+    def _pregrab_gate_base_finish(self):
+        try:
+            armed = self.orchestrator.capture_base_reference()
+            self._gate_prearmed = armed
+            logger.info("Slide gate " + ("armed from desktop base (countdown start)"
+                        if armed else "abstaining — no taskbar in base; all frames kept"))
+        except Exception as e:
+            logger.debug(f"Slide-gate base grab failed: {e}")
+        finally:
+            self.showNormal()
+            self.raise_()
+
+    def _arm_slide_gate_then_active(self):
+        """Switch capture to ACTIVE, arming the slide gate first if needed.
+
+        The base is normally pre-grabbed at countdown start (see
+        _pregrab_gate_base — the desktop is reliably visible then). The
+        minimize-and-grab here is only the fallback for paths that never ran
+        a countdown; if the deck is already fullscreen it grabs slide
+        content, finds no taskbar, and safely abstains."""
+        if (not app_settings.get("slide_gate_enabled", True)
+                or getattr(self, "_gate_prearmed", False)):
             self.orchestrator.set_capture_mode(CaptureMode.ACTIVE)
             return
         try:

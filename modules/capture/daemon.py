@@ -479,10 +479,17 @@ class CaptureDaemon:
                         st = foreground_state()
                     except Exception:
                         st = {"available": False}
-                    if st.get("available"):
+                    # Our own window focused => the window state can't judge
+                    # what the CAPTURED monitor shows (two-monitor setups
+                    # focus the app while the deck plays on the captured
+                    # screen). Don't keep unconditionally — fall through to
+                    # the reference-desktop taskbar gate below, which judges
+                    # the captured pixels themselves: a frame of our own
+                    # dashboard shows the panel (hidden), a fullscreen deck
+                    # covers it (kept).
+                    if st.get("available") and not st["own"]:
                         handled_by_window_gate = True
-                        # Our own window focused => can't judge; keep the frame.
-                        if not st["own"] and not st["presentation"]:
+                        if not st["presentation"]:
                             self._gated_count += 1
                             capture.metadata["hidden"] = True
                             capture.metadata["gate_reason"] = (

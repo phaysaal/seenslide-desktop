@@ -67,6 +67,12 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done
 
 ## 🟡 Polish / product decisions
 
+- [ ] **Conference transitions leave already-uploaded tail slides in the
+      cloud.** `_conf_remove_trigger_slide` deletes the transition tail from
+      the old talk locally, but frames uploaded before the deletion stay in
+      the cloud session (~+2 slides per auto-advance; observed in harness
+      runs JJY-8540/DXJ-2040). Needs a cloud-side delete when removing the
+      local tail.
 - [x] **Settings/Preferences screen.** New sidebar Settings page: theme,
       capture backend + interval, slide filtering, microphone picker (by
       name, index-shift safe), image quality, cloud sync on/off (gives the
@@ -93,6 +99,13 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done
       verbatim (`cloud_provider.py`) — add redaction.
 - [ ] **Verify the Windows window-state backend** on a real Windows build
       (maximized/fullscreen filtering) — implemented but not yet run on Windows.
+- [ ] **Slide data lives in volatile /tmp/seenslide** (found by the GUI test
+      harness): the `storage:` config section was ignored (fixed —
+      StorageManager now merges it over the provider config), but
+      `config.yaml` still says `base_dir` (a key providers never read) so real
+      installs fall back to /tmp — **all local slides are lost on reboot**.
+      Fix: `base_path: ~/.local/share/seenslide` + expanduser in providers +
+      a one-time migration of existing /tmp data.
 
 ## Suggested order to production
 1. Signing + notarization (unblocks distribution)
