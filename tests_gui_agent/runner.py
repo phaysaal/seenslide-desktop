@@ -110,9 +110,22 @@ class Runner:
         p = Path(name)
         return str(p if p.is_absolute() else Path(base) / name)
 
+    def do_virtual_mic(self, spec):
+        """Create the virtual microphone and make it the system default —
+        BEFORE the app opens its input stream, so recording is guaranteed to
+        come from it regardless of stream-move policy."""
+        from tests_gui_agent import audio
+        if getattr(self, "_mic", None):
+            return "virtual mic already up"
+        self._mic = audio.VirtualMic()
+        self._mic.create()
+        return f"virtual mic is default source (node {self._mic.node_id})"
+
     def do_present_pdf(self, spec):
         """Start the fullscreen presenter on the primary monitor (async —
-        use wait_presenter to block until the deck finishes)."""
+        use wait_presenter to block until the deck finishes). With
+        narrate: true, a piper-tts narration timeline plays through a
+        virtual microphone in sync with the page schedule."""
         import subprocess
         import mss as _mss
         idx = actions.primary_monitor()
@@ -120,6 +133,18 @@ class Runner:
             mon = sct.monitors[idx]
         geo = f"{mon['left']},{mon['top']},{mon['width']},{mon['height']}"
         pdf = self._deck_path(spec["file"])
+        narration = None
+        if spec.get("narrate"):
+            from tests_gui_agent import audio
+            narration = str(self.run_dir / "narration.wav")
+            audio.build_narration(
+                pdf, narration,
+                pages=int(spec.get("max_pages", 0)),
+                hold_first=float(spec.get("hold_first", 12)),
+                interval=float(spec.get("page_interval", 5)))
+            if not getattr(self, "_mic", None):
+                self._mic = audio.VirtualMic()
+                self._mic.create()
         cmd = [str(HERE.parent / "venv" / "bin" / "python3"),
                "-m", "tests_gui_agent.presenter",
                "--pdf", pdf, "--geometry", geo,
@@ -130,12 +155,16 @@ class Runner:
             cmd, cwd=str(HERE.parent),
             stdout=open(self.run_dir / "presenter.log", "w"),
             stderr=subprocess.STDOUT)
+        if narration:
+            # timeline t=0 == presenter start; slots are silence-padded, so
+            # the ~0.5s window-map skew is absorbed
+            self._mic.play(narration)
         self._presented_pdf = pdf
         self._presented_pages = int(spec.get("max_pages", 0))
         time.sleep(2.0)  # let the window map and cover the screen
         if self._presenter.poll() is not None:
             raise StepFailed("presenter exited immediately — see presenter.log")
-        return f"presenting {pdf}"
+        return f"presenting {pdf}" + (" + narration" if narration else "")
 
     def do_wait_presenter(self, spec):
         if not getattr(self, "_presenter", None):
@@ -149,6 +178,41 @@ class Runner:
         return "deck finished"
 
     # -- oracles -------------------------------------------------------------
+
+    def do_verify_voice(self, spec):
+        """The app recorded real audio from the (virtual) microphone:
+        check the 'Voice recording stopped' log line, then the WAV itself —
+        non-trivial peak proves synthetic speech actually flowed through."""
+        import re as _re
+        import shutil as _sh
+        from tests_gui_agent.audio import wav_stats
+        spec = spec or {}
+        if not self.app.log_file.exists():
+            raise StepFailed(f"sandbox log missing: {self.app.log_file}")
+        stops = _re.findall(
+            r"Voice recording stopped: ([\d.]+)s, (\d+) markers, (\S+)",
+            self.app.log_file.read_text())
+        if not stops:
+            raise StepFailed("no 'Voice recording stopped' line in the app log")
+        dur, markers, wav = float(stops[-1][0]), int(stops[-1][1]), stops[-1][2]
+        min_dur = float(spec.get("min_duration", 5))
+        min_markers = int(spec.get("min_markers", 1))
+        min_peak = float(spec.get("min_peak", 0.05))
+        if dur < min_dur:
+            raise StepFailed(f"recording too short: {dur:.1f}s < {min_dur}s")
+        if markers < min_markers:
+            raise StepFailed(f"too few slide markers: {markers} < {min_markers}")
+        wav_p = Path(wav)
+        if not wav_p.exists():
+            raise StepFailed(f"recorded WAV missing: {wav}")
+        rec_dur, peak = wav_stats(str(wav_p))
+        _sh.copy2(wav_p, self.run_dir / "recorded_voice.wav")
+        if peak < min_peak:
+            raise StepFailed(
+                f"recorded audio is silence: peak {peak:.3f} < {min_peak} "
+                f"(virtual mic not routed?)")
+        return (f"app recorded {dur:.1f}s with {markers} slide markers, "
+                f"WAV {rec_dur:.1f}s peak={peak:.3f}")
 
     def do_verify_db(self, spec):
         """Structural checks against the sandboxed SQLite database."""
@@ -339,6 +403,12 @@ class Runner:
             # never leave a fullscreen presenter covering the user's screen
             if getattr(self, "_presenter", None) and self._presenter.poll() is None:
                 self._presenter.kill()
+            # ...and never leave the user's default mic pointed at a dead node
+            if getattr(self, "_mic", None):
+                try:
+                    self._mic.destroy()
+                except Exception:
+                    logger.exception("virtual mic teardown failed")
             # final state + app log land in the artifacts
             try:
                 self.shot("final")

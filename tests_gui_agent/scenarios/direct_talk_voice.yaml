@@ -1,0 +1,40 @@
+# P2: Direct-Talk E2E with SYNTHETIC VOICE through a virtual microphone.
+# A pw-loopback virtual mic becomes the system default source; piper-tts
+# narration (one spoken line per PDF page, padded to the page schedule)
+# plays into it while the deck runs. Voice recording stays ENABLED, so the
+# app records the synthetic speech and drops slide markers on each capture.
+# verify_voice proves real audio flowed: log line + WAV peak.
+name: direct-talk-voice
+steps:
+  - launch: {wait: 9}
+  # default source must be the virtual mic BEFORE the app opens its stream
+  - virtual_mic: {}
+  - assert_screen: >
+      the SeenSlide dashboard home view with a Single Talk card containing a
+      'Start Presenting' button
+  - click: {find: "the green 'Start Presenting' button inside the Single Talk card"}
+  - wait: 1
+  - assert_screen: >
+      a talk setup form with a TALK TITLE input and a PRESENTER NAME input
+  - click: {find: "the text input field directly under the TALK TITLE label"}
+  - type: "P2 Voice Talk"
+  - click: {find: "the text input field directly under the PRESENTER NAME label"}
+  - type: "Harness"
+  # voice recording toggle is left ENABLED (its default) — that's the point
+  - click: {find: "the large green 'Start Presenting' button at the bottom of the form"}
+  # countdown (10s) runs under the presenter, which covers the screen ~2s in
+  - present_pdf: {file: FLOPS2022Slide.pdf, page_interval: 5, hold_first: 14,
+                  max_pages: 8, narrate: true}
+  - wait_presenter: {timeout: 120}
+  - wait: 3
+  - assert_screen: >
+      the live presentation view of SeenSlide with a LIVE badge and an
+      'End Presentation' button
+  - click: {find: "the red 'End Presentation' button"}
+  - wait: 10
+  # max 16: captures after the deck closes (app screen) legitimately pad
+  # the count — the PDF-match oracle below pins correctness of the real ones
+  - verify_db: {talks: 0, slides: {min: 6, max: 16}}
+  - verify_slides_match_pdf: {file: FLOPS2022Slide.pdf, max_distance: 16, min_matched: 5}
+  - verify_voice: {min_duration: 30, min_markers: 4, min_peak: 0.05}
+  - kill: {}
