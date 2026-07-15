@@ -243,6 +243,36 @@ class Runner:
         self._db_slides = slides
         return f"{talks} talk(s), {len(slides)} slides, sequence 1..{len(seqs)}"
 
+    def do_show_cloud_code(self, spec):
+        """Surface the cloud session code EARLY (right after the talk starts)
+        so a human can open the public viewer while the talk is still live.
+        Polls the sandbox DB for the first cloud talk id, which embeds the
+        session code (XXX-NNNN-TALK-...)."""
+        import sqlite3
+        spec = spec or {}
+        deadline = time.monotonic() + float(spec.get("timeout", 45))
+        code = None
+        while time.monotonic() < deadline and not code:
+            if self.app.db_path.exists():
+                try:
+                    conn = sqlite3.connect(str(self.app.db_path))
+                    row = conn.execute(
+                        "SELECT talk_id FROM talks WHERE talk_id LIKE "
+                        "'%-TALK-%' ORDER BY created_at DESC LIMIT 1").fetchone()
+                    conn.close()
+                    if row:
+                        code = row[0].split("-TALK-")[0]
+                except sqlite3.Error:
+                    pass
+            if not code:
+                time.sleep(1.5)
+        if not code:
+            raise StepFailed("no cloud talk registered within the timeout")
+        url = f"https://seenslide.com/{code}"
+        (self.run_dir / "cloud_url.txt").write_text(url + "\n")
+        logger.info(f"*** LIVE NOW: {url} ***")
+        return url
+
     def do_verify_cloud(self, spec):
         """Web-side oracle: what the audience's viewer would see.
 

@@ -1,0 +1,56 @@
+# P2-live: cloud Direct-Talk with SYNTHETIC VOICE — a complete "real talk"
+# watchable LIVE from the web viewer. Slides upload as they're captured,
+# voice streams in ~1s chunks, and the viewer at seenslide.com/<code>
+# follows along (live slide-follow + live audio). show_cloud_code logs the
+# URL right after the talk registers, while the deck is still playing.
+# Cloud identity is a THROWAWAY anonymous device (pre-seeded random id).
+name: direct-talk-voice-cloud
+steps:
+  - launch: {wait: 12, cloud: true}   # extra time for anonymous device-bootstrap
+  # default source must be the virtual mic BEFORE the app opens its stream
+  - virtual_mic: {}
+  - assert_screen: >
+      the SeenSlide dashboard home view with a dark left sidebar
+  # -- create a collection under the throwaway account (real UI path) ------
+  - click: {find: "the 'Sessions' item in the left sidebar"}
+  - wait: 2
+  - click: {find: "the blue '+ New' button at the top of the sessions list panel"}
+  - wait: 1
+  - assert_screen: >
+      a small dialog asking for a new session or collection title with a text
+      input field
+  - click: {find: "the text input field inside the new-session dialog"}
+  - type: "P2 Live Voice Talk"
+  - click: {find: "the confirm button of the dialog (OK or Create)"}
+  - wait: 4
+  # -- start a talk in it ----------------------------------------------------
+  - click: {find: "the 'Home' item in the left sidebar"}
+  - wait: 1
+  - click: {find: "the green 'Start Presenting' button inside the Single Talk card"}
+  - wait: 1
+  - click: {find: "the text input field directly under the TALK TITLE label"}
+  - type: "Program Semantics and Verification - a Live Test Talk"
+  - click: {find: "the text input field directly under the PRESENTER NAME label"}
+  - type: "SeenSlide Harness"
+  # voice recording toggle stays ENABLED (its default)
+  - click: {find: "the large green 'Start Presenting' button at the bottom of the form"}
+  # the cloud talk registers within seconds of the click — log the viewer
+  # URL immediately so a human can watch the rest of the talk live
+  - show_cloud_code: {timeout: 45}
+  # slow schedule: 25s + 14*8s ≈ 2.5 min of live deck to actually watch
+  - present_pdf: {file: FLOPS2022Slide.pdf, page_interval: 8, hold_first: 25,
+                  max_pages: 15, narrate: true}
+  - wait_presenter: {timeout: 300}
+  - wait: 3
+  - assert_screen: >
+      the live presentation view of SeenSlide with a LIVE badge and an
+      'End Presentation' button
+  - click: {find: "the red 'End Presentation' button"}
+  - wait: 12
+  # loose count bounds (tail frames after the deck ends are legitimate);
+  # the content oracle below pins correctness of the real slides
+  - verify_db: {slides: {min: 10, max: 26}}
+  - verify_slides_match_pdf: {file: FLOPS2022Slide.pdf, max_distance: 16, min_matched: 10}
+  - verify_cloud: {slides: {min: 10, max: 26}}
+  - verify_voice: {min_duration: 60, min_markers: 8, min_peak: 0.05}
+  - kill: {}
