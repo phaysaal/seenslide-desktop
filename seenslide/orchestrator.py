@@ -256,6 +256,18 @@ class SeenSlideOrchestrator:
         if not self.voice_recorder.start():
             return False
 
+        # Slide markers are recorded for EVERY recording, cloud or not — a
+        # local-only WAV without markers can never be synced to slides. The
+        # handler only feeds the cloud flush queue when an uploader exists.
+        self.event_bus.subscribe(
+            EventType.SLIDE_UNIQUE, self._on_unique_slide_for_voice_marker
+        )
+        # Confirm slide 1 quickly: combined with the t=0.0 anchor in the
+        # marker handler, this places slide 1's marker at the start of the
+        # recording even if the periodic interval hasn't elapsed yet.
+        if self.capture_daemon:
+            self.capture_daemon.request_immediate_capture()
+
         # Start cloud voice upload — get URL and session ID from the
         # already-working cloud storage provider (not from config file,
         # which may have placeholder tokens in the bundled .deb)
@@ -313,18 +325,11 @@ class SeenSlideOrchestrator:
             )
             logger.info(f"Voice cloud recording start result: {ok}, recording_id={self._voice_cloud_uploader.recording_id}")
             if ok:
+                # SLIDE_UNIQUE subscription already landed above (it is
+                # unconditional); here just reset the flush queue and start
+                # the upload cadence.
                 with self._voice_marker_lock:
                     self._pending_voice_markers.clear()
-                # Subscribe to SLIDE_UNIQUE for markers (correct slide numbers)
-                self.event_bus.subscribe(
-                    EventType.SLIDE_UNIQUE, self._on_unique_slide_for_voice_marker
-                )
-                # Trigger an immediate capture so slide 1's content is confirmed
-                # quickly. Combined with the t=0.0 anchor in the marker handler,
-                # this places slide 1's marker at the start of the recording
-                # even if the periodic interval hasn't elapsed yet.
-                if self.capture_daemon:
-                    self.capture_daemon.request_immediate_capture()
                 # Start the flush timer — the primary upload cadence
                 self._start_auto_chunk_timer()
                 logger.info(
@@ -362,8 +367,11 @@ class SeenSlideOrchestrator:
             )
             markers = self.voice_recorder.markers
             ts = markers[-1].timestamp_seconds if markers else 0.0
-            with self._voice_marker_lock:
-                self._pending_voice_markers.append((sequence_number, ts))
+            # The flush queue only matters when a cloud uploader is live —
+            # local-only recordings keep markers in the recorder alone.
+            if self._voice_cloud_uploader is not None:
+                with self._voice_marker_lock:
+                    self._pending_voice_markers.append((sequence_number, ts))
             logger.debug(f"Voice sync: marker queued for slide {sequence_number} @ {ts:.1f}s")
 
     def _pop_pending_marker(self):
