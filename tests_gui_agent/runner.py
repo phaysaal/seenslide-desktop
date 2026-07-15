@@ -44,11 +44,22 @@ class Runner:
 
     # -- helpers ----------------------------------------------------------
 
-    def shot(self, tag: str = "") -> tuple:
+    def shot(self, tag: str = "", target: str = None) -> tuple:
         self.step_no += 1
         path = str(self.run_dir / f"step_{self.step_no:02d}_{tag}.png")
-        size = actions.screenshot(path)
+        if target:
+            actions.actor_activate(target)
+            size = actions.actor_shot(path, target)
+        else:
+            size = actions.screenshot(path)
         return path, size
+
+    def _front(self, target: str = None):
+        """Bring the right surface forward: an actor window, or the app."""
+        if target:
+            actions.actor_activate(target)
+        else:
+            self.app.ensure_front()
 
     def _record(self, step, ok, detail=""):
         entry = {"step": step, "ok": ok, "detail": detail}
@@ -117,15 +128,34 @@ class Runner:
     def do_wait(self, seconds):
         time.sleep(float(seconds))
 
+    def do_actors(self, spec):
+        """Bind actor names to browser windows and self-verify each one
+        actually shows the SeenSlide viewer (guards against grabbing the
+        wrong window when several match)."""
+        details = []
+        for name, browser in spec.items():
+            rect = actions.register_actor(name, str(browser))
+            path, size = self.shot(f"actor_{name}", target=name)
+            r = self.locator.judge(
+                "a SeenSlide web viewer page showing a slide presentation",
+                path, size)
+            if not r.get("match"):
+                raise StepFailed(
+                    f"actor {name} ({browser}) window doesn't look like the "
+                    f"viewer: {r.get('reason', '')}")
+            details.append(f"{name}={browser}{rect}")
+        return " ".join(details)
+
     def do_click(self, spec):
         """Locate + click, with retries: a transient overlay (dialog,
         animation) or a one-off model miss shouldn't fail the scenario."""
         desc = spec["find"]
+        target = spec.get("target")
         retries = int(spec.get("retries", 2))
         r = {}
         for attempt in range(retries + 1):
-            self.app.ensure_front()
-            path, size = self.shot("before_click")
+            self._front(target)
+            path, size = self.shot("before_click", target=target)
             r = self.locator.locate(desc, path, size)
             self._evidence = {"shot": path, "bbox": r.get("bbox"),
                               "click": r.get("center")}
@@ -140,14 +170,23 @@ class Runner:
         actions.click_shot_coords(cx, cy)
         return f"clicked ({cx},{cy}) bbox={r.get('bbox')}"
 
-    def do_type(self, text):
+    def do_type(self, spec):
+        # dict form carries a target actor: {target: A, text: "..."}
+        if isinstance(spec, dict):
+            self._front(spec.get("target"))
+            text = spec["text"]
+        else:
+            text = spec
         # $FIXTURES -> absolute path of tests_gui_agent/fixtures (lets
         # scenarios type file paths into dialogs machine-independently)
         text = str(text).replace("$FIXTURES", str(HERE / "fixtures"))
         actions.type_text(text)
 
-    def do_key(self, key):
-        actions.press_key(str(key))
+    def do_key(self, spec):
+        if isinstance(spec, dict):
+            self._front(spec.get("target"))
+            spec = spec["key"]
+        actions.press_key(str(spec))
 
     # -- PDF presenter ------------------------------------------------------
 
@@ -587,11 +626,18 @@ class Runner:
         bbox = g.point(lambda p: 255 if p > thresh else 0).getbbox()
         return im.crop(bbox) if bbox else im
 
-    def do_assert_screen(self, desc, retries: int = 2, delay: float = 2.0):
+    def do_assert_screen(self, spec, retries: int = 2, delay: float = 2.0):
+        # dict form carries a target actor: {target: A, desc: "..."}
+        target = None
+        desc = spec
+        if isinstance(spec, dict):
+            target = spec.get("target")
+            desc = spec["desc"]
+            retries = int(spec.get("retries", retries))
         last = None
         for attempt in range(retries + 1):
-            self.app.ensure_front()
-            path, size = self.shot("assert")
+            self._front(target)
+            path, size = self.shot("assert", target=target)
             self._evidence = {"shot": path}
             r = self.locator.judge(desc, path, size)
             if r.get("match"):

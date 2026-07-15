@@ -1,0 +1,47 @@
+# W0: two-browser web-viewer smoke. Pre-condition (user-prepared): Edge and
+# Firefox open on the same talk (seenslide.com/LMN-4092) with two different
+# logins, on two monitors. The harness binds them as actors A/B, verifies
+# the two distinct accounts, and checks the viewers navigate independently.
+name: web-w0-smoke
+steps:
+  - actors: {A: edge, B: firefox}
+  - assert_screen:
+      target: A
+      desc: >
+        the SeenSlide web viewer of a talk titled 'Asynchronous Unfold/Fold
+        Transformation for Fixpoint Logic', with the account name 'Mahmudul'
+        in the top-right corner
+  - assert_screen:
+      target: B
+      desc: >
+        the SeenSlide web viewer of the same 'Asynchronous Unfold/Fold'
+        talk in dark theme, with the account name 'Faisal Al Ameen' in the
+        top-right corner
+  # -- independent navigation -------------------------------------------------
+  - click: {target: A, find: "slide thumbnail number 2 in the filmstrip at the bottom"}
+  - wait: 2
+  - assert_screen:
+      target: A
+      desc: >
+        the main slide area showing slide 2 of the deck (not the title
+        slide) — the filmstrip highlights thumbnail 2
+  - assert_screen:
+      target: B
+      desc: >
+        the main slide area still showing slide 1, the title slide with
+        'Asynchronous Unfold/Fold Transformation for Fixpoint Logic'
+  - click: {target: B, find: "slide thumbnail number 3 in the filmstrip at the bottom"}
+  - wait: 2
+  - assert_screen:
+      target: B
+      desc: >
+        the main slide area showing slide 3 — the filmstrip highlights
+        thumbnail 3
+  - assert_screen:
+      target: A
+      desc: >
+        the main slide area still showing slide 2 — unaffected by the
+        other viewer's navigation
+  # -- restore both to slide 1 -----------------------------------------------
+  - click: {target: A, find: "slide thumbnail number 1 in the filmstrip at the bottom"}
+  - click: {target: B, find: "slide thumbnail number 1 in the filmstrip at the bottom"}

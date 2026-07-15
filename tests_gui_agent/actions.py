@@ -105,6 +105,82 @@ def click_shot_coords(x: int, y: int):
 
 
 # ---------------------------------------------------------------------------
+# Browser actors (web-viewer testing): named windows, e.g. A=Edge, B=Firefox.
+# Screenshots are cropped to the actor's window rect and clicks are offset to
+# it, so two viewers of the same session never get confused — and nothing
+# outside the window (the user's other windows/terminal) is ever clicked.
+# ---------------------------------------------------------------------------
+
+_actors = {}
+
+_BROWSER_MARKER = {"edge": "Edge", "firefox": "Firefox", "chrome": "Chrome"}
+
+
+def _window_geometry(wid: str):
+    out = subprocess.run(["xdotool", "getwindowgeometry", "--shell", wid],
+                         capture_output=True, text=True, timeout=5).stdout
+    vals = dict(line.split("=") for line in out.splitlines() if "=" in line)
+    return (int(vals["X"]), int(vals["Y"]),
+            int(vals["WIDTH"]), int(vals["HEIGHT"]))
+
+
+def register_actor(name: str, browser: str,
+                   title: str = "SeenSlide Viewer") -> tuple:
+    """Bind actor `name` to the LARGEST browser window whose title contains
+    both `title` and the browser's marker. Returns its rect."""
+    marker = _BROWSER_MARKER[browser.lower()]
+    best = None
+    ids = subprocess.run(["xdotool", "search", "--name", title],
+                         capture_output=True, text=True).stdout.split()
+    for wid in ids:
+        nm = subprocess.run(["xdotool", "getwindowname", wid],
+                            capture_output=True, text=True).stdout
+        if marker not in nm:
+            continue
+        try:
+            x, y, w, h = _window_geometry(wid)
+        except Exception:
+            continue
+        if best is None or w * h > best[1][2] * best[1][3]:
+            best = (wid, (x, y, w, h))
+    if best is None:
+        raise RuntimeError(f"no '{title}' window found for {browser}")
+    _actors[name] = {"wid": best[0], "browser": browser}
+    logger.info(f"actor {name} = {browser} window {best[0]} rect={best[1]}")
+    return best[1]
+
+
+def actor_rect(name: str) -> tuple:
+    """Current rect (re-queried — the user may move windows between steps)."""
+    return _window_geometry(_actors[name]["wid"])
+
+
+def actor_activate(name: str):
+    subprocess.run(["xdotool", "windowactivate", "--sync", _actors[name]["wid"]],
+                   capture_output=True, timeout=5)
+    time.sleep(0.3)
+
+
+def actor_shot(path: str, name: str):
+    """Screenshot cropped to the actor's window; also points the global
+    click offset at the window origin so click_shot_coords() lands inside."""
+    global _monitor_offset
+    x, y, w, h = actor_rect(name)
+    with mss.mss() as sct:
+        # clamp to the virtual screen — windows can hang a few px offscreen
+        # (e.g. y=-19 under Mutter) and XGetImage refuses out-of-root grabs
+        root = sct.monitors[0]
+        cx = max(x, root["left"])
+        cy = max(y, root["top"])
+        w = min(x + w, root["left"] + root["width"]) - cx
+        h = min(y + h, root["top"] + root["height"]) - cy
+        img = sct.grab({"left": cx, "top": cy, "width": w, "height": h})
+        mss.tools.to_png(img.rgb, img.size, output=path)
+        _monitor_offset = (cx, cy)
+        return img.size
+
+
+# ---------------------------------------------------------------------------
 # App lifecycle (sandboxed)
 # ---------------------------------------------------------------------------
 
