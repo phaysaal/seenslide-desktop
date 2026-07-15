@@ -3522,18 +3522,29 @@ class MainDashboard(QWidget):
 
         layout.addWidget(thumb)
 
-        # Amber "hidden" badge with the gate's match score, so the presenter
-        # can gauge how confident the gate was when it set the slide aside.
+        # Amber badge — clickable: unhides the slide (marks it as a real
+        # slide and shares it with viewers).
         if is_hidden:
             score = slide.metadata.get("gate_score")
-            score_txt = f" · {score:.2f}" if isinstance(score, (int, float)) else ""
-            badge = QLabel(f"⚠ not a slide?{score_txt}")
-            badge.setAlignment(Qt.AlignCenter)
+            score_txt = f" (score {score:.2f})" if isinstance(score, (int, float)) else ""
+            badge = QPushButton("Is it a slide?  Unhide")
+            badge.setCursor(Qt.PointingHandCursor)
+            badge.setFixedHeight(18)
+            badge.setToolTip(
+                f"The capture filter flagged this as not a proper slide{score_txt}.\n"
+                f"Click to keep it — it will be unhidden and shared with viewers."
+            )
             badge.setStyleSheet(
-                f"color: #7c4a03; background: {AMBER}; border: none; "
-                f"border-radius: 4px; font-size: 9px; font-weight: 700; padding: 1px 4px;"
+                f"QPushButton {{ color: #7c4a03; background: {AMBER}; border: none; "
+                f"border-radius: 4px; font-size: 9px; font-weight: 700; padding: 1px 4px; }}"
+                f"QPushButton:hover {{ background: #fbbf24; }}"
+            )
+            badge.clicked.connect(
+                lambda _, s=slide, c=card, b=None, t=thumb: self._unhide_slide(s, c, t)
             )
             layout.addWidget(badge)
+            # let _unhide_slide remove the badge in place
+            card._hidden_badge = badge
 
         # Bottom row: number + delete
         bottom = QHBoxLayout()
@@ -3560,6 +3571,84 @@ class MainDashboard(QWidget):
 
         layout.addLayout(bottom)
         return card
+
+    def _unhide_slide(self, slide, card, thumb):
+        """Un-hide a filter-flagged slide: mark it as a real slide locally
+        and upload it to the cloud so viewers get it too.
+
+        The upload runs on a background thread; if it fails, the slide goes
+        into the upload outbox and is backfilled automatically.
+        """
+        # 1. Persist locally: clear the hidden flag in the slide's metadata.
+        try:
+            slide.metadata["hidden"] = False
+            slide.metadata.pop("gate_score", None)
+            slide.metadata.pop("gate_reason", None)
+            db = self.orchestrator.storage_manager._database
+            import json as _json
+            with db._write() as cursor:
+                cursor.execute(
+                    "UPDATE slides SET metadata = ? WHERE slide_id = ?",
+                    (_json.dumps(slide.metadata), slide.slide_id),
+                )
+        except Exception as e:
+            logger.error(f"Could not unhide slide {slide.slide_id}: {e}")
+            QMessageBox.warning(self, "Unhide Failed",
+                                f"Couldn't update the slide:\n\n{e}")
+            return
+
+        # 2. UI: unblur + restore normal card styling, drop the badge.
+        thumb.setGraphicsEffect(None)
+        badge = getattr(card, "_hidden_badge", None)
+        if badge is not None:
+            badge.hide()
+            badge.deleteLater()
+            card._hidden_badge = None
+        card.setFixedSize(160, 140)
+        card.setStyleSheet(f"""
+            QFrame {{
+                background: {BG_WHITE};
+                border: 1px solid {BORDER};
+                border-radius: 8px;
+            }}
+        """)
+
+        # 3. Cloud: hidden slides were never uploaded — do it now, in the
+        # background. Failure lands in the upload outbox for backfill.
+        sm = self.orchestrator.storage_manager
+        if not (sm._cloud.enabled and slide.talk_id and slide.image_path):
+            logger.info(f"Unhid slide #{slide.sequence_number} (local only)")
+            return
+
+        import threading
+        def _upload():
+            try:
+                import io
+                from PIL import Image as _PILImage
+                quality = int(self.orchestrator.config.get("storage", {}).get("jpeg_quality", 75))
+                quality = max(30, min(95, quality))
+                buf = io.BytesIO()
+                _PILImage.open(slide.image_path).convert("RGB").save(
+                    buf, format="JPEG", quality=quality, optimize=True)
+                ok, _cid, _st = sm._cloud.upload_slide_image(
+                    slide.talk_id, slide.sequence_number, buf.getvalue())
+            except Exception as e:
+                logger.warning(f"Unhide upload failed: {e}")
+                ok = False
+            if ok:
+                logger.info(
+                    f"Unhid slide #{slide.sequence_number} — uploaded to talk {slide.talk_id}"
+                )
+            else:
+                sm._database.outbox_add(
+                    slide.talk_id, slide.sequence_number,
+                    slide.image_path, slide.session_id,
+                )
+                logger.warning(
+                    f"Unhid slide #{slide.sequence_number} — upload queued for retry"
+                )
+
+        threading.Thread(target=_upload, daemon=True, name="unhide-upload").start()
 
     def _delete_slide(self, slide, card_widget):
         """Delete a slide from local DB and cloud."""
