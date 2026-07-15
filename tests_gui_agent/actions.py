@@ -47,13 +47,26 @@ def press_key(key: str):
     time.sleep(0.2)
 
 
+# Global offset of the last-captured monitor: screenshot pixel coords ->
+# X11 desktop coords for xdotool. On a single monitor this is (0,0); with
+# multiple monitors it's what kept clicks from landing on the wrong screen.
+_monitor_offset = (0, 0)
+
+
 def screenshot(path: str, monitor: int = 1):
     """Full-monitor PNG. Returns (width, height)."""
+    global _monitor_offset
     with mss.mss() as sct:
         mon = sct.monitors[monitor]
+        _monitor_offset = (mon.get("left", 0), mon.get("top", 0))
         img = sct.grab(mon)
         mss.tools.to_png(img.rgb, img.size, output=path)
         return img.size
+
+
+def click_shot_coords(x: int, y: int):
+    """Click at screenshot-relative coordinates (offset-corrected)."""
+    click(x + _monitor_offset[0], y + _monitor_offset[1])
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +100,14 @@ class App:
         env["HOME"] = str(self.sandbox)
         env["XDG_DATA_HOME"] = str(self.sandbox / ".local" / "share")
         env["XDG_CONFIG_HOME"] = str(self.sandbox / ".config")
+        # Stay above other windows (GNOME ignores external raise requests,
+        # so the app raises itself via this in-app test hook).
+        env["SEENSLIDE_TEST_ON_TOP"] = "1"
+        # Never touch the real system keyring: the sandbox app querying the
+        # Secret Service popped the user's password-manager unlock dialog on
+        # top of everything mid-run. The null backend makes keyring a no-op;
+        # the app degrades to anonymous/local, which is what we want anyway.
+        env["PYTHON_KEYRING_BACKEND"] = "keyring.backends.null.Keyring"
         logger.info(f"launching app (sandbox HOME={self.sandbox})")
         self.proc = subprocess.Popen(
             [str(PROJECT / "venv" / "bin" / "python3"), "gui/main.py"],
@@ -109,9 +130,17 @@ class App:
             if wid:
                 _xdo("windowmove", wid, str(x), str(y))
                 _xdo("windowactivate", wid)
+                _xdo("windowraise", wid)
                 time.sleep(0.5)
         except Exception as e:
             logger.warning(f"could not position window: {e}")
+
+    def ensure_front(self):
+        """Raise + focus the app before a screenshot, so windows the user
+        left (or opened) on top can't occlude the run. During a harness run
+        the machine belongs to the harness."""
+        if self.proc and self.proc.poll() is None:
+            self.position_window()
 
     def kill(self):
         if self.proc and self.proc.poll() is None:

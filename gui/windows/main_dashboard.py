@@ -630,6 +630,13 @@ class MainDashboard(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SeenSlide Pro")
+        # GUI-test-harness hook: keep the window above others so the
+        # harness's screenshots always see the app, even if other windows are
+        # opened during a run. GNOME's Mutter ignores raise requests from
+        # external processes (xdotool), but honors the window's own
+        # stay-on-top request. No effect outside harness runs.
+        if os.environ.get("SEENSLIDE_TEST_ON_TOP"):
+            self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
         self.resize(1100, 720)
         self.setStyleSheet(f"background-color: {BG_MAIN};")
 

@@ -40,6 +40,7 @@ class Runner:
         self.run_dir.mkdir(parents=True)
         self.step_no = 0
         self.report = []
+        self._evidence = {}
 
     # -- helpers ----------------------------------------------------------
 
@@ -50,7 +51,12 @@ class Runner:
         return path, size
 
     def _record(self, step, ok, detail=""):
-        self.report.append({"step": step, "ok": ok, "detail": detail})
+        entry = {"step": step, "ok": ok, "detail": detail}
+        # Structured evidence stashed by the step handlers (screenshot used,
+        # located bbox, click point) — consumed by the HTML film strip.
+        entry.update(self._evidence)
+        self._evidence = {}
+        self.report.append(entry)
         status = "✓" if ok else "✗"
         logger.info(f"  {status} {json.dumps(step)[:110]} {detail}")
 
@@ -67,12 +73,15 @@ class Runner:
 
     def do_click(self, spec):
         desc = spec["find"]
+        self.app.ensure_front()
         path, size = self.shot("before_click")
         r = self.locator.locate(desc, path, size)
+        self._evidence = {"shot": path, "bbox": r.get("bbox"),
+                          "click": r.get("center")}
         if not r.get("found"):
             raise StepFailed(f"element not found: {desc!r}")
         cx, cy = r["center"]
-        actions.click(cx, cy)
+        actions.click_shot_coords(cx, cy)
         return f"clicked ({cx},{cy}) bbox={r.get('bbox')}"
 
     def do_type(self, text):
@@ -84,7 +93,9 @@ class Runner:
     def do_assert_screen(self, desc, retries: int = 2, delay: float = 2.0):
         last = None
         for attempt in range(retries + 1):
+            self.app.ensure_front()
             path, size = self.shot("assert")
+            self._evidence = {"shot": path}
             r = self.locator.judge(desc, path, size)
             if r.get("match"):
                 return f"matched: {r.get('reason', '')}"
