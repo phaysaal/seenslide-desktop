@@ -114,9 +114,20 @@ project_dir = Path(SPECPATH).parent
 # libs and submodules explicitly. Lean, not collect_all — the latter drags
 # in numpy/scipy test suites and bloated a build to ~3GB. scipy is NOT
 # needed: the perceptual dedup uses dhash (numpy-only), not phash's DCT.
-from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules
+from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules, collect_data_files
 _extra_bins = collect_dynamic_libs('numpy')
 _extra_hidden = collect_submodules('numpy')
+
+# Slide-text OCR (conference auto-advance): rapidocr's ONNX models + config
+# ship as package data, and onnxruntime brings native libs. Guarded so a
+# build env without rapidocr still builds — the feature just stays off.
+import importlib.util
+_extra_datas = []
+if importlib.util.find_spec('rapidocr_onnxruntime'):
+    _extra_datas += collect_data_files('rapidocr_onnxruntime')
+    _extra_bins += collect_dynamic_libs('onnxruntime')
+    _extra_hidden += ['rapidocr_onnxruntime', 'onnxruntime', 'pyclipper',
+                      'shapely', 'cv2']
 
 # Collect all data files
 datas = [
@@ -125,7 +136,7 @@ datas = [
     (str(project_dir / 'core'), 'core'),
     (str(project_dir / 'modules'), 'modules'),
     (str(project_dir / 'seenslide'), 'seenslide'),
-]
+] + _extra_datas
 
 # Collect system dbus and gi packages (C extensions, not pip-installable)
 import importlib
@@ -203,7 +214,9 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         'pkg_resources', 'setuptools', 'appdirs',
-        'cv2', 'opencv',                # Only needed for adaptive dedup (not default)
+        # cv2 is NO LONGER excluded: rapidocr (conference auto-advance OCR)
+        # requires it, and bundling it also enables the slide gate's image
+        # heuristic and adaptive dedup in packaged builds.
         'customtkinter', 'tkinter',     # Legacy admin GUI (not used by PyQt5 app)
         # The build venv also carries a full ML/CUDA stack (~4GB) that the
         # desktop app never imports — screen capture + PyQt + numpy dedup +

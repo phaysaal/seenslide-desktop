@@ -73,6 +73,10 @@ pyinstaller --noconfirm --clean ^
     --hidden-import soundfile ^
     --hidden-import fitz ^
     --hidden-import cv2 ^
+    --collect-all rapidocr_onnxruntime ^
+    --collect-binaries onnxruntime ^
+    --hidden-import pyclipper ^
+    --hidden-import shapely ^
     --add-data "seenslide;seenslide" ^
     --distpath "%BUILD_DIR%" ^
     gui\main.py

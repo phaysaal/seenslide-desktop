@@ -173,6 +173,10 @@ python3 -m PyInstaller --noconfirm --clean \
     --hidden-import soundfile \
     --hidden-import fitz \
     --hidden-import cv2 \
+    --collect-all rapidocr_onnxruntime \
+    --collect-binaries onnxruntime \
+    --hidden-import pyclipper \
+    --hidden-import shapely \
     --distpath "$BUILD_DIR" \
     gui/main.py
 

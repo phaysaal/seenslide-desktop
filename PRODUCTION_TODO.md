@@ -55,10 +55,10 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done
       33,60`); 30-day bearer stored cleartext when keyring unavailable. Encrypt
       or correct the claim; reject non-`https` `api_url`
       (`core/identity.py:196-206`).
-- [ ] **Fix cv2 / adaptive-dedup packaging.** Excluded in the Linux spec, but
-      hidden-imported (and not installed) on Win/macOS → adaptive dedup ships on
-      no platform (`seenslide.spec:102`, `build_windows.bat`,
-      `build_macos.sh:175`). Bundle cv2 or drop the adaptive strategy.
+- [x] **Fix cv2 / adaptive-dedup packaging.** cv2 now ships on every platform:
+      rapidocr-onnxruntime (conference auto-advance OCR) depends on
+      opencv-python, the Linux spec no longer excludes cv2, and all three
+      builds collect rapidocr's models + onnxruntime libs. (v1.0.37)
 
 ## 🟡 Polish / product decisions
 
@@ -75,6 +75,10 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done
       tooltips, accessible names).
 - [ ] **Remove dead legacy windows** (`ModeSelector`, `DirectTalkWindow`,
       `TalkManagerWindow`, collection dialogs) to cut maintenance risk.
+- [ ] **Trim bundle size.** rapidocr pulls full `opencv-python` (~190MB
+      uncompressed; headless would save ~130MB) — install rapidocr's deps in a
+      controlled way (headless cv2) in the build envs. scipy (~73MB, pulled by
+      imagehash but unused by dhash) is another candidate.
 - [ ] **Minor:** emoji log lines can throw `UnicodeEncodeError` on some Windows
       consoles; write-then-chmod race on secret files; error responses logged
       verbatim (`cloud_provider.py`) — add redaction.
