@@ -53,8 +53,11 @@ class SQLiteStorageProvider(IStorageProvider):
         try:
             self._config = config
 
-            # Determine database path
-            base_path = Path(config.get('base_path', '/tmp/seenslide'))
+            # Determine database path (~ expanded; default must be
+            # PERSISTENT — /tmp loses the whole database on reboot)
+            default_base = Path.home() / ".local" / "share" / "seenslide"
+            base_path = Path(
+                config.get('base_path') or default_base).expanduser()
             db_subdir = config.get('database_subdir', 'db')
             db_filename = config.get('database_filename', 'seenslide.db')
 

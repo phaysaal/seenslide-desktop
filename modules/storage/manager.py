@@ -25,6 +25,11 @@ class StorageManager:
     the image file and metadata, and publishes SLIDE_STORED events.
     """
 
+    # The providers' historical fallback location — volatile, wiped on
+    # reboot. _migrate_tmp_storage rescues data stranded there. Class
+    # attribute so tests can point it at a sandbox directory.
+    _LEGACY_TMP = "/tmp/seenslide"
+
     def __init__(
         self,
         session: Session,
@@ -74,6 +79,63 @@ class StorageManager:
         else:
             logger.info("StorageManager current talk cleared")
 
+    @staticmethod
+    def _migrate_tmp_storage(storage_cfg: dict) -> None:
+        """Move legacy /tmp/seenslide data to the persistent default location.
+
+        Conditions (all must hold — fail-safe, never raises):
+          * storage resolves to the DEFAULT base path (unset or explicitly
+            the default) — custom paths are left strictly alone;
+          * /tmp/seenslide contains a database;
+          * the target has no database yet (never overwrite newer data).
+
+        Afterwards the copied DB's stored image/thumbnail paths are rewritten
+        from the /tmp prefix to the new base so existing sessions keep their
+        images in the UI.
+        """
+        import shutil
+        import sqlite3
+        from pathlib import Path
+        try:
+            legacy = Path(StorageManager._LEGACY_TMP)
+            default_base = Path.home() / ".local" / "share" / "seenslide"
+            configured = storage_cfg.get("base_path")
+            base = Path(configured).expanduser() if configured else default_base
+            if base != default_base:
+                return
+            db_subdir = storage_cfg.get("database_subdir", "db")
+            db_name = storage_cfg.get("database_filename", "seenslide.db")
+            legacy_db = legacy / db_subdir / db_name
+            target_db = base / db_subdir / db_name
+            if not legacy_db.exists() or target_db.exists():
+                return
+
+            logger.info(f"Migrating legacy storage {legacy} -> {base}")
+            moved = 0
+            for entry in list(legacy.iterdir()):
+                dest = base / entry.name
+                if dest.exists():
+                    continue
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(entry), str(dest))
+                moved += 1
+
+            # Re-point stored absolute paths at the new location
+            conn = sqlite3.connect(str(target_db))
+            with conn:
+                for col in ("image_path", "thumbnail_path"):
+                    conn.execute(
+                        f"UPDATE slides SET {col} = REPLACE({col}, ?, ?) "
+                        f"WHERE {col} LIKE ?",
+                        (str(legacy), str(base), f"{legacy}%"))
+            conn.close()
+            logger.info(
+                f"Legacy /tmp storage migrated: {moved} entries now in {base}")
+        except Exception as e:
+            # A failed rescue must never block startup — worst case the app
+            # starts fresh exactly as it would have before the migration.
+            logger.warning(f"Legacy /tmp storage migration skipped: {e}")
+
     def start(self) -> bool:
         """Start the storage manager.
 
@@ -85,12 +147,29 @@ class StorageManager:
             return False
 
         try:
-            # Initialize providers
-            if not self._filesystem.initialize(self._config):
+            # Initialize providers. They read their keys (base_path,
+            # database_subdir, ...) from the TOP level of the dict they get —
+            # so the config file's `storage:` section was silently ignored
+            # and everything fell back to the providers' /tmp/seenslide
+            # default (found by the GUI test harness: its sandboxed
+            # storage.base_path never took effect). Merge the storage section
+            # over the top level so its keys are honored; configs without a
+            # storage section behave exactly as before.
+            storage_cfg = {**self._config, **(self._config.get("storage") or {})}
+
+            # One-time rescue of data stranded in /tmp: older configs said
+            # `base_dir` (a key nothing read), so everything landed in the
+            # providers' /tmp/seenslide fallback — wiped on reboot. Only
+            # fires when storage resolves to the DEFAULT location (a custom
+            # base_path, e.g. the GUI-test sandbox, must never ingest a
+            # stranger's /tmp data).
+            self._migrate_tmp_storage(storage_cfg)
+
+            if not self._filesystem.initialize(storage_cfg):
                 logger.error("Failed to initialize filesystem provider")
                 return False
 
-            if not self._database.initialize(self._config):
+            if not self._database.initialize(storage_cfg):
                 logger.error("Failed to initialize database provider")
                 return False
 

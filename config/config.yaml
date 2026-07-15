@@ -76,8 +76,10 @@ deduplication:
 
 # Storage settings
 storage:
-  # Base directory for storing captured slides
-  base_dir: "./data"
+  # Base directory for storing captured slides (~ is expanded).
+  # Was `base_dir: "./data"` — a key nothing ever read, so installs
+  # silently fell back to volatile /tmp/seenslide and lost data on reboot.
+  base_path: "~/.local/share/seenslide"
 
   # Whether to save raw captures
   save_raw: true

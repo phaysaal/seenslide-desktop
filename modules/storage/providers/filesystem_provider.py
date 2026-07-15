@@ -48,8 +48,11 @@ class FilesystemStorageProvider(IStorageProvider):
         try:
             self._config = config
 
-            # Get paths
-            self._base_path = Path(config.get('base_path', '/tmp/seenslide'))
+            # Get paths (~ expanded; default must be PERSISTENT — /tmp loses
+            # every slide on reboot)
+            default_base = Path.home() / ".local" / "share" / "seenslide"
+            self._base_path = Path(
+                config.get('base_path') or default_base).expanduser()
             images_subdir = config.get('images_subdir', 'images')
             thumbnails_subdir = config.get('thumbnails_subdir', 'thumbnails')
 

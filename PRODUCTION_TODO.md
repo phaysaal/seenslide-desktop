@@ -100,13 +100,12 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done
       verbatim (`cloud_provider.py`) — add redaction.
 - [ ] **Verify the Windows window-state backend** on a real Windows build
       (maximized/fullscreen filtering) — implemented but not yet run on Windows.
-- [ ] **Slide data lives in volatile /tmp/seenslide** (found by the GUI test
-      harness): the `storage:` config section was ignored (fixed —
-      StorageManager now merges it over the provider config), but
-      `config.yaml` still says `base_dir` (a key providers never read) so real
-      installs fall back to /tmp — **all local slides are lost on reboot**.
-      Fix: `base_path: ~/.local/share/seenslide` + expanduser in providers +
-      a one-time migration of existing /tmp data.
+- [x] **Slide data lives in volatile /tmp/seenslide** (found by the GUI test
+      harness): fixed in v1.0.39 — config.yaml now says
+      `base_path: ~/.local/share/seenslide`, providers expanduser and default
+      to the persistent location, and StorageManager rescues stranded
+      /tmp/seenslide data once (default path only; DB path prefixes
+      rewritten; never overwrites existing data). 3 regression tests.
 
 ## Suggested order to production
 1. Signing + notarization (unblocks distribution)
