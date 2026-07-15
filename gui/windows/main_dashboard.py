@@ -2172,9 +2172,16 @@ class MainDashboard(QWidget):
         """
         name = self.conf_name.text().strip()
         if not name:
+            # Loud, not just a border flash — a silent return here reads as
+            # "the button does nothing" (learned the hard way).
             self.conf_name.setFocus()
             self.conf_name.setStyleSheet(self._input_style().replace(BORDER, RED))
             QTimer.singleShot(2000, lambda: self.conf_name.setStyleSheet(self._input_style()))
+            QMessageBox.warning(
+                self, "Conference Name Required",
+                "Give your conference a name before launching — it becomes "
+                "the name of the collection your audience joins.",
+            )
             return
 
         schedule = self._collect_conference_schedule()
