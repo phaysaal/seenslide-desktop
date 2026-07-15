@@ -44,9 +44,11 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done
       (commit `2c11d1f`)
 - [ ] **DB backups + corruption recovery.** A corrupt `seenslide.db` = total
       local data loss. Add `PRAGMA integrity_check` on open + periodic backup.
-- [ ] **Automated test suite + CI gate.** ~20 ad-hoc manual scripts, no
-      framework, nothing runs in CI. Unit-test dedup + storage at minimum; add
-      a test job to the release workflow.
+- [x] **Automated test suite + CI gate.** tests/ with 49 pytest tests covering
+      dedup (tiled diff, per-talk reset, injection), upload outbox, SQLite
+      concurrency/rollback, title matcher (real OCR fixtures), CSV schedule
+      parser, blank-frame guard. CI: tests.yml on push/PR + a test job gating
+      all three release builds. Still open: GUI-level tests, coverage growth.
 - [ ] **First-run privacy consent.** Cloud slide upload is ON by default
       (`config/config.yaml:104`) with no in-app disclosure. Add a first-run
       consent / opt-in.
