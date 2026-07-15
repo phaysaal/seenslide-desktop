@@ -30,7 +30,11 @@ def get_device_fingerprint() -> str:
 class CredentialManager:
     """Manages secure credential storage using system keyring.
 
-    Falls back to encrypted file storage if keyring is unavailable.
+    When no keyring is available it falls back to a PLAINTEXT JSON file at
+    ~/.config/seenslide/.credentials.json, protected only by 0o600 file
+    permissions — NOT encryption. (Earlier docs claimed the fallback was
+    encrypted; it never was. Anything security-sensitive should treat the
+    keyring as the only real protection.)
     """
 
     SERVICE_NAME = "seenslide"
@@ -58,7 +62,7 @@ class CredentialManager:
             self._init_fallback_storage()
 
     def _init_fallback_storage(self):
-        """Initialize fallback credential storage (encrypted file)."""
+        """Initialize fallback credential storage (plaintext JSON, 0o600)."""
         # Create storage directory
         config_dir = Path.home() / ".config" / "seenslide"
         config_dir.mkdir(parents=True, exist_ok=True)
@@ -77,12 +81,14 @@ class CredentialManager:
             self.credentials = {}
 
     def _save_fallback_credentials(self):
-        """Save credentials to fallback file."""
+        """Save credentials to fallback file (0o600 from the moment it
+        exists — open()+chmod() left a window at the umask default)."""
         try:
-            with open(self.credentials_file, 'w') as f:
+            import os
+            fd = os.open(str(self.credentials_file),
+                         os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, 'w') as f:
                 json.dump(self.credentials, f, indent=2)
-            # Set restrictive permissions (owner read/write only)
-            self.credentials_file.chmod(0o600)
         except Exception as e:
             logger.error(f"Failed to save credentials: {e}")
 

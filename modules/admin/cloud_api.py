@@ -29,8 +29,11 @@ def _load_or_create_jwt_secret() -> str:
     secret = secrets.token_urlsafe(32)
     try:
         secret_file.parent.mkdir(parents=True, exist_ok=True)
-        secret_file.write_text(secret)
-        secret_file.chmod(0o600)
+        # 0o600 from creation — write_text()+chmod() left a brief window at
+        # the umask default (usually world-readable).
+        fd = os.open(str(secret_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(secret)
     except Exception:
         pass
     return secret

@@ -1,6 +1,7 @@
 """SQLite-based storage provider for slide metadata."""
 
 import logging
+import os
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -66,6 +67,13 @@ class SQLiteStorageProvider(IStorageProvider):
             self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
 
+            # Corruption check + recovery: a corrupt seenslide.db used to be
+            # total local data loss. quick_check catches it at open; a bad db
+            # is moved aside (kept for forensics) and the last-known-good
+            # backup restored — or a fresh db created if there is none.
+            if not self._db_healthy():
+                self._recover_database()
+
             # WAL lets the web/admin servers (own connections) read while we
             # write; busy_timeout makes cross-process contention wait instead
             # of raising "database is locked"; synchronous=NORMAL is the
@@ -79,11 +87,82 @@ class SQLiteStorageProvider(IStorageProvider):
 
             self._initialized = True
             logger.info(f"SQLite storage initialized at: {self._db_path}")
+
+            # Refresh the last-known-good backup now that the db opened
+            # healthy — this is what _recover_database restores from.
+            self._write_backup()
             return True
 
         except Exception as e:
             logger.error(f"Failed to initialize SQLite storage: {e}")
             return False
+
+    # ------------------------------------------------------------------
+    # Corruption handling + backup
+    # ------------------------------------------------------------------
+
+    @property
+    def _backup_path(self):
+        return Path(str(self._db_path) + ".bak")
+
+    def _db_healthy(self) -> bool:
+        """quick_check the open connection; False on corruption."""
+        try:
+            return self._conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+        except sqlite3.DatabaseError:
+            return False
+
+    def _recover_database(self) -> None:
+        """Move the corrupt db aside and restore the backup (or start fresh)."""
+        import time
+        try:
+            self._conn.close()
+        except Exception:
+            pass
+
+        corrupt_path = Path(f"{self._db_path}.corrupt-{int(time.time())}")
+        os.replace(self._db_path, corrupt_path)
+        logger.error(
+            f"Database failed integrity check — moved to {corrupt_path.name}"
+        )
+
+        if self._backup_path.exists():
+            import shutil
+            shutil.copy2(self._backup_path, self._db_path)
+            logger.warning(
+                f"Restored database from backup {self._backup_path.name} "
+                f"(changes since the last backup are lost)"
+            )
+        else:
+            logger.warning("No backup found — starting with a fresh database")
+
+        self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+
+        # A restored backup could itself be bad — last resort is fresh.
+        if self._backup_path.exists() and not self._db_healthy():
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            os.replace(self._db_path, Path(f"{self._db_path}.corrupt-bak-{int(time.time())}"))
+            logger.error("Backup was also corrupt — starting fresh")
+            self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+            self._conn.row_factory = sqlite3.Row
+
+    def _write_backup(self) -> None:
+        """Snapshot the db to <db>.bak using SQLite's online backup API
+        (WAL-safe, consistent). Best-effort — never fails initialization."""
+        try:
+            with self._write_lock:
+                dst = sqlite3.connect(str(self._backup_path))
+                try:
+                    self._conn.backup(dst)
+                finally:
+                    dst.close()
+            logger.debug(f"Database backup refreshed: {self._backup_path}")
+        except Exception as e:
+            logger.warning(f"Could not write database backup: {e}")
 
     def _create_tables(self) -> None:
         """Create database tables if they don't exist."""
@@ -988,6 +1067,9 @@ class SQLiteStorageProvider(IStorageProvider):
     def cleanup(self) -> None:
         """Clean up resources."""
         if self._conn:
+            # Snapshot the session's final state so a crash/corruption before
+            # the next launch can be recovered.
+            self._write_backup()
             self._conn.close()
             self._conn = None
         self._initialized = False

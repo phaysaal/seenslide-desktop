@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import platform
 import socket
 import subprocess
@@ -104,11 +105,21 @@ def _read_local_device_file() -> Optional[str]:
     return None
 
 
+def _write_private(path, text: str) -> None:
+    """Write a file that is 0o600 from the moment it exists.
+
+    write_text() + chmod() leaves a window where the file carries the umask
+    default (usually world-readable) — os.open with an explicit mode doesn't.
+    """
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+
+
 def _persist_device_id(value: str) -> None:
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        DEVICE_ID_FILE.write_text(value)
-        DEVICE_ID_FILE.chmod(0o600)
+        _write_private(DEVICE_ID_FILE, value)
     except Exception as e:
         logger.warning(f"Could not persist device id: {e}")
 
@@ -184,8 +195,7 @@ def _load_identity_cache() -> IdentityRecord:
 def _save_identity_cache(record: IdentityRecord) -> None:
     try:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        IDENTITY_CACHE_FILE.write_text(json.dumps(asdict(record), indent=2))
-        IDENTITY_CACHE_FILE.chmod(0o600)
+        _write_private(IDENTITY_CACHE_FILE, json.dumps(asdict(record), indent=2))
     except Exception as e:
         logger.warning(f"Could not save identity cache: {e}")
 
@@ -199,7 +209,20 @@ def _resolve_api_url() -> str:
                 data = yaml.safe_load(path.read_text()) or {}
                 url = (data.get("cloud", {}) or {}).get("api_url", "")
                 if url:
-                    return url.rstrip("/")
+                    url = url.rstrip("/")
+                    # Enforce TLS: a config typo of http:// would silently
+                    # send the bearer token, slides, and audio in cleartext.
+                    # Plain http is allowed only toward the local machine
+                    # (development against a local server).
+                    if url.startswith("http://") and not any(
+                        h in url for h in ("://localhost", "://127.0.0.1", "://[::1]")
+                    ):
+                        logger.warning(
+                            f"Ignoring non-https api_url from config ({url}) — "
+                            f"falling back to https://seenslide.com"
+                        )
+                        continue
+                    return url
             except Exception:
                 continue
     return "https://seenslide.com"

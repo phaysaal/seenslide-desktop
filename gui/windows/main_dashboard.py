@@ -504,6 +504,12 @@ class OrchestratorStartWorker(QThread):
             cloud_config = loaded_config.get('cloud', {})
             orch.config['cloud'].update(cloud_config)
 
+            # Honor the first-run privacy choice: without consent, cloud sync
+            # is off and captured slides / voice never leave this machine.
+            if app_settings.get("cloud_consent", True) is False:
+                orch.config['cloud']['enabled'] = False
+                logger.info("Cloud sync disabled by user choice (local-only mode)")
+
             # If collection exists, reuse its cloud ID
             if self.collection:
                 orch.config['cloud']['existing_session_id'] = self.collection.cloud_collection_id
@@ -649,10 +655,48 @@ class MainDashboard(QWidget):
 
         self._build_ui()
         self._show_last_collection()
+        # First-run privacy choice — must be answered before the orchestrator
+        # starts, because it decides whether cloud sync is enabled at all.
+        self._maybe_show_cloud_consent()
         # Identity bootstrap runs first; cloud sync waits for it to finish so
         # the bearer token is present before the first authenticated request.
         QTimer.singleShot(50, self._start_identity_bootstrap)
         QTimer.singleShot(100, self._init_orchestrator)
+
+    def _maybe_show_cloud_consent(self):
+        """One-time cloud-sync consent (first launch only).
+
+        Cloud sync used to be on by default with no in-app disclosure that
+        captured slides (and enabled voice recordings) upload to the cloud.
+        The answer persists in app settings; "Local only" keeps everything on
+        this machine (the orchestrator worker reads the choice and disables
+        the cloud provider).
+        """
+        if app_settings.get("cloud_consent", None) is not None:
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle("Share slides with your audience?")
+        box.setIcon(QMessageBox.Question)
+        box.setText(
+            "SeenSlide can sync your captured slides — and voice recordings, "
+            "when you turn them on — to seenslide.com so your audience can "
+            "follow along live from any device."
+        )
+        box.setInformativeText(
+            "Slides upload to your private collection and are shared only "
+            "through your session code.\n\nChoose \"Local only\" to keep "
+            "everything on this computer instead."
+        )
+        enable_btn = box.addButton("Enable cloud sync", QMessageBox.AcceptRole)
+        box.addButton("Local only", QMessageBox.RejectRole)
+        box.setDefaultButton(enable_btn)
+        box.exec_()
+        consent = box.clickedButton() == enable_btn
+        try:
+            app_settings.set_value("cloud_consent", bool(consent))
+        except Exception as e:
+            logger.warning(f"could not persist cloud consent: {e}")
+        logger.info(f"Cloud consent: {'granted' if consent else 'declined — local-only mode'}")
 
     # ── Identity bootstrap ─────────────────────────────────────────
 
@@ -4274,6 +4318,13 @@ class MainDashboard(QWidget):
 
     def _on_start_clicked(self):
         if not self.orchestrator:
+            # Silent return here reads as a dead button — say what's wrong.
+            QMessageBox.warning(
+                self, "Capture Engine Not Ready",
+                "The screen-capture engine hasn't finished starting (or "
+                "failed to start).\n\nWait a few seconds and try again — if "
+                "this keeps happening, check the log file for details.",
+            )
             return
 
         # A Direct Talk is never part of a conference schedule.
@@ -4405,6 +4456,15 @@ class MainDashboard(QWidget):
                 logger.info("Voice recording started")
             else:
                 logger.warning("Voice recording failed to start")
+                # The talk continues without audio — the presenter must know
+                # NOW, not discover a silent recording afterwards.
+                QMessageBox.warning(
+                    self, "Voice Recording Failed",
+                    "The microphone could not be started — this talk will "
+                    "have no audio recording.\n\nSlides are still being "
+                    "captured normally. Check that a microphone is connected "
+                    "and not in use by another app.",
+                )
 
         # Arm the reference-desktop slide gate (so desktop/windowed frames are
         # kept out of the deck) from a clean base, then switch capture to
@@ -4697,8 +4757,20 @@ class MainDashboard(QWidget):
         monitor_id = self._resolve_monitor_id()
         self.worker = OrchestratorStartWorker(monitor_id, crop, current)
         self.worker.ready.connect(self._on_orch_ready)
-        self.worker.error.connect(lambda e: logger.error(f"Orchestrator init failed: {e}"))
+        self.worker.error.connect(self._on_orch_failed)
         self.worker.start()
+
+    def _on_orch_failed(self, message: str):
+        """Capture engine failed to start — without this dialog, the app
+        looks normal but Start Presenting silently does nothing."""
+        logger.error(f"Orchestrator init failed: {message}")
+        QMessageBox.critical(
+            self, "Capture Engine Failed to Start",
+            f"Screen capture could not be initialized:\n\n{message}\n\n"
+            f"Presenting won't work until this is resolved. On Linux, check "
+            f"that screen-capture permissions were granted; the log file has "
+            f"details.",
+        )
 
     def _on_orch_ready(self):
         self.orchestrator = self.worker.orchestrator

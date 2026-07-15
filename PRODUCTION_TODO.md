@@ -42,21 +42,24 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done
       file log (2MB×3, utf-8) in a platform log dir + `sys.excepthook` (Qt
       slots) + `threading.excepthook`. Verified. Sentry still optional/open.
       (commit `2c11d1f`)
-- [ ] **DB backups + corruption recovery.** A corrupt `seenslide.db` = total
-      local data loss. Add `PRAGMA integrity_check` on open + periodic backup.
+- [x] **DB backups + corruption recovery.** quick_check at open; a corrupt db
+      is moved aside (kept for forensics) and the last-known-good backup
+      restored, or a fresh db created. Backup refreshed at open + close via
+      SQLite's online backup API. Tested (garbage db -> data restored).
 - [x] **Automated test suite + CI gate.** tests/ with 49 pytest tests covering
       dedup (tiled diff, per-talk reset, injection), upload outbox, SQLite
       concurrency/rollback, title matcher (real OCR fixtures), CSV schedule
       parser, blank-frame guard. CI: tests.yml on push/PR + a test job gating
       all three release builds. Still open: GUI-level tests, coverage growth.
-- [ ] **First-run privacy consent.** Cloud slide upload is ON by default
-      (`config/config.yaml:104`) with no in-app disclosure. Add a first-run
-      consent / opt-in.
-- [ ] **Fix credential storage claims + transport hardening.** Plaintext
-      fallback is mislabeled "encrypted" (`core/session/credential_manager.py:
-      33,60`); 30-day bearer stored cleartext when keyring unavailable. Encrypt
-      or correct the claim; reject non-`https` `api_url`
-      (`core/identity.py:196-206`).
+- [x] **First-run privacy consent.** One-time dialog on first launch:
+      "Enable cloud sync" vs "Local only"; the choice persists and the
+      orchestrator disables the cloud provider when declined.
+- [x] **Credential storage claims + transport hardening.** Docstrings now
+      state the fallback is plaintext+0o600 (not "encrypted"); non-https
+      api_url rejected (localhost allowed for dev, tested); secret files
+      (.credentials.json, .device_id, .identity.json, .jwt_secret) are
+      created 0o600 atomically — chmod race closed. Real at-rest encryption
+      of the fallback remains open.
 - [x] **Fix cv2 / adaptive-dedup packaging.** cv2 now ships on every platform:
       rapidocr-onnxruntime (conference auto-advance OCR) depends on
       opencv-python, the Linux spec no longer excludes cv2, and all three
@@ -71,8 +74,10 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done
 - [ ] **Monetization enforcement** (only if paid tiers are a launch
       requirement). `account_tier` is defined but never read
       (`core/identity.py:155`); everything is open.
-- [ ] **Surface Direct-Talk start failures.** No dialog if capture backend or
-      voice fails to init (`gui/windows/main_dashboard.py:3620,3740`).
+- [x] **Surface Direct-Talk start failures.** Dialogs for: capture engine
+      failed to initialize (was a silent log), Start clicked before the
+      engine is ready (was a dead button), and voice/mic failure at talk
+      start (talk continues, presenter warned).
 - [ ] **Keyboard shortcuts + accessibility** in the main UI (stop-talk/Esc,
       tooltips, accessible names).
 - [ ] **Remove dead legacy windows** (`ModeSelector`, `DirectTalkWindow`,

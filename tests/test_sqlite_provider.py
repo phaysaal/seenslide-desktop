@@ -117,3 +117,42 @@ def test_outbox_survives_reopen(db, tmp_path):
     assert reopened.initialize({"base_path": str(tmp_path)})
     assert [r["slide_number"] for r in reopened.outbox_pending()] == [7]
     reopened.cleanup()
+
+
+# ---------------------------------------------------------------------------
+# Corruption recovery + backup
+# ---------------------------------------------------------------------------
+
+def test_backup_written_on_init_and_cleanup(db):
+    assert db._backup_path.exists(), "init must write a last-known-good backup"
+
+
+def test_corrupt_db_restored_from_backup(db, tmp_path):
+    """Garbage in seenslide.db must be detected at open and the previous
+    backup restored — corruption used to mean total local data loss."""
+    s = Session(name="precious")
+    db.create_session(s)
+    db.save_slide(slide(s.session_id, "T", 1))
+    db.cleanup()  # refreshes the backup with this data
+
+    db_file = tmp_path / "db" / "seenslide.db"
+    db_file.write_bytes(b"this is not a sqlite database" * 1000)
+
+    recovered = SQLiteStorageProvider()
+    assert recovered.initialize({"base_path": str(tmp_path)})
+    names = [r["name"] for r in recovered._conn.execute("SELECT name FROM sessions")]
+    assert names == ["precious"], "backup data must survive corruption"
+    # the corrupt file is kept aside for forensics
+    assert list((tmp_path / "db").glob("*.corrupt-*")), "corrupt db must be preserved"
+    recovered.cleanup()
+
+
+def test_corrupt_db_without_backup_starts_fresh(tmp_path):
+    db_dir = tmp_path / "db"
+    db_dir.mkdir(parents=True)
+    (db_dir / "seenslide.db").write_bytes(b"garbage" * 5000)
+
+    p = SQLiteStorageProvider()
+    assert p.initialize({"base_path": str(tmp_path)})
+    assert p._conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] == 0
+    p.cleanup()
