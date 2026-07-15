@@ -1,0 +1,62 @@
+# W3: two-user collaboration on the same talk.
+# A (Edge/Mahmudul) creates a study group; the harness READS the generated
+# 8-char join code off A's screen and types it into B (Firefox/Faisal),
+# then verifies chat flows BOTH ways, in the UI of the receiving browser
+# and in the production DB (study_group_messages).
+name: web-w3-collaboration
+steps:
+  - actors: {A: edge, B: firefox}
+  # -- A creates the group -----------------------------------------------------
+  - click: {target: A, find: "the small '+' button next to the groups heading in the left Collaboration panel"}
+  - wait: 1
+  - assert_screen:
+      target: A
+      desc: a group management dialog with 'Create Group' and 'Join Group' buttons
+  - click: {target: A, find: "the 'Create Group' button in the dialog"}
+  - wait: 1
+  - click: {target: A, find: "the 'Group Name' text input in the dialog"}
+  - type: {target: A, text: "W3 Harness Group"}
+  - click: {target: A, find: "the 'Create Group' submit button at the bottom of the form"}
+  - wait: 2
+  - assert_screen:
+      target: A
+      desc: >
+        a success view saying the group 'W3 Harness Group' is ready, showing
+        an 8-character join code
+  - read_text: {target: A, find: "the 8-character join code displayed in the dialog", var: JOIN}
+  - click: {target: A, find: "the 'Done' button in the dialog"}
+  - wait: 1
+  # -- B joins with the code ---------------------------------------------------
+  - click: {target: B, find: "the small '+' button next to the groups heading in the left Collaboration panel"}
+  - wait: 1
+  - click: {target: B, find: "the 'Join Group' button in the dialog"}
+  - wait: 1
+  - click: {target: B, find: "the 'Join Code' text input in the dialog"}
+  - type: {target: B, text: "$JOIN"}
+  - click: {target: B, find: "the 'Join Group' submit button at the bottom of the form"}
+  - wait: 2
+  - assert_screen:
+      target: B
+      desc: >
+        the group 'W3 Harness Group' is now selected/visible in the left
+        Collaboration panel (the join dialog is gone)
+  # -- chat A -> B ---------------------------------------------------------------
+  - click: {target: A, find: "the message input box at the bottom of the group chat panel"}
+  - type: {target: A, text: "Hello from Mahmudul - harness test message one"}
+  - key: {target: A, key: Return}
+  - wait: 3
+  - assert_screen:
+      target: B
+      desc: >
+        the group chat shows a message 'Hello from Mahmudul - harness test
+        message one'
+  # -- chat B -> A ---------------------------------------------------------------
+  - click: {target: B, find: "the message input box at the bottom of the group chat panel"}
+  - type: {target: B, text: "Reply from Faisal - harness test message two"}
+  - key: {target: B, key: Return}
+  - wait: 3
+  - assert_screen:
+      target: A
+      desc: >
+        the group chat shows the reply 'Reply from Faisal - harness test
+        message two' in addition to the first message

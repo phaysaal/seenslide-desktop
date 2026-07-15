@@ -170,6 +170,19 @@ class Runner:
         actions.click_shot_coords(cx, cy)
         return f"clicked ({cx},{cy}) bbox={r.get('bbox')}"
 
+    def do_read_text(self, spec):
+        """AI reads a value off the screen (e.g. a generated join code) into
+        a variable usable in later type steps as $NAME."""
+        target = spec.get("target")
+        self._front(target)
+        path, size = self.shot("read", target=target)
+        r = self.locator.read(spec["find"], path, size)
+        if not r.get("found") or not r.get("text"):
+            raise StepFailed(f"could not read {spec['find']!r} off the screen")
+        self._vars = getattr(self, "_vars", {})
+        self._vars[spec["var"]] = str(r["text"]).strip()
+        return f"${spec['var']} = {self._vars[spec['var']]!r}"
+
     def do_type(self, spec):
         # dict form carries a target actor: {target: A, text: "..."}
         if isinstance(spec, dict):
@@ -180,6 +193,8 @@ class Runner:
         # $FIXTURES -> absolute path of tests_gui_agent/fixtures (lets
         # scenarios type file paths into dialogs machine-independently)
         text = str(text).replace("$FIXTURES", str(HERE / "fixtures"))
+        for k, v in getattr(self, "_vars", {}).items():
+            text = text.replace(f"${k}", v)
         actions.type_text(text)
 
     def do_key(self, spec):

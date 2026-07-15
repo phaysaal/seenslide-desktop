@@ -45,6 +45,13 @@ Question: does the screen show the following? {desc}
 Respond with ONLY a JSON object, no other text:
 {{"match": true or false, "reason": "one short sentence"}}"""
 
+READ_PROMPT = """Look at the screenshot image at {path} (a {w}x{h} pixel screen capture).
+
+Read the following value off the screen, exactly as displayed: {desc}
+
+Respond with ONLY a JSON object, no other text:
+{{"found": true or false, "text": "the exact value"}}"""
+
 
 class Locator:
     #: UI-element localization doesn't need the top-tier model — Opus 4.8
@@ -84,6 +91,12 @@ class Locator:
             self._cache[key] = result
             self._save_cache()
         return result
+
+    def read(self, desc: str, shot_path: str, size) -> dict:
+        """-> {"found": bool, "text": str} — never cached (values change)."""
+        self.calls += 1
+        return self._ask(READ_PROMPT.format(
+            path=shot_path, w=size[0], h=size[1], desc=desc))
 
     def judge(self, desc: str, shot_path: str, size) -> dict:
         """-> {"match": bool, "reason": str}. Never cached (state changes)."""
