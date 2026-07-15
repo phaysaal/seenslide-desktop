@@ -665,6 +665,18 @@ class SeenSlideOrchestrator:
 
                 logger.info(f"Updated storage manager session from {old_session_id} to {new_session.session_id}")
 
+                # Persist the session row. Without this, cloud_session_id
+                # lived only in memory: the collection-switch path sets it
+                # on the session object before Start Presenting, the lazy
+                # local-row switch then sees values already equal and skips,
+                # and the DB row keeps cloud_session_id=NULL — so the
+                # Sessions detail view (which matches local sessions by that
+                # column) showed "No talks found" for perfectly good talks.
+                try:
+                    self.storage_manager._database.update_session(new_session)
+                except Exception as e:
+                    logger.warning(f"Could not persist session row: {e}")
+
             # Update session in capture daemon
             if self.capture_daemon:
                 self.capture_daemon._session = new_session
