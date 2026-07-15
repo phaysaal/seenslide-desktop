@@ -1,0 +1,24 @@
+# P0 smoke: proves the whole vision loop — launch, AI-locate, click, verify.
+# The app runs in a sandboxed HOME (cloud disabled); your data is untouched.
+name: smoke-navigation
+steps:
+  - launch: {wait: 9}
+  - assert_screen: >
+      the SeenSlide desktop app dashboard: a dark left sidebar containing
+      navigation items Home, Conference, Sessions, Account, Settings
+  - click: {find: "the 'Settings' item in the left sidebar (gear icon, below Account)"}
+  - wait: 1
+  - assert_screen: >
+      a Settings page with a large 'Settings' heading and sections including
+      APPEARANCE and CAPTURE
+  - click: {find: "the 'Conference' item in the left sidebar"}
+  - wait: 1
+  - assert_screen: >
+      a 'Set Up Conference' page with a CONFERENCE NAME input field and a
+      Talk Schedule panel
+  - click: {find: "the 'Home' item in the left sidebar"}
+  - wait: 1
+  - assert_screen: >
+      the dashboard home view with mode cards, including one about presenting
+      slides
+  - kill: {}
