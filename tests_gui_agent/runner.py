@@ -170,6 +170,24 @@ class Runner:
         actions.click_shot_coords(cx, cy)
         return f"clicked ({cx},{cy}) bbox={r.get('bbox')}"
 
+    def do_draw(self, spec):
+        """Locate a canvas-ish element and draw a diagonal stroke across its
+        middle (annotation tests). The stroke spans the central third so it
+        can't clip toolbars at the element's edges."""
+        target = spec.get("target")
+        self._front(target)
+        path, size = self.shot("before_draw", target=target)
+        r = self.locator.locate(spec["find"], path, size)
+        self._evidence = {"shot": path, "bbox": r.get("bbox")}
+        if not r.get("found"):
+            raise StepFailed(f"draw surface not found: {spec['find']!r}")
+        x0, y0, x1, y1 = r["bbox"]
+        w, h = x1 - x0, y1 - y0
+        ox, oy = actions._monitor_offset
+        actions.drag(ox + x0 + w // 3, oy + y0 + h // 3,
+                     ox + x0 + 2 * w // 3, oy + y0 + 2 * h // 3)
+        return f"stroke across {r['bbox']}"
+
     def do_read_text(self, spec):
         """AI reads a value off the screen (e.g. a generated join code) into
         a variable usable in later type steps as $NAME."""

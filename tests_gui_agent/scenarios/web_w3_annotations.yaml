@@ -1,0 +1,29 @@
+# W3b: shared ink — A enables Draw Annotations, draws a stroke on the
+# current slide; the stroke must appear in B (same group) on the same slide.
+# Precondition: web_w3_collaboration.yaml already ran (both in
+# 'W3 Harness Group'). Both browsers start on slide 1.
+name: web-w3-annotations
+steps:
+  - actors: {A: edge, B: firefox}
+  # both on slide 1
+  - click: {target: A, find: "slide thumbnail number 1 in the filmstrip at the bottom"}
+  - click: {target: B, find: "slide thumbnail number 1 in the filmstrip at the bottom"}
+  - wait: 1
+  # -- A draws -----------------------------------------------------------------
+  - click: {target: A, find: "the pencil/pen 'Draw Annotations' icon button in the right-side vertical toolbar"}
+  - wait: 1
+  - assert_screen:
+      target: A
+      desc: an annotation toolbar appeared (pen / highlighter / eraser tools)
+  - draw: {target: A, find: "the main slide display area showing the title slide"}
+  - wait: 3
+  - assert_screen:
+      target: A
+      desc: >
+        a hand-drawn diagonal ink stroke is visible on the title slide
+  # -- B sees it ----------------------------------------------------------------
+  - assert_screen:
+      target: B
+      desc: >
+        the same hand-drawn diagonal ink stroke is visible on the title
+        slide (received from the other user in the group)

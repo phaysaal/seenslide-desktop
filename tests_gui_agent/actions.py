@@ -49,6 +49,19 @@ def press_key(key: str):
     time.sleep(0.2)
 
 
+def drag(x1: int, y1: int, x2: int, y2: int, steps: int = 12):
+    """Press-move-release — draws a stroke on canvas-style UIs."""
+    _xdo("mousemove", str(x1), str(y1))
+    _xdo("mousedown", "1")
+    for i in range(1, steps + 1):
+        _xdo("mousemove",
+             str(x1 + (x2 - x1) * i // steps),
+             str(y1 + (y2 - y1) * i // steps))
+        time.sleep(0.03)
+    _xdo("mouseup", "1")
+    time.sleep(0.4)
+
+
 # Global offset of the last-captured monitor: screenshot pixel coords ->
 # X11 desktop coords for xdotool. On a single monitor this is (0,0); with
 # multiple monitors it's what keeps clicks from landing on the wrong screen.
