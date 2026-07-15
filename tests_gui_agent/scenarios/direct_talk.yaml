@@ -1,0 +1,37 @@
+# P1: full Direct-Talk E2E with a real PDF deck.
+# The harness fills the talk form, starts presenting, plays 8 pages of a real
+# research deck fullscreen while the app captures the screen, ends the talk,
+# and verifies the sandbox DB: slide count, contiguous numbering, and each
+# stored slide perceptually matching its source PDF page.
+#
+# Note: cloud is disabled in the sandbox; local-only talks currently create
+# no talk row (talks: 0 documents today's real behavior).
+name: direct-talk-pdf
+steps:
+  - launch: {wait: 9}
+  - assert_screen: >
+      the SeenSlide dashboard home view with a Single Talk card containing a
+      'Start Presenting' button
+  - click: {find: "the green 'Start Presenting' button inside the Single Talk card"}
+  - wait: 1
+  - assert_screen: >
+      a talk setup form with a TALK TITLE input and a PRESENTER NAME input
+  - click: {find: "the text input field directly under the TALK TITLE label"}
+  - type: "P1 Direct Talk"
+  - click: {find: "the text input field directly under the PRESENTER NAME label"}
+  - type: "Harness"
+  - click: {find: "the green pill-shaped toggle button labeled 'Enabled' next to the VOICE RECORDING label"}
+  - wait: 1
+  - click: {find: "the large green 'Start Presenting' button at the bottom of the form"}
+  # countdown (10s) runs under the presenter, which covers the screen ~2s in
+  - present_pdf: {file: FLOPS2022Slide.pdf, page_interval: 5, hold_first: 14, max_pages: 8}
+  - wait_presenter: {timeout: 120}
+  - wait: 3
+  - assert_screen: >
+      the live presentation view of SeenSlide with a LIVE badge and an
+      'End Presentation' button
+  - click: {find: "the red 'End Presentation' button"}
+  - wait: 10
+  - verify_db: {talks: 0, slides: {min: 6, max: 9}}
+  - verify_slides_match_pdf: {file: FLOPS2022Slide.pdf, max_distance: 16, min_matched: 5}
+  - kill: {}

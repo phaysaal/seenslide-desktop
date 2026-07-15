@@ -1,0 +1,52 @@
+# P1-cloud: full E2E including the web side.
+#
+# Runs under a THROWAWAY anonymous cloud identity (random device id — the
+# user's real account and collections are never touched; no email needed).
+# Creates a collection via the real UI, presents a real PDF deck, then
+# verifies BOTH the local DB and the public cloud endpoint that the web
+# viewer reads. The created collection stays on the server under the
+# throwaway account (purge via the admin panel if desired).
+name: direct-talk-cloud
+steps:
+  - launch: {wait: 12, cloud: true}   # extra time for anonymous device-bootstrap
+  - assert_screen: >
+      the SeenSlide dashboard home view with a dark left sidebar
+  # -- create a collection under the throwaway account (real UI path) ------
+  - click: {find: "the 'Sessions' item in the left sidebar"}
+  - wait: 2
+  - click: {find: "the blue '+ New' button at the top of the sessions list panel"}
+  - wait: 1
+  - assert_screen: >
+      a small dialog asking for a new session or collection title with a text
+      input field
+  - click: {find: "the text input field inside the new-session dialog"}
+  - type: "P1 Cloud E2E"
+  - click: {find: "the confirm button of the dialog (OK or Create)"}
+  - wait: 4
+  # -- start a talk in it ----------------------------------------------------
+  - click: {find: "the 'Home' item in the left sidebar"}
+  - wait: 1
+  - click: {find: "the green 'Start Presenting' button inside the Single Talk card"}
+  - wait: 1
+  - click: {find: "the text input field directly under the TALK TITLE label"}
+  - type: "P1 Cloud Talk"
+  - click: {find: "the text input field directly under the PRESENTER NAME label"}
+  - type: "Harness"
+  - click: {find: "the green pill-shaped toggle button labeled 'Enabled' next to the VOICE RECORDING label"}
+  - wait: 1
+  - click: {find: "the large green 'Start Presenting' button at the bottom of the form"}
+  - present_pdf: {file: FLOPS2022Slide.pdf, page_interval: 5, hold_first: 14, max_pages: 8}
+  - wait_presenter: {timeout: 120}
+  - wait: 3
+  - click: {find: "the red 'End Presentation' button"}
+  - wait: 10
+  # -- oracles: local AND what the web viewer sees ---------------------------
+  # Count is a loose sanity bound: captures legitimately continue between the
+  # deck ending and the End click (a real presenter's desktop gets captured
+  # too), adding a few tail frames. The REAL quality bar is the content
+  # oracle: at least 6 of the 8 presented pages must appear as stored slides,
+  # perceptually matched, in presentation order.
+  - verify_db: {slides: {min: 6, max: 16}}
+  - verify_slides_match_pdf: {file: FLOPS2022Slide.pdf, max_distance: 16, min_matched: 6}
+  - verify_cloud: {slides: {min: 6, max: 16}}
+  - kill: {}

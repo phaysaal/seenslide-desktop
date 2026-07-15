@@ -63,7 +63,8 @@ class Runner:
     # -- step implementations ---------------------------------------------
 
     def do_launch(self, spec):
-        self.app.launch(wait=float(spec.get("wait", 8)))
+        self.app.launch(wait=float(spec.get("wait", 8)),
+                        cloud=bool(spec.get("cloud", False)))
 
     def do_kill(self, spec):
         self.app.kill()
@@ -72,14 +73,24 @@ class Runner:
         time.sleep(float(seconds))
 
     def do_click(self, spec):
+        """Locate + click, with retries: a transient overlay (dialog,
+        animation) or a one-off model miss shouldn't fail the scenario."""
         desc = spec["find"]
-        self.app.ensure_front()
-        path, size = self.shot("before_click")
-        r = self.locator.locate(desc, path, size)
-        self._evidence = {"shot": path, "bbox": r.get("bbox"),
-                          "click": r.get("center")}
+        retries = int(spec.get("retries", 2))
+        r = {}
+        for attempt in range(retries + 1):
+            self.app.ensure_front()
+            path, size = self.shot("before_click")
+            r = self.locator.locate(desc, path, size)
+            self._evidence = {"shot": path, "bbox": r.get("bbox"),
+                              "click": r.get("center")}
+            if r.get("found"):
+                break
+            if attempt < retries:
+                logger.info(f"element not found (attempt {attempt + 1}) — retrying: {desc!r}")
+                time.sleep(2.5)
         if not r.get("found"):
-            raise StepFailed(f"element not found: {desc!r}")
+            raise StepFailed(f"element not found after {retries + 1} attempts: {desc!r}")
         cx, cy = r["center"]
         actions.click_shot_coords(cx, cy)
         return f"clicked ({cx},{cy}) bbox={r.get('bbox')}"
@@ -89,6 +100,204 @@ class Runner:
 
     def do_key(self, key):
         actions.press_key(str(key))
+
+    # -- PDF presenter ------------------------------------------------------
+
+    def _deck_path(self, name: str) -> str:
+        import os
+        base = os.environ.get("SEENSLIDE_TEST_DECKS",
+                              str(HERE.parent / "tests" / "pdfs"))
+        p = Path(name)
+        return str(p if p.is_absolute() else Path(base) / name)
+
+    def do_present_pdf(self, spec):
+        """Start the fullscreen presenter on the primary monitor (async —
+        use wait_presenter to block until the deck finishes)."""
+        import subprocess
+        import mss as _mss
+        idx = actions.primary_monitor()
+        with _mss.mss() as sct:
+            mon = sct.monitors[idx]
+        geo = f"{mon['left']},{mon['top']},{mon['width']},{mon['height']}"
+        pdf = self._deck_path(spec["file"])
+        cmd = [str(HERE.parent / "venv" / "bin" / "python3"),
+               "-m", "tests_gui_agent.presenter",
+               "--pdf", pdf, "--geometry", geo,
+               "--interval", str(spec.get("page_interval", 5)),
+               "--hold-first", str(spec.get("hold_first", 12)),
+               "--max-pages", str(spec.get("max_pages", 0))]
+        self._presenter = subprocess.Popen(
+            cmd, cwd=str(HERE.parent),
+            stdout=open(self.run_dir / "presenter.log", "w"),
+            stderr=subprocess.STDOUT)
+        self._presented_pdf = pdf
+        self._presented_pages = int(spec.get("max_pages", 0))
+        time.sleep(2.0)  # let the window map and cover the screen
+        if self._presenter.poll() is not None:
+            raise StepFailed("presenter exited immediately — see presenter.log")
+        return f"presenting {pdf}"
+
+    def do_wait_presenter(self, spec):
+        if not getattr(self, "_presenter", None):
+            raise StepFailed("no presenter running")
+        timeout = float(spec.get("timeout", 300)) if isinstance(spec, dict) else 300
+        try:
+            self._presenter.wait(timeout=timeout)
+        except Exception:
+            self._presenter.kill()
+            raise StepFailed("presenter did not finish in time")
+        return "deck finished"
+
+    # -- oracles -------------------------------------------------------------
+
+    def do_verify_db(self, spec):
+        """Structural checks against the sandboxed SQLite database."""
+        import sqlite3
+        db = self.app.db_path
+        if not db.exists():
+            raise StepFailed(f"sandbox db missing: {db}")
+        conn = sqlite3.connect(str(db))
+        conn.row_factory = sqlite3.Row
+        talks = conn.execute(
+            "SELECT COUNT(*) c FROM talks").fetchone()["c"]
+        slides = [dict(r) for r in conn.execute(
+            "SELECT talk_id, sequence_number, image_path FROM slides "
+            "ORDER BY sequence_number")]
+        conn.close()
+
+        if "talks" in spec and talks != spec["talks"]:
+            raise StepFailed(f"expected {spec['talks']} talk(s), found {talks}")
+        want = spec.get("slides", {})
+        lo, hi = want.get("min", 0), want.get("max", 10**6)
+        if not (lo <= len(slides) <= hi):
+            raise StepFailed(
+                f"expected {lo}..{hi} slides, found {len(slides)}: "
+                f"{[s['sequence_number'] for s in slides]}")
+        seqs = [s["sequence_number"] for s in slides]
+        if seqs != list(range(1, len(seqs) + 1)):
+            raise StepFailed(f"sequence numbers not contiguous from 1: {seqs}")
+        self._db_slides = slides
+        return f"{talks} talk(s), {len(slides)} slides, sequence 1..{len(seqs)}"
+
+    def do_verify_cloud(self, spec):
+        """Web-side oracle: what the audience's viewer would see.
+
+        Reads the cloud session code the sandboxed app registered (from its
+        own DB), then queries the PUBLIC session endpoint — the same data the
+        web viewer renders — and checks the slide count arrived."""
+        import sqlite3
+        import requests
+
+        db = self.app.db_path
+        if not db.exists():
+            raise StepFailed(f"sandbox db missing: {db}")
+        conn = sqlite3.connect(str(db))
+        # Most robust source: cloud talk ids embed the session code
+        # (XXX-NNNN-TALK-...). The sessions row's cloud_session_id proved
+        # unreliable even when the cloud flow fully worked.
+        code = None
+        row = conn.execute(
+            "SELECT talk_id FROM talks WHERE talk_id LIKE '%-TALK-%' "
+            "ORDER BY created_at DESC LIMIT 1").fetchone()
+        if row:
+            code = row[0].split("-TALK-")[0]
+        else:
+            row = conn.execute(
+                "SELECT cloud_session_id FROM sessions "
+                "WHERE cloud_session_id IS NOT NULL AND cloud_session_id != '' "
+                "ORDER BY start_time DESC LIMIT 1").fetchone()
+            if row:
+                code = row[0]
+        conn.close()
+        if not code:
+            raise StepFailed("no cloud session registered in the sandbox db")
+
+        resp = requests.get(
+            f"https://seenslide.com/api/cloud/session/{code}", timeout=15)
+        if resp.status_code != 200:
+            raise StepFailed(f"cloud session {code} not reachable "
+                             f"(HTTP {resp.status_code})")
+        data = resp.json()
+        total = data.get("total_slides", 0)
+        want = spec.get("slides", {})
+        lo, hi = want.get("min", 1), want.get("max", 10**6)
+        if not (lo <= total <= hi):
+            raise StepFailed(
+                f"cloud session {code} has {total} slides, expected {lo}..{hi}")
+        self._cloud_code = code
+        return (f"cloud session {code}: {total} slides visible to the web "
+                f"viewer (https://seenslide.com/{code})")
+
+    def do_verify_slides_match_pdf(self, spec):
+        """Perceptual oracle: each stored slide must look like SOME presented
+        page, and the matched pages must appear in presentation order.
+
+        Best-match (not positional): dedup legitimately merges visually
+        similar pages, so stored slide 3 may be PDF page 5 — comparing k↔k
+        failed slides that were in fact perfect captures.
+        """
+        import shutil as _shutil
+        import fitz
+        import imagehash
+        from PIL import Image
+
+        slides = getattr(self, "_db_slides", None)
+        if slides is None:
+            raise StepFailed("run verify_db before verify_slides_match_pdf")
+        pdf = self._deck_path(spec["file"])
+        max_dist = int(spec.get("max_distance", 16))
+        min_matched = int(spec.get("min_matched", len(slides)))
+        max_pages = int(spec.get("max_pages", getattr(self, "_presented_pages", 0)))
+
+        doc = fitz.open(pdf)
+        n_pages = min(max_pages, doc.page_count) if max_pages else doc.page_count
+        page_hashes = []
+        for i in range(n_pages):
+            pm = doc[i].get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+            src = Image.frombytes("RGB", (pm.width, pm.height), pm.samples)
+            page_hashes.append(imagehash.dhash(src, hash_size=8))
+
+        # keep the captured slide images with the run artifacts — the sandbox
+        # is deleted at cleanup, and failures are undiagnosable without them
+        slide_dir = self.run_dir / "slides"
+        slide_dir.mkdir(exist_ok=True)
+
+        matched, detail, matched_pages = 0, [], []
+        for s in slides:
+            k = s["sequence_number"]
+            if not s["image_path"] or not Path(s["image_path"]).exists():
+                detail.append(f"#{k}:missing")
+                continue
+            try:
+                _shutil.copy2(s["image_path"], slide_dir / f"slide_{k:02d}.png")
+            except Exception:
+                pass
+            cap = Image.open(s["image_path"]).convert("RGB")
+            cap = self._crop_letterbox(cap)
+            ch = imagehash.dhash(cap, hash_size=8)
+            dists = [ch - ph for ph in page_hashes]
+            best = min(range(len(dists)), key=lambda i: dists[i])
+            detail.append(f"#{k}->p{best + 1}:{dists[best]}")
+            if dists[best] <= max_dist:
+                matched += 1
+                matched_pages.append(best + 1)
+
+        order_ok = matched_pages == sorted(matched_pages)
+        if matched < min_matched or not order_ok:
+            raise StepFailed(
+                f"{matched}/{len(slides)} slides match a presented page "
+                f"(need {min_matched}, order_ok={order_ok}); {' '.join(detail)} "
+                f"— slide images saved to {slide_dir}")
+        return (f"{matched}/{len(slides)} slides match presented pages in order "
+                f"({' '.join(detail)})")
+
+    @staticmethod
+    def _crop_letterbox(im, thresh: int = 24):
+        """Trim black letterbox bars so the hash compares slide content only."""
+        from PIL import ImageOps
+        g = im.convert("L")
+        bbox = g.point(lambda p: 255 if p > thresh else 0).getbbox()
+        return im.crop(bbox) if bbox else im
 
     def do_assert_screen(self, desc, retries: int = 2, delay: float = 2.0):
         last = None
@@ -127,12 +336,19 @@ class Runner:
                     ok = False
                     break
         finally:
+            # never leave a fullscreen presenter covering the user's screen
+            if getattr(self, "_presenter", None) and self._presenter.poll() is None:
+                self._presenter.kill()
             # final state + app log land in the artifacts
             try:
                 self.shot("final")
                 if self.app.log_file.exists():
                     (self.run_dir / "seenslide.log").write_text(
                         self.app.log_file.read_text())
+                # keep the sandbox DB too — the sandbox itself is deleted
+                if self.app.db_path.exists():
+                    import shutil as _sh
+                    _sh.copy2(self.app.db_path, self.run_dir / "seenslide.db")
             except Exception:
                 pass
             self.app.cleanup()

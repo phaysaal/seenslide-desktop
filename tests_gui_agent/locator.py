@@ -47,11 +47,16 @@ Respond with ONLY a JSON object, no other text:
 
 
 class Locator:
+    #: UI-element localization doesn't need the top-tier model — Opus 4.8
+    #: boxes labeled buttons on a clean UI just as well. Override with
+    #: SEENSLIDE_LOCATOR_MODEL if needed.
+    DEFAULT_MODEL = "claude-opus-4-8"
+
     def __init__(self, mode: str = "locate", model: str = None):
         """mode: 'locate' (fresh AI calls, refresh cache) or 'replay'
         (cache only — zero AI calls, fails on cache miss)."""
         self.mode = mode
-        self.model = model or os.environ.get("SEENSLIDE_LOCATOR_MODEL", "")
+        self.model = model or os.environ.get("SEENSLIDE_LOCATOR_MODEL", self.DEFAULT_MODEL)
         self._cache = {}
         if CACHE_FILE.exists():
             try:

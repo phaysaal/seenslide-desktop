@@ -7,6 +7,7 @@ The app runs under a SANDBOXED HOME: the user's real settings, collections,
 credentials and slide database are never touched, and the sandbox config
 points the cloud at a dead localhost port so nothing leaves the machine.
 """
+import json
 import logging
 import os
 import re
@@ -112,24 +113,65 @@ class App:
         self.proc = None
         self.sandbox = None
 
-    def make_sandbox(self) -> Path:
-        """Fresh HOME with consent pre-answered and the cloud pointed at a
-        dead local port (fast, silent failures — fully offline behavior)."""
+    def make_sandbox(self, cloud: bool = False) -> Path:
+        """Fresh HOME with consent pre-answered.
+
+        cloud=False (default): fully offline — cloud disabled and pointed at
+        a dead local port.
+
+        cloud=True: real cloud E2E under a THROWAWAY ANONYMOUS identity. The
+        app's device-bootstrap creates an anonymous account with no email
+        needed. Crucially the sandbox pre-seeds a RANDOM device id — without
+        it, the app would derive the id from /etc/machine-id and the
+        bootstrap would resurrect the user's real anonymous account,
+        polluting their collections. Everything the run creates belongs to a
+        one-off account no human can log into.
+
+        The sandbox config is the PROJECT config with overrides — a minimal
+        config here made the orchestrator fall back to hash dedup and,
+        worse, store slides in the shared /tmp/seenslide instead of the
+        sandbox (the sqlite provider's own default)."""
+        import uuid
+        import yaml
         self.sandbox = Path(tempfile.mkdtemp(prefix="seenslide-gui-test-"))
         cfg_dir = self.sandbox / ".config" / "seenslide"
         cfg_dir.mkdir(parents=True)
+        consent = "true" if cloud else "false"
         (cfg_dir / ".app_settings.json").write_text(
-            '{"cloud_consent": false, "theme": "dark", "slide_gate_enabled": false}'
+            f'{{"cloud_consent": {consent}, "theme": "dark", "slide_gate_enabled": false}}'
         )
-        (cfg_dir / "config.yaml").write_text(
-            "cloud:\n"
-            "  enabled: false\n"
-            "  api_url: http://127.0.0.1:9\n"
-        )
+        # Suppress the anonymous-account sign-in nudges: a fresh identity
+        # always triggers tier A on the first slide, and the dialog popped up
+        # mid-run over the live view. Pre-seed "already nudged recently".
+        import time as _time
+        now = _time.time()
+        (cfg_dir / ".nudge_state.json").write_text(json.dumps({
+            "total_slides": 1,
+            "slides_since_last_dismiss": 0,
+            "tier_a_shown_at": now,
+            "tier_b_last_shown_at": now,
+            "tier_c_shown": False,
+        }))
+        cfg = yaml.safe_load((PROJECT / "config" / "config.yaml").read_text())
+        cfg.setdefault("cloud", {})
+        if cloud:
+            cfg["cloud"]["enabled"] = True
+            cfg["cloud"]["api_url"] = "https://seenslide.com"
+            (cfg_dir / ".device_id").write_text(f"gui-test-{uuid.uuid4()}")
+        else:
+            cfg["cloud"]["enabled"] = False
+            cfg["cloud"]["api_url"] = "http://127.0.0.1:9"
+        cfg.setdefault("storage", {})
+        cfg["storage"]["base_path"] = str(self.sandbox / "data")
+        (cfg_dir / "config.yaml").write_text(yaml.safe_dump(cfg))
         return self.sandbox
 
-    def launch(self, wait: float = 8.0):
-        self.make_sandbox()
+    @property
+    def db_path(self) -> Path:
+        return self.sandbox / "data" / "db" / "seenslide.db"
+
+    def launch(self, wait: float = 8.0, cloud: bool = False):
+        self.make_sandbox(cloud=cloud)
         env = dict(os.environ)
         env["HOME"] = str(self.sandbox)
         env["XDG_DATA_HOME"] = str(self.sandbox / ".local" / "share")
