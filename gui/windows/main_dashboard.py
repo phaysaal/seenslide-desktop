@@ -2014,7 +2014,7 @@ class MainDashboard(QWidget):
         title_input.setPlaceholderText(f"Talk {talk_num} title")
         title_input.setStyleSheet(f"""
             QLineEdit {{
-                background: white; border: 1px solid {BORDER}; border-radius: 4px;
+                background: {BG_WHITE}; border: 1px solid {BORDER}; border-radius: 4px;
                 padding: 4px 8px; font-size: 12px; color: {TEXT_DARK};
             }}
             QLineEdit:focus {{ border-color: {GREEN}; }}
@@ -2026,7 +2026,7 @@ class MainDashboard(QWidget):
         speaker_input.setPlaceholderText("Speaker name")
         speaker_input.setStyleSheet(f"""
             QLineEdit {{
-                background: white; border: 1px solid {BORDER}; border-radius: 4px;
+                background: {BG_WHITE}; border: 1px solid {BORDER}; border-radius: 4px;
                 padding: 4px 8px; font-size: 11px; color: {TEXT_FAINT};
             }}
             QLineEdit:focus {{ border-color: {GREEN}; }}
