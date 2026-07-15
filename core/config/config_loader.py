@@ -57,16 +57,19 @@ class ConfigLoader:
         Returns:
             Dictionary containing default configuration
         """
+        # Keep these in sync with config/config.yaml — the two used to drift
+        # (provider portal-vs-auto, strategy hash-vs-perceptual), so whichever
+        # load path ran gave different behavior.
         self.config = {
             "capture": {
-                "provider": "portal",  # Changed from "mss" to "portal" for Wayland
+                "provider": "auto",   # auto-detect: mss on X11, portal on Wayland
                 "interval_seconds": 2.0,
                 "save_raw": False
             },
             "deduplication": {
-                "strategy": "hash",
+                "strategy": "perceptual",
                 "hash_algorithm": "md5",
-                "perceptual_threshold": 0.90
+                "perceptual_threshold": 0.95
             },
             "storage": {
                 "provider": "sqlite",
@@ -77,7 +80,8 @@ class ConfigLoader:
                 "database_filename": "seenslide.db",
                 "create_thumbnails": True,
                 "thumbnail_width": 320,
-                "thumbnail_quality": 85
+                "thumbnail_quality": 85,
+                "jpeg_quality": 75
             },
             "server": {
                 "host": "0.0.0.0",

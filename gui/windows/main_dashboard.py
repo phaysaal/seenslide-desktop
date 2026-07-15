@@ -498,6 +498,16 @@ class OrchestratorStartWorker(QThread):
                 orch.config['capture']['config'] = {}
             orch.config['capture']['config']['monitor_id'] = self.monitor_id
 
+            # Settings-page overrides (previously file-only knobs).
+            provider = app_settings.get("capture_provider", "auto")
+            if provider in ("auto", "mss", "portal"):
+                orch.config['capture']['provider'] = provider
+            try:
+                orch.config['capture']['interval_seconds'] = float(
+                    app_settings.get("capture_interval", 2.0))
+            except (TypeError, ValueError):
+                pass
+
             # Inject cloud settings from config file
             if 'cloud' not in orch.config:
                 orch.config['cloud'] = {}
@@ -776,6 +786,7 @@ class MainDashboard(QWidget):
         self.view_stack.addWidget(self._build_conference_view())  # 3
         self.view_stack.addWidget(self._build_sessions_view())    # 4
         self.view_stack.addWidget(self._build_account_view())     # 5
+        self.view_stack.addWidget(self._build_settings_view())    # 6
 
         content.addWidget(self.view_stack)
         root.addLayout(content)
@@ -827,9 +838,11 @@ class MainDashboard(QWidget):
         self.btn_sessions = SidebarButton("Conference", "conference")
         self.btn_library = SidebarButton("Sessions", "sessions")
         self.btn_account = SidebarButton("Account", "people")
+        self.btn_settings = SidebarButton("Settings", "settings")
 
-        self.nav_buttons = [self.btn_home, self.btn_sessions, self.btn_library, self.btn_account]
-        nav_indices = [0, 3, 4, 5]  # Map to view_stack indices
+        self.nav_buttons = [self.btn_home, self.btn_sessions, self.btn_library,
+                            self.btn_account, self.btn_settings]
+        nav_indices = [0, 3, 4, 5, 6]  # Map to view_stack indices
 
         for btn, idx in zip(self.nav_buttons, nav_indices):
             btn.clicked.connect(lambda checked, i=idx: self._switch_view(i))
@@ -2463,7 +2476,7 @@ class MainDashboard(QWidget):
         # New voice recording bound to the new talk (order matters: the
         # uploader reads the cloud talk id set by update_session above).
         if self.voice_toggle.isChecked():
-            self.orchestrator.set_voice_enabled(True)
+            self.orchestrator.set_voice_enabled(True, device=self._resolve_voice_device())
             if not self.orchestrator.start_voice_recording():
                 logger.warning("Voice recording failed to start for next talk")
 
@@ -3761,6 +3774,285 @@ class MainDashboard(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
+    # ── Settings View ─────────────────────────────────────────────
+
+    def _build_settings_view(self):
+        """Preferences page — the knobs that were previously file-only
+        (capture interval/provider, mic, cloud sync) plus theme, slide
+        filtering, image quality and diagnostics."""
+        view = QWidget()
+        view.setStyleSheet(f"background: {BG_MAIN};")
+        outer = QVBoxLayout(view)
+        outer.setContentsMargins(40, 24, 40, 24)
+        outer.setSpacing(12)
+
+        title = QLabel("Settings")
+        title.setStyleSheet(f"color: {TEXT_DARK}; font-size: 26px; font-weight: 600; background: transparent;")
+        sub = QLabel("Preferences are saved immediately. Items marked ⟳ apply the next time the app starts.")
+        sub.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 13px; background: transparent;")
+        outer.addWidget(title)
+        outer.addWidget(sub)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        body = QWidget()
+        body.setStyleSheet("background: transparent;")
+        col = QVBoxLayout(body)
+        col.setContentsMargins(0, 8, 12, 24)
+        col.setSpacing(16)
+
+        def section(heading):
+            card = ShadowCard()
+            lay = QVBoxLayout(card)
+            lay.setContentsMargins(24, 18, 24, 20)
+            lay.setSpacing(10)
+            h = QLabel(heading)
+            h.setStyleSheet(f"color: {TEXT_FAINT}; font-size: 10px; letter-spacing: 1px; font-weight: 700; background: transparent;")
+            lay.addWidget(h)
+            col.addWidget(card)
+            return lay
+
+        def hint(lay, text):
+            lbl = QLabel(text)
+            lbl.setWordWrap(True)
+            lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; background: transparent;")
+            lay.addWidget(lbl)
+
+        combo_style = self._input_style()
+
+        # ---- Appearance -------------------------------------------------
+        lay = section("APPEARANCE")
+        row = QHBoxLayout()
+        row.addWidget(self._field_label("THEME"))
+        row.addStretch()
+        self.set_theme_combo = QComboBox()
+        self.set_theme_combo.addItems(["Dark", "Light"])
+        self.set_theme_combo.setCurrentIndex(0 if self._theme_mode == "dark" else 1)
+        self.set_theme_combo.setFixedWidth(160)
+        self.set_theme_combo.setStyleSheet(combo_style)
+        self.set_theme_combo.currentIndexChanged.connect(
+            lambda i: self._set_theme("dark" if i == 0 else "light"))
+        row.addWidget(self.set_theme_combo)
+        lay.addLayout(row)
+
+        # ---- Capture ----------------------------------------------------
+        lay = section("CAPTURE  ⟳")
+        row = QHBoxLayout()
+        row.addWidget(self._field_label("CAPTURE BACKEND"))
+        row.addStretch()
+        self.set_provider_combo = QComboBox()
+        self.set_provider_combo.addItem("Auto (recommended)", "auto")
+        self.set_provider_combo.addItem("Native (mss)", "mss")
+        self.set_provider_combo.addItem("Portal (Wayland)", "portal")
+        saved_provider = app_settings.get("capture_provider", "auto")
+        idx = self.set_provider_combo.findData(saved_provider)
+        self.set_provider_combo.setCurrentIndex(max(0, idx))
+        self.set_provider_combo.setFixedWidth(220)
+        self.set_provider_combo.setStyleSheet(combo_style)
+        self.set_provider_combo.currentIndexChanged.connect(
+            lambda _: app_settings.set_value(
+                "capture_provider", self.set_provider_combo.currentData()))
+        row.addWidget(self.set_provider_combo)
+        lay.addLayout(row)
+
+        row = QHBoxLayout()
+        row.addWidget(self._field_label("FALLBACK CAPTURE INTERVAL"))
+        row.addStretch()
+        self.set_interval_combo = QComboBox()
+        for v in (1.0, 1.5, 2.0, 3.0, 5.0, 10.0):
+            self.set_interval_combo.addItem(f"{v:g} seconds", v)
+        saved_iv = float(app_settings.get("capture_interval", 2.0))
+        idx = self.set_interval_combo.findData(saved_iv)
+        self.set_interval_combo.setCurrentIndex(idx if idx >= 0 else 2)
+        self.set_interval_combo.setFixedWidth(160)
+        self.set_interval_combo.setStyleSheet(combo_style)
+        self.set_interval_combo.currentIndexChanged.connect(
+            lambda _: app_settings.set_value(
+                "capture_interval", float(self.set_interval_combo.currentData())))
+        row.addWidget(self.set_interval_combo)
+        lay.addLayout(row)
+        hint(lay, "Captures also fire on key presses and clicks; the interval is the safety net between them. "
+                  "Auto backend picks the native grabber on X11/Windows/macOS and the portal on Wayland.")
+
+        row = QHBoxLayout()
+        row.addWidget(self._field_label("SLIDE FILTERING"))
+        row.addStretch()
+        self.set_gate_combo = QComboBox()
+        self.set_gate_combo.addItem("Off — keep every capture", False)
+        self.set_gate_combo.addItem("On — hide non-presentation frames", True)
+        self.set_gate_combo.setCurrentIndex(1 if app_settings.get("slide_gate_enabled", False) else 0)
+        self.set_gate_combo.setFixedWidth(280)
+        self.set_gate_combo.setStyleSheet(combo_style)
+        self.set_gate_combo.currentIndexChanged.connect(
+            lambda _: app_settings.set_value(
+                "slide_gate_enabled", bool(self.set_gate_combo.currentData())))
+        row.addWidget(self.set_gate_combo)
+        lay.addLayout(row)
+        hint(lay, "When on, frames whose foreground window isn't fullscreen or maximized are kept out of the "
+                  "cloud deck (shown blurred in Sessions, one click to unhide). Applies from the next talk.")
+
+        # ---- Voice ------------------------------------------------------
+        lay = section("VOICE")
+        row = QHBoxLayout()
+        row.addWidget(self._field_label("MICROPHONE  ⟳ next talk"))
+        row.addStretch()
+        self.set_mic_combo = QComboBox()
+        self.set_mic_combo.setFixedWidth(280)
+        self.set_mic_combo.setStyleSheet(combo_style)
+        self._populate_mic_combo()
+        self.set_mic_combo.currentIndexChanged.connect(self._on_mic_selected)
+        row.addWidget(self.set_mic_combo)
+        lay.addLayout(row)
+
+        # ---- Slides -----------------------------------------------------
+        lay = section("SLIDES")
+        lay.addWidget(self._field_label("IMAGE QUALITY (CLOUD UPLOADS)"))
+        self.set_quality_slider = QSlider(Qt.Horizontal)
+        self.set_quality_slider.setRange(40, 95)
+        self.set_quality_slider.setSingleStep(5)
+        self.set_quality_slider.setValue(int(app_settings.get("slide_quality", 75)))
+        self.set_quality_slider.setStyleSheet(f"""
+            QSlider::groove:horizontal {{ height: 6px; background: {BORDER}; border-radius: 3px; }}
+            QSlider::handle:horizontal {{ background: {BLUE}; border: 2px solid white;
+                width: 16px; height: 16px; margin: -6px 0; border-radius: 9px; }}
+            QSlider::sub-page:horizontal {{ background: {BLUE}; border-radius: 3px; }}
+        """)
+        self.set_quality_hint = QLabel("")
+        self.set_quality_hint.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; background: transparent;")
+        self.set_quality_slider.valueChanged.connect(self._on_settings_quality_changed)
+        lay.addWidget(self.set_quality_slider)
+        lay.addWidget(self.set_quality_hint)
+        self._on_settings_quality_changed(self.set_quality_slider.value())
+
+        # ---- Cloud sync -------------------------------------------------
+        lay = section("CLOUD SYNC  ⟳")
+        row = QHBoxLayout()
+        row.addWidget(self._field_label("SYNC SLIDES & AUDIO TO THE CLOUD"))
+        row.addStretch()
+        self.set_cloud_combo = QComboBox()
+        self.set_cloud_combo.addItem("Enabled — audience can follow live", True)
+        self.set_cloud_combo.addItem("Local only — nothing leaves this PC", False)
+        self.set_cloud_combo.setCurrentIndex(
+            0 if app_settings.get("cloud_consent", True) is not False else 1)
+        self.set_cloud_combo.setFixedWidth(300)
+        self.set_cloud_combo.setStyleSheet(combo_style)
+        self.set_cloud_combo.currentIndexChanged.connect(
+            lambda _: app_settings.set_value(
+                "cloud_consent", bool(self.set_cloud_combo.currentData())))
+        row.addWidget(self.set_cloud_combo)
+        lay.addLayout(row)
+        try:
+            from core.identity import _resolve_api_url
+            hint(lay, f"Cloud server: {_resolve_api_url()}")
+        except Exception:
+            pass
+
+        # ---- Diagnostics ------------------------------------------------
+        lay = section("DIAGNOSTICS")
+        try:
+            from core.logging_setup import get_log_file
+            log_path = str(get_log_file())
+        except Exception:
+            log_path = ""
+        log_lbl = QLabel(f"Log file: {log_path}")
+        log_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        log_lbl.setStyleSheet(f"color: {TEXT_MUTED}; font-size: 11px; background: transparent;")
+        lay.addWidget(log_lbl)
+        row = QHBoxLayout()
+        open_logs = QPushButton("Open Logs Folder")
+        open_logs.setCursor(Qt.PointingHandCursor)
+        open_logs.setFixedHeight(30)
+        open_logs.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {BLUE}; border: 1px solid {BLUE};"
+            f" border-radius: 6px; padding: 0 14px; font-size: 12px; }}"
+            f"QPushButton:hover {{ background: {BLUE_LIGHT}; }}")
+        open_logs.clicked.connect(self._open_logs_folder)
+        row.addWidget(open_logs)
+        row.addStretch()
+        from seenslide import __version__ as _ver
+        ver = QLabel(f"SeenSlide v{_ver}")
+        ver.setStyleSheet(f"color: {TEXT_FAINT}; font-size: 11px; background: transparent;")
+        row.addWidget(ver)
+        lay.addLayout(row)
+
+        col.addStretch()
+        scroll.setWidget(body)
+        outer.addWidget(scroll, 1)
+        return view
+
+    def _on_settings_quality_changed(self, value):
+        value = int(round(value / 5.0) * 5)
+        app_settings.set_value("slide_quality", value)
+        self.set_quality_hint.setText(f"JPEG quality {value}% — higher is crisper for viewers, larger uploads")
+        # Live-apply to a running pipeline, same as the Setup slider.
+        if self.orchestrator and getattr(self.orchestrator, "config", None) is not None:
+            self.orchestrator.config.setdefault("storage", {})["jpeg_quality"] = value
+
+    def _populate_mic_combo(self):
+        """Input devices by NAME (indices shift across reboots/hotplug)."""
+        self.set_mic_combo.blockSignals(True)
+        self.set_mic_combo.clear()
+        self.set_mic_combo.addItem("System default", "")
+        saved = app_settings.get("voice_device_name", "")
+        try:
+            import sounddevice as sd
+            seen = set()
+            for dev in sd.query_devices():
+                if dev.get("max_input_channels", 0) > 0 and dev["name"] not in seen:
+                    seen.add(dev["name"])
+                    self.set_mic_combo.addItem(dev["name"], dev["name"])
+            if saved:
+                idx = self.set_mic_combo.findData(saved)
+                if idx >= 0:
+                    self.set_mic_combo.setCurrentIndex(idx)
+        except Exception as e:
+            logger.debug(f"mic enumeration failed: {e}")
+        self.set_mic_combo.blockSignals(False)
+
+    def _on_mic_selected(self, _):
+        app_settings.set_value("voice_device_name", self.set_mic_combo.currentData() or "")
+
+    def _resolve_voice_device(self):
+        """Saved mic name -> current sounddevice index (None = default)."""
+        name = app_settings.get("voice_device_name", "")
+        if not name:
+            return None
+        try:
+            import sounddevice as sd
+            for i, dev in enumerate(sd.query_devices()):
+                if dev["name"] == name and dev.get("max_input_channels", 0) > 0:
+                    return i
+        except Exception:
+            pass
+        logger.warning(f"Saved microphone '{name}' not found — using system default")
+        return None
+
+    def _open_logs_folder(self):
+        try:
+            from PyQt5.QtGui import QDesktopServices
+            from PyQt5.QtCore import QUrl
+            from core.logging_setup import get_log_dir
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(get_log_dir())))
+        except Exception as e:
+            logger.warning(f"could not open logs folder: {e}")
+
+    def _refresh_settings_view(self):
+        """Re-read values that can change elsewhere (Setup sliders, consent)."""
+        try:
+            self.set_quality_slider.blockSignals(True)
+            self.set_quality_slider.setValue(int(app_settings.get("slide_quality", 75)))
+            self.set_quality_slider.blockSignals(False)
+            self._on_settings_quality_changed(self.set_quality_slider.value())
+            self.set_gate_combo.setCurrentIndex(
+                1 if app_settings.get("slide_gate_enabled", False) else 0)
+            self.set_cloud_combo.setCurrentIndex(
+                0 if app_settings.get("cloud_consent", True) is not False else 1)
+            self._populate_mic_combo()
+        except Exception as e:
+            logger.debug(f"settings refresh failed: {e}")
+
     def _build_placeholder(self, text):
         w = QWidget()
         w.setStyleSheet(f"background: {BG_MAIN};")
@@ -4304,9 +4596,11 @@ class MainDashboard(QWidget):
             self._refresh_sessions_list()
         elif index == 5:
             self._refresh_account_view()
+        elif index == 6:
+            self._refresh_settings_view()
 
         # Update sidebar active state
-        view_to_nav = {0: 0, 1: 0, 2: 0, 3: 1, 4: 2, 5: 3}
+        view_to_nav = {0: 0, 1: 0, 2: 0, 3: 1, 4: 2, 5: 3, 6: 4}
         active_nav = view_to_nav.get(index, 0)
         for i, btn in enumerate(self.nav_buttons):
             btn.active = (i == active_nav)
@@ -4451,7 +4745,7 @@ class MainDashboard(QWidget):
         # sequence_number=2 onward. Subscribing first guarantees slide 1's
         # event is observed.
         if self.voice_toggle.isChecked():
-            self.orchestrator.set_voice_enabled(True)
+            self.orchestrator.set_voice_enabled(True, device=self._resolve_voice_device())
             if self.orchestrator.start_voice_recording():
                 logger.info("Voice recording started")
             else:

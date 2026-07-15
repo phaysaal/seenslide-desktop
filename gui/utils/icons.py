@@ -115,6 +115,21 @@ def _play(p, c):
     p.drawPath(path)
 
 
+def _gear(p, c):
+    import math
+    _pen(p, c, 1.7)
+    # 8 teeth as short radial strokes around the ring
+    cx, cy = 12, 12
+    for i in range(8):
+        a = math.radians(i * 45)
+        p.drawLine(
+            QPointF(cx + 7.2 * math.cos(a), cy + 7.2 * math.sin(a)),
+            QPointF(cx + 9.5 * math.cos(a), cy + 9.5 * math.sin(a)),
+        )
+    p.drawEllipse(QRectF(cx - 7.2, cy - 7.2, 14.4, 14.4))
+    p.drawEllipse(QRectF(cx - 3.0, cy - 3.0, 6.0, 6.0))
+
+
 def _rounded_rect(x, y, w, h, r):
     path = QPainterPath()
     path.addRoundedRect(QRectF(x, y, w, h), r, r)
@@ -131,6 +146,7 @@ _ICONS = {
     "monitor": _present,
     "open": _open,
     "play": _play,
+    "settings": _gear,
 }
 
 

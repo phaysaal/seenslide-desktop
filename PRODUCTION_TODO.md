@@ -67,10 +67,12 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done
 
 ## 🟡 Polish / product decisions
 
-- [ ] **Settings/Preferences screen.** Capture interval, provider, voice
-      quality/device, cloud on/off are file-only. Also fix config drift:
-      `config_loader.load_defaults()` disagrees with `config.yaml`
-      (provider/strategy).
+- [x] **Settings/Preferences screen.** New sidebar Settings page: theme,
+      capture backend + interval, slide filtering, microphone picker (by
+      name, index-shift safe), image quality, cloud sync on/off (gives the
+      consent choice a changeable home), log-folder button + version.
+      Config drift fixed: load_defaults() now matches config.yaml
+      (auto/perceptual/0.95/jpeg_quality) with a drift-guard test.
 - [ ] **Monetization enforcement** (only if paid tiers are a launch
       requirement). `account_tier` is defined but never read
       (`core/identity.py:155`); everything is open.
