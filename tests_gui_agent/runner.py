@@ -96,7 +96,10 @@ class Runner:
         return f"clicked ({cx},{cy}) bbox={r.get('bbox')}"
 
     def do_type(self, text):
-        actions.type_text(str(text))
+        # $FIXTURES -> absolute path of tests_gui_agent/fixtures (lets
+        # scenarios type file paths into dialogs machine-independently)
+        text = str(text).replace("$FIXTURES", str(HERE / "fixtures"))
+        actions.type_text(text)
 
     def do_key(self, key):
         actions.press_key(str(key))
@@ -224,9 +227,13 @@ class Runner:
         conn.row_factory = sqlite3.Row
         talks = conn.execute(
             "SELECT COUNT(*) c FROM talks").fetchone()["c"]
+        # chronological across talks (talks play sequentially), 1..N inside
+        # each talk — this order is what the PDF-match oracle's order check
+        # relies on for multi-talk (conference) runs too
         slides = [dict(r) for r in conn.execute(
-            "SELECT talk_id, sequence_number, image_path FROM slides "
-            "ORDER BY sequence_number")]
+            "SELECT s.talk_id, s.sequence_number, s.image_path FROM slides s "
+            "LEFT JOIN talks t ON t.talk_id = s.talk_id "
+            "ORDER BY t.created_at, s.talk_id, s.sequence_number")]
         conn.close()
 
         if "talks" in spec and talks != spec["talks"]:
@@ -237,11 +244,17 @@ class Runner:
             raise StepFailed(
                 f"expected {lo}..{hi} slides, found {len(slides)}: "
                 f"{[s['sequence_number'] for s in slides]}")
-        seqs = [s["sequence_number"] for s in slides]
-        if seqs != list(range(1, len(seqs) + 1)):
-            raise StepFailed(f"sequence numbers not contiguous from 1: {seqs}")
+        # numbering restarts at 1 inside every talk
+        per_talk = {}
+        for s in slides:
+            per_talk.setdefault(s["talk_id"], []).append(s["sequence_number"])
+        for tid, seqs in per_talk.items():
+            if seqs != list(range(1, len(seqs) + 1)):
+                raise StepFailed(
+                    f"talk {tid}: sequence numbers not contiguous from 1: {seqs}")
         self._db_slides = slides
-        return f"{talks} talk(s), {len(slides)} slides, sequence 1..{len(seqs)}"
+        return (f"{talks} talk(s), {len(slides)} slides, per-talk sequences "
+                + " ".join(f"1..{len(v)}" for v in per_talk.values()))
 
     def do_show_cloud_code(self, spec):
         """Surface the cloud session code EARLY (right after the talk starts)
@@ -321,6 +334,73 @@ class Runner:
         self._cloud_code = code
         return (f"cloud session {code}: {total} slides visible to the web "
                 f"viewer (https://seenslide.com/{code})")
+
+    def do_verify_talks(self, spec):
+        """Conference oracle: the schedule became N talks, each talk's
+        stored title/presenter matches the schedule row, slides are split
+        between talks, and (the auto-advance guarantee) each talk's FIRST
+        slide perceptually matches that talk's title page in the deck."""
+        import sqlite3
+        import fitz
+        import imagehash
+        from PIL import Image
+
+        db = self.app.db_path
+        if not db.exists():
+            raise StepFailed(f"sandbox db missing: {db}")
+        conn = sqlite3.connect(str(db))
+        conn.row_factory = sqlite3.Row
+        talks = [dict(r) for r in conn.execute(
+            "SELECT talk_id, title, presenter_name FROM talks "
+            "ORDER BY created_at")]
+        want = int(spec["count"])
+        if len(talks) != want:
+            raise StepFailed(f"expected {want} talks, found {len(talks)}: "
+                             f"{[t['title'] for t in talks]}")
+
+        expected = spec.get("schedule") or []
+        for i, exp in enumerate(expected):
+            got = talks[i]["title"]
+            if exp["title"].lower() not in got.lower():
+                raise StepFailed(f"talk {i + 1} title mismatch: expected "
+                                 f"{exp['title']!r}, db has {got!r}")
+
+        min_slides = int(spec.get("min_slides", 1))
+        title_pages = spec.get("title_pages") or []
+        max_dist = int(spec.get("max_distance", 16))
+        page_hashes = {}
+        if title_pages:
+            doc = fitz.open(self._deck_path(spec["file"]))
+            for p in title_pages:
+                pm = doc[p - 1].get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+                src = Image.frombytes("RGB", (pm.width, pm.height), pm.samples)
+                page_hashes[p] = imagehash.dhash(src, hash_size=8)
+
+        detail = []
+        for i, t in enumerate(talks):
+            slides = [dict(r) for r in conn.execute(
+                "SELECT sequence_number, image_path FROM slides WHERE "
+                "talk_id = ? ORDER BY sequence_number", (t["talk_id"],))]
+            if len(slides) < min_slides:
+                raise StepFailed(f"talk {i + 1} ({t['title']!r}) has only "
+                                 f"{len(slides)} slide(s), need {min_slides}")
+            seqs = [s["sequence_number"] for s in slides]
+            if seqs != list(range(1, len(seqs) + 1)):
+                raise StepFailed(f"talk {i + 1} numbering not 1..{len(seqs)}: {seqs}")
+            frag = f"talk{i + 1}:{len(slides)}sl"
+            if i < len(title_pages):
+                first = slides[0]["image_path"]
+                if not first or not Path(first).exists():
+                    raise StepFailed(f"talk {i + 1} slide 1 image missing")
+                cap = self._crop_letterbox(Image.open(first).convert("RGB"))
+                d = imagehash.dhash(cap, hash_size=8) - page_hashes[title_pages[i]]
+                if d > max_dist:
+                    raise StepFailed(
+                        f"talk {i + 1} slide 1 does not look like title page "
+                        f"p{title_pages[i]} (dhash {d} > {max_dist})")
+                frag += f" first=p{title_pages[i]}:{d}"
+            detail.append(frag)
+        return f"{len(talks)} talks — " + " ".join(detail)
 
     def do_verify_slides_match_pdf(self, spec):
         """Perceptual oracle: each stored slide must look like SOME presented
