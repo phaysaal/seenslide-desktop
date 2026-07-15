@@ -153,7 +153,8 @@ class Runner:
                "--pdf", pdf, "--geometry", geo,
                "--interval", str(spec.get("page_interval", 5)),
                "--hold-first", str(spec.get("hold_first", 12)),
-               "--max-pages", str(spec.get("max_pages", 0))]
+               "--max-pages", str(spec.get("max_pages", 0)),
+               "--start-page", str(spec.get("start_page", 1))]
         self._presenter = subprocess.Popen(
             cmd, cwd=str(HERE.parent),
             stdout=open(self.run_dir / "presenter.log", "w"),
@@ -336,6 +337,21 @@ class Runner:
         return (f"cloud session {code}: {total} slides visible to the web "
                 f"viewer (https://seenslide.com/{code})")
 
+    def do_verify_log(self, spec):
+        """The sandbox app log must contain a line matching the pattern —
+        proof that a specific internal action really ran (e.g. the unhide
+        upload)."""
+        import re as _re
+        if not self.app.log_file.exists():
+            raise StepFailed(f"sandbox log missing: {self.app.log_file}")
+        hits = _re.findall(spec["pattern"], self.app.log_file.read_text())
+        lo = int(spec.get("min", 1))
+        if len(hits) < lo:
+            raise StepFailed(
+                f"log pattern {spec['pattern']!r}: {len(hits)} match(es), "
+                f"need {lo}")
+        return f"{len(hits)} log match(es) for {spec['pattern']!r}"
+
     def do_verify_hidden(self, spec):
         """Slide-gate oracle: the gate armed and flagged non-slide frames.
         Checks the armed log line, that >= min slides carry hidden metadata,
@@ -367,7 +383,13 @@ class Runner:
         if cloud_total is not None:
             kept = len(rows) - len(hidden)
             slack = int(spec.get("cloud_slack", 2))
-            if cloud_total > kept + slack:
+            if spec.get("cloud_exact"):
+                # two-sided: an unhide that cleared the flag but failed to
+                # upload leaves cloud < kept — that must fail too
+                if cloud_total != kept:
+                    raise StepFailed(
+                        f"cloud count {cloud_total} != non-hidden local {kept}")
+            elif cloud_total > kept + slack:
                 raise StepFailed(
                     f"hidden slides leaked to the cloud: {cloud_total} online "
                     f"but only {kept} non-hidden locally (+{slack} slack)")
@@ -415,11 +437,12 @@ class Runner:
                 src = Image.frombytes("RGB", (pm.width, pm.height), pm.samples)
                 page_hashes[p] = imagehash.dhash(src, hash_size=8)
 
+        import json as _json
         detail = []
         for i, t in enumerate(talks):
             slides = [dict(r) for r in conn.execute(
-                "SELECT sequence_number, image_path FROM slides WHERE "
-                "talk_id = ? ORDER BY sequence_number", (t["talk_id"],))]
+                "SELECT sequence_number, image_path, metadata FROM slides "
+                "WHERE talk_id = ? ORDER BY sequence_number", (t["talk_id"],))]
             if len(slides) < min_slides:
                 raise StepFailed(f"talk {i + 1} ({t['title']!r}) has only "
                                  f"{len(slides)} slide(s), need {min_slides}")
@@ -428,15 +451,22 @@ class Runner:
                 raise StepFailed(f"talk {i + 1} numbering not 1..{len(seqs)}: {seqs}")
             frag = f"talk{i + 1}:{len(slides)}sl"
             if i < len(title_pages):
-                first = slides[0]["image_path"]
+                # first VISIBLE slide: manual Next-Talk transitions capture a
+                # few app-screen frames first, which the gate hides — the
+                # audience-facing deck must still open on the title page
+                visible = [s for s in slides if not _json.loads(
+                    s["metadata"] or "{}").get("hidden")]
+                if not visible:
+                    raise StepFailed(f"talk {i + 1} has no visible slides")
+                first = visible[0]["image_path"]
                 if not first or not Path(first).exists():
-                    raise StepFailed(f"talk {i + 1} slide 1 image missing")
+                    raise StepFailed(f"talk {i + 1} first visible slide image missing")
                 cap = self._crop_letterbox(Image.open(first).convert("RGB"))
                 d = imagehash.dhash(cap, hash_size=8) - page_hashes[title_pages[i]]
                 if d > max_dist:
                     raise StepFailed(
-                        f"talk {i + 1} slide 1 does not look like title page "
-                        f"p{title_pages[i]} (dhash {d} > {max_dist})")
+                        f"talk {i + 1} first visible slide does not look like "
+                        f"title page p{title_pages[i]} (dhash {d} > {max_dist})")
                 frag += f" first=p{title_pages[i]}:{d}"
             detail.append(frag)
         return f"{len(talks)} talks — " + " ".join(detail)
@@ -564,10 +594,17 @@ class Runner:
                 if self.app.log_file.exists():
                     (self.run_dir / "seenslide.log").write_text(
                         self.app.log_file.read_text())
-                # keep the sandbox DB too — the sandbox itself is deleted
+                # keep the sandbox DB too — the sandbox itself is deleted.
+                # sqlite3 backup, not a file copy: the DB is in WAL mode, so
+                # a plain copy of the .db file alone is empty/stale.
                 if self.app.db_path.exists():
-                    import shutil as _sh
-                    _sh.copy2(self.app.db_path, self.run_dir / "seenslide.db")
+                    import sqlite3 as _sq
+                    src = _sq.connect(str(self.app.db_path))
+                    dst = _sq.connect(str(self.run_dir / "seenslide.db"))
+                    with dst:
+                        src.backup(dst)
+                    src.close()
+                    dst.close()
             except Exception:
                 pass
             self.app.cleanup()

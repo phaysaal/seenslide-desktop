@@ -1,0 +1,55 @@
+# P4a: the UNHIDE flow — a slide the gate flagged as "probably not a slide"
+# is blurred in the Sessions view with an amber "Is it a slide?  Unhide"
+# badge; clicking it clears the hidden flag AND uploads the slide to the
+# cloud after the fact. Verified two-sided: the log proves the upload ran,
+# and verify_hidden cloud_exact requires cloud == non-hidden local (a
+# cleared flag with a failed upload would leave cloud one short and FAIL).
+name: unhide-flow
+steps:
+  - launch: {wait: 12, cloud: true}
+  # virtual mic = silence; keeps the enabled-by-default voice recording off
+  # the real microphone
+  - virtual_mic: {}
+  # -- collection + talk (same path P1-cloud proved out) ---------------------
+  - click: {find: "the 'Sessions' item in the left sidebar"}
+  - wait: 2
+  - click: {find: "the blue '+ New' button at the top of the sessions list panel"}
+  - wait: 1
+  - click: {find: "the text input field inside the new-session dialog"}
+  - type: "P4 Unhide"
+  - click: {find: "the confirm button of the dialog (OK or Create)"}
+  - wait: 4
+  - click: {find: "the 'Home' item in the left sidebar"}
+  - wait: 1
+  - click: {find: "the green 'Start Presenting' button inside the Single Talk card"}
+  - wait: 1
+  - click: {find: "the text input field directly under the TALK TITLE label"}
+  - type: "P4 Unhide Talk"
+  - click: {find: "the text input field directly under the PRESENTER NAME label"}
+  - type: "Harness"
+  - click: {find: "the large green 'Start Presenting' button at the bottom of the form"}
+  - present_pdf: {file: FLOPS2022Slide.pdf, page_interval: 5, hold_first: 14, max_pages: 6}
+  - wait_presenter: {timeout: 120}
+  # let a few post-deck app-screen frames accumulate — the gate hides them
+  - wait: 8
+  - click: {find: "the red 'End Presentation' button"}
+  - wait: 10
+  # -- pre-state: hidden tails exist, cloud == kept ---------------------------
+  - verify_db: {slides: {min: 5, max: 18}}
+  - verify_cloud: {slides: {min: 4, max: 8}}
+  - verify_hidden: {min: 1, cloud_slack: 0}
+  # -- the unhide interaction -------------------------------------------------
+  - click: {find: "the 'Sessions' item in the left sidebar"}
+  - wait: 2
+  - click: {find: "the session named 'P4 Unhide' in the sessions list"}
+  - wait: 3
+  - assert_screen: >
+      a session detail view with a grid of slide thumbnails where at least
+      one slide is blurred and has an amber 'Is it a slide?  Unhide' badge
+  - click: {find: "the amber 'Is it a slide?  Unhide' badge on the blurred slide card"}
+  - wait: 8
+  # -- post-state: flag cleared, slide uploaded, counts reconcile exactly ----
+  - verify_log: {pattern: "Unhid slide #\\d+ — uploaded to talk"}
+  - verify_cloud: {slides: {min: 5, max: 9}}
+  - verify_hidden: {min: 1, cloud_exact: true}
+  - kill: {}

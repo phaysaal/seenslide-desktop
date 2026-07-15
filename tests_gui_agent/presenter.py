@@ -17,12 +17,14 @@ from PyQt5.QtGui import QImage, QPixmap
 from PyQt5.QtWidgets import QApplication, QLabel
 
 
-def render_pages(pdf_path, w, h, max_pages=0):
-    """PDF pages -> QPixmaps letterboxed to w x h (white slide on black)."""
+def render_pages(pdf_path, w, h, max_pages=0, start_page=1):
+    """PDF pages -> QPixmaps letterboxed to w x h (white slide on black).
+    start_page is 1-based; max_pages counts from there (0 = to the end)."""
     doc = fitz.open(pdf_path)
-    n = doc.page_count if not max_pages else min(max_pages, doc.page_count)
+    first = max(0, start_page - 1)
+    last = doc.page_count if not max_pages else min(first + max_pages, doc.page_count)
     pixmaps = []
-    for i in range(n):
+    for i in range(first, last):
         page = doc[i]
         zoom = min(w / page.rect.width, h / page.rect.height)
         pm = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
@@ -40,11 +42,13 @@ def main():
     ap.add_argument("--hold-first", type=float, default=12.0,
                     help="seconds to hold page 1 (covers the app's countdown)")
     ap.add_argument("--max-pages", type=int, default=0)
+    ap.add_argument("--start-page", type=int, default=1,
+                    help="1-based first page (Next-Talk segment support)")
     args = ap.parse_args()
     x, y, w, h = map(int, args.geometry.split(","))
 
     app = QApplication(sys.argv)
-    pages = render_pages(args.pdf, w, h, args.max_pages)
+    pages = render_pages(args.pdf, w, h, args.max_pages, args.start_page)
     if not pages:
         print("no pages", file=sys.stderr)
         sys.exit(1)
