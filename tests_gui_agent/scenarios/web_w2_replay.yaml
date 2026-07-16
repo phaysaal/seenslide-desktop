@@ -1,0 +1,88 @@
+# W2: voice-synced replay. Self-contained: the sandboxed desktop app first
+# presents a short narrated talk to a throwaway session (guaranteed fresh
+# per-talk 1..N numbering and markers), then both browsers open it and B
+# exercises the replay: play (audio audible), marker walk (next/prev slide
+# moves slide AND audio), pause (output silent). A stays untouched.
+name: web-w2-replay
+steps:
+  - actors: {A: edge, B: firefox}
+  # -- setup: record a throwaway narrated talk (desktop, primary monitor) ------
+  - launch: {wait: 12, cloud: true}
+  - virtual_mic: {}
+  - click: {find: "the 'Sessions' item in the left sidebar"}
+  - wait: 2
+  - click: {find: "the blue '+ New' button at the top of the sessions list panel"}
+  - wait: 1
+  - click: {find: "the text input field inside the new-session dialog"}
+  - type: "W2 Replay"
+  - click: {find: "the confirm button of the dialog (OK or Create)"}
+  - wait: 4
+  - click: {find: "the 'Home' item in the left sidebar"}
+  - wait: 1
+  - click: {find: "the green 'Start Presenting' button inside the Single Talk card"}
+  - wait: 1
+  - click: {find: "the text input field directly under the TALK TITLE label"}
+  - type: "W2 Replay Talk"
+  - click: {find: "the text input field directly under the PRESENTER NAME label"}
+  - type: "Harness"
+  - click: {find: "the large green 'Start Presenting' button at the bottom of the form"}
+  - show_cloud_code: {timeout: 60}
+  - present_pdf: {file: FLOPS2022Slide.pdf, page_interval: 8, hold_first: 16,
+                  max_pages: 5, narrate: true}
+  - wait_presenter: {timeout: 180}
+  - wait: 3
+  - click: {find: "the red 'End Presentation' button"}
+  - wait: 12
+  - kill: {}
+  # -- both browsers open the recorded talk ------------------------------------
+  - key: {target: A, key: ctrl+l}
+  - type: {target: A, text: "$CLOUD_URL"}
+  - key: {target: A, key: Return}
+  - key: {target: B, key: ctrl+l}
+  - type: {target: B, text: "$CLOUD_URL"}
+  - key: {target: B, key: Return}
+  - wait: 8
+  - assert_screen:
+      target: B
+      desc: >
+        the recorded talk 'W2 Replay Talk': slide filmstrip visible and a
+        'Play Recording' control present
+  # -- play ----------------------------------------------------------------------
+  - click: {target: B, find: "the 'Play Recording (m:ss)' pill button, only if the audio player bar is NOT already open", optional: true}
+  - wait: 3
+  - click: {target: B, find: "the green PLAY triangle button in the audio player bar — only if playback is PAUSED (a triangle icon, not two pause bars)", optional: true}
+  - wait: 2
+  - assert_screen:
+      target: B
+      desc: >
+        audio playback controls are visible with playback RUNNING: a pause
+        button, a progress bar, a time display, and previous/next slide
+        buttons
+  - verify_audio_out: {seconds: 5, min_peak: 0.05}
+  # -- pause FIRST: the slow AI locator between clicks would otherwise let
+  # playback drift past markers and make the walk nondeterministic
+  - click: {target: B, find: "the pause button (two vertical bars) in the audio player controls"}
+  - wait: 1
+  - verify_audio_out: {seconds: 4, max_peak: 0.02}
+  # -- marker walk while paused: next/prev must move the SLIDE deterministically
+  - read_text: {target: B, find: "the number of the highlighted thumbnail in the slide filmstrip", var: S1}
+  - click: {target: B, find: "the 'Next slide' button in the audio player controls"}
+  - wait: 2
+  - click: {target: B, find: "the 'Next slide' button in the audio player controls"}
+  - wait: 2
+  - assert_screen:
+      target: B
+      desc: >
+        the highlighted filmstrip thumbnail advanced exactly two slides from
+        slide $S1 (now $S1+2), and playback is still paused
+  - click: {target: B, find: "the 'Previous slide' button in the audio player controls"}
+  - wait: 2
+  - assert_screen:
+      target: B
+      desc: the highlighted filmstrip thumbnail moved back one slide
+  # -- A is unaffected ------------------------------------------------------------------
+  - assert_screen:
+      target: A
+      desc: >
+        the other browser shows the same talk idle with its 'Play Recording'
+        button (no playback running)

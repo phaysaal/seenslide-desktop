@@ -210,6 +210,14 @@ class Runner:
             except subprocess.TimeoutExpired:
                 rec.kill()
         dur, peak = wav_stats(wav)
+        if "max_peak" in spec:
+            # inverted mode: prove SILENCE (e.g. playback paused)
+            max_peak = float(spec["max_peak"])
+            if peak > max_peak:
+                raise StepFailed(
+                    f"expected silence but system output has audio: "
+                    f"peak {peak:.3f} > {max_peak} over {dur:.1f}s")
+            return f"system output silent: {dur:.1f}s, peak={peak:.3f}"
         min_peak = float(spec.get("min_peak", 0.05))
         if peak < min_peak:
             raise StepFailed(
@@ -723,6 +731,8 @@ class Runner:
             target = spec.get("target")
             desc = spec["desc"]
             retries = int(spec.get("retries", retries))
+        for k, v in getattr(self, "_vars", {}).items():
+            desc = desc.replace(f"${k}", v)
         last = None
         for attempt in range(retries + 1):
             self._front(target)
