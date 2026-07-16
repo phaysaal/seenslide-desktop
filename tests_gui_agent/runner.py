@@ -448,6 +448,8 @@ class Runner:
             raise StepFailed("no cloud talk registered within the timeout")
         url = f"https://seenslide.com/{code}"
         (self.run_dir / "cloud_url.txt").write_text(url + "\n")
+        self._vars = getattr(self, "_vars", {})
+        self._vars["CLOUD_URL"] = url   # browser actors navigate via $CLOUD_URL
         logger.info(f"*** LIVE NOW: {url} ***")
         return url
 
@@ -492,6 +494,13 @@ class Runner:
         data = resp.json()
         total = data.get("total_slides", 0)
         self._cloud_total = total   # verify_hidden cross-checks against this
+        vw = spec.get("viewers")
+        if vw:
+            viewers = data.get("viewer_count", 0)
+            if not (vw.get("min", 0) <= viewers <= vw.get("max", 10**6)):
+                raise StepFailed(
+                    f"cloud session {code}: viewer_count {viewers}, expected "
+                    f"{vw.get('min', 0)}..{vw.get('max', '∞')}")
         want = spec.get("slides", {})
         lo, hi = want.get("min", 1), want.get("max", 10**6)
         if not (lo <= total <= hi):

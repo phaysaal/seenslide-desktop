@@ -1,0 +1,86 @@
+# W1: LIVE talk following in the web viewer, two real browsers watching a
+# talk presented by the (sandboxed) desktop app with synthetic narration.
+#
+# Choreography note: the fullscreen presenter covers Edge (actor A) on the
+# primary monitor, so A joins EARLY and follows blindly under the deck —
+# its end state proves it tracked the whole talk. B (Firefox, on the other
+# monitor) stays visible throughout and does the live checks: LATE join
+# landing on the current slide (not slide 1), auto-advance, live audio on
+# the system output, and the end-of-talk transition.
+name: web-w1-live
+steps:
+  - actors: {A: edge, B: firefox}
+  - launch: {wait: 12, cloud: true}
+  - virtual_mic: {}
+  # -- throwaway collection + talk (desktop side, primary monitor) -------------
+  - click: {find: "the 'Sessions' item in the left sidebar"}
+  - wait: 2
+  - click: {find: "the blue '+ New' button at the top of the sessions list panel"}
+  - wait: 1
+  - click: {find: "the text input field inside the new-session dialog"}
+  - type: "W1 Live"
+  - click: {find: "the confirm button of the dialog (OK or Create)"}
+  - wait: 4
+  - click: {find: "the 'Home' item in the left sidebar"}
+  - wait: 1
+  - click: {find: "the green 'Start Presenting' button inside the Single Talk card"}
+  - wait: 1
+  - click: {find: "the text input field directly under the TALK TITLE label"}
+  - type: "W1 Live Talk"
+  - click: {find: "the text input field directly under the PRESENTER NAME label"}
+  - type: "Harness"
+  - click: {find: "the large green 'Start Presenting' button at the bottom of the form"}
+  - show_cloud_code: {timeout: 60}
+  # -- A joins EARLY (still visible for a moment before the deck covers it) ----
+  - key: {target: A, key: ctrl+l}
+  - type: {target: A, text: "$CLOUD_URL"}
+  - key: {target: A, key: Return}
+  # -- the live deck ------------------------------------------------------------
+  - present_pdf: {file: conference2026.pdf, page_interval: 10, hold_first: 25,
+                  max_pages: 9, narrate: true}
+  # ~35s in: presenter is at page 2 — B late-joins and must land there
+  - wait: 35
+  - key: {target: B, key: ctrl+l}
+  - type: {target: B, text: "$CLOUD_URL"}
+  - key: {target: B, key: Return}
+  - wait: 8
+  - assert_screen:
+      target: B
+      desc: >
+        a live SeenSlide viewer: a LIVE indicator is shown and the current
+        slide NUMBER is 2 or higher (check the slide counter or highlighted
+        filmstrip thumbnail) — the late joiner landed on the slide being
+        presented now, not at slide 1
+  # -- auto-advance: some 10s later the slide must have moved on ----------------
+  - wait: 20
+  - assert_screen:
+      target: B
+      desc: >
+        the current slide number is now 5 or higher (the talk auto-advanced
+        past earlier slides); the LIVE indicator is still on
+  # -- live audio: needs a user gesture (browser autoplay policy) ---------------
+  - click: {target: B, find: "the 'Listen Live' button or live-audio control in the viewer"}
+  - wait: 3
+  - verify_audio_out: {seconds: 6, min_peak: 0.03}
+  # -- both viewers attached ------------------------------------------------------
+  - verify_cloud: {viewers: {min: 2}, slides: {min: 1, max: 30}}
+  # -- end of talk ----------------------------------------------------------------
+  - wait_presenter: {timeout: 300}
+  - wait: 3
+  - click: {find: "the red 'End Presentation' button"}
+  - wait: 10
+  - assert_screen:
+      target: B
+      desc: >
+        the talk is no longer live: the LIVE indicator is gone (an ended /
+        recorded state, e.g. a play-recording control or complete slide
+        filmstrip is shown)
+  - kill: {}
+  - wait: 2
+  # A followed the whole talk under the presenter — now visible again
+  - assert_screen:
+      target: A
+      desc: >
+        the same ended talk in the other browser: the full slide filmstrip
+        of the presented deck is visible (the early joiner tracked the talk
+        to its end)
