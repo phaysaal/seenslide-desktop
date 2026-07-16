@@ -114,6 +114,16 @@ class VirtualMic:
 # Narration synthesis
 # ---------------------------------------------------------------------------
 
+def synthesize(text: str, out_wav: str) -> str:
+    """One spoken line -> WAV (piper). For feeding the virtual mic outside
+    of a slide-deck narration (e.g. voice-chat tests)."""
+    from piper import PiperVoice
+    voice = PiperVoice.load(str(VOICE_MODEL))
+    with wave.open(out_wav, "wb") as w:
+        voice.synthesize_wav(text, w)
+    return out_wav
+
+
 def _page_sentence(doc, i: int) -> str:
     """A short spoken line for page i, seeded with the page's own text."""
     words = doc[i].get_text().split()[:12]

@@ -1,0 +1,41 @@
+# W3c: whispers — private sub-conversations inside a group. A starts a
+# whisper with B, sends a message; B reads it from the Whispers tab and
+# replies. Precondition: both already members of 'W3 Harness Group'.
+name: web-w3-whispers
+steps:
+  - actors: {A: edge, B: firefox}
+  # -- A starts a whisper with B ------------------------------------------------
+  - click: {target: A, find: "the 'Whispers' tab in the left panel"}
+  - wait: 1
+  - click: {target: A, find: "the small '+' (New whisper) button in the whispers panel header"}
+  - wait: 1
+  - assert_screen:
+      target: A
+      desc: a 'New Whisper' member picker saying 'Select members to include'
+  - click: {target: A, find: "the member row for 'Faisal Al Ameen' in the member picker list"}
+  - wait: 1
+  - click: {target: A, find: "the 'Start' button in the New Whisper header"}
+  - wait: 2
+  - click: {target: A, find: "the message input with placeholder 'Whisper...' at the bottom"}
+  - type: {target: A, text: "Psst - whisper test from Mahmudul"}
+  - key: {target: A, key: Return}
+  - wait: 3
+  # -- B receives and replies ----------------------------------------------------
+  - click: {target: B, find: "the 'Whispers' tab in the left panel"}
+  - wait: 2
+  - click: {target: B, find: "the whisper conversation entry in the whispers list"}
+  - wait: 2
+  - assert_screen:
+      target: B
+      desc: >
+        a whisper conversation showing the message 'Psst - whisper test
+        from Mahmudul'
+  - click: {target: B, find: "the message input with placeholder 'Whisper...' at the bottom"}
+  - type: {target: B, text: "Heard you loud and clear - Faisal"}
+  - key: {target: B, key: Return}
+  - wait: 3
+  - assert_screen:
+      target: A
+      desc: >
+        the whisper conversation shows the reply 'Heard you loud and clear
+        - Faisal'

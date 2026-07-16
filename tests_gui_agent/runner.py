@@ -151,7 +151,8 @@ class Runner:
         animation) or a one-off model miss shouldn't fail the scenario."""
         desc = spec["find"]
         target = spec.get("target")
-        retries = int(spec.get("retries", 2))
+        optional = bool(spec.get("optional"))
+        retries = int(spec.get("retries", 0 if optional else 2))
         r = {}
         for attempt in range(retries + 1):
             self._front(target)
@@ -165,10 +166,56 @@ class Runner:
                 logger.info(f"element not found (attempt {attempt + 1}) — retrying: {desc!r}")
                 time.sleep(2.5)
         if not r.get("found"):
+            if optional:
+                return f"not present (optional): {desc!r}"
             raise StepFailed(f"element not found after {retries + 1} attempts: {desc!r}")
         cx, cy = r["center"]
         actions.click_shot_coords(cx, cy)
         return f"clicked ({cx},{cy}) bbox={r.get('bbox')}"
+
+    def do_play_audio(self, spec):
+        """Speak a line (piper TTS) into the virtual microphone — whoever
+        holds the mic (a browser in a voice chat) transmits it."""
+        from tests_gui_agent import audio
+        if not getattr(self, "_mic", None):
+            raise StepFailed("no virtual mic — add a virtual_mic step first")
+        wav = str(self.run_dir / f"speech_{self.step_no:02d}.wav")
+        audio.synthesize(spec["text"], wav)
+        self._mic.play(wav)
+        return f"speaking: {spec['text']!r}"
+
+    def do_verify_audio_out(self, spec):
+        """Prove audio is actually PLAYING on the system output: record the
+        default sink's monitor while (optionally) speaking a line into the
+        virtual mic, and require a non-trivial peak. In a voice-chat test
+        the TTS goes into the loopback mic, not the speakers — so anything
+        heard on the sink can only have arrived through WebRTC."""
+        import signal as _signal
+        import subprocess
+        from tests_gui_agent.audio import wav_stats
+        seconds = float(spec.get("seconds", 4))
+        wav = str(self.run_dir / f"audio_out_{self.step_no:02d}.wav")
+        rec = subprocess.Popen(
+            ["pw-record", "--properties", "{ stream.capture.sink=true }", wav],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            time.sleep(0.5)
+            if spec.get("speak"):
+                self.do_play_audio({"text": spec["speak"]})
+            time.sleep(seconds)
+        finally:
+            rec.send_signal(_signal.SIGINT)
+            try:
+                rec.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                rec.kill()
+        dur, peak = wav_stats(wav)
+        min_peak = float(spec.get("min_peak", 0.05))
+        if peak < min_peak:
+            raise StepFailed(
+                f"no audio on the system output: peak {peak:.3f} < {min_peak} "
+                f"over {dur:.1f}s")
+        return f"system output audible: {dur:.1f}s, peak={peak:.3f}"
 
     def do_draw(self, spec):
         """Locate a canvas-ish element and draw a diagonal stroke across its

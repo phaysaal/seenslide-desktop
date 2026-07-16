@@ -1,0 +1,56 @@
+# W3d: group voice chat (WebRTC mesh). Both browsers join the group voice
+# channel — the browser mic is the harness's virtual microphone, so no real
+# audio is captured. A "speaks" (piper TTS into the mic) and the system
+# OUTPUT must carry the sound: the TTS goes into the loopback mic, not the
+# speakers, so anything on the sink can only have arrived through WebRTC.
+#
+# IMPORTANT: browsers must getUserMedia AFTER this run's virtual mic exists
+# (a call left over from a previous run captures a dead node and transmits
+# silence) — so both actors LEAVE any active call first, then rejoin.
+name: web-w3-voice
+steps:
+  - actors: {A: edge, B: firefox}
+  # mic must exist BEFORE the browsers request getUserMedia
+  - virtual_mic: {}
+  - click: {target: A, find: "the 'Collaboration' tab in the left panel"}
+  - click: {target: B, find: "the 'Collaboration' tab in the left panel"}
+  - wait: 1
+  # -- clean slate: leave any call left over from a previous run ---------------
+  - click: {target: A, find: "the small X button at the right end of the 'Voice · N in call' bar (leave voice)", optional: true}
+  - click: {target: B, find: "the small X button at the right end of the 'Voice · N in call' bar (leave voice)", optional: true}
+  - wait: 2
+  # -- A joins voice ------------------------------------------------------------
+  - click: {target: A, find: "the 'Join Voice' button in the group chat panel"}
+  - wait: 2
+  - click: {target: A, find: "the 'Allow' button in the microphone permission prompt", optional: true}
+  - wait: 2
+  - assert_screen:
+      target: A
+      desc: >
+        a voice-chat bar showing the user connected to voice (mute and
+        leave buttons visible)
+  # -- B joins voice ------------------------------------------------------------
+  - click: {target: B, find: "the 'Join Voice' button in the group chat panel"}
+  - wait: 2
+  - click: {target: B, find: "the 'Allow' button in Firefox's microphone permission popup", optional: true}
+  - wait: 3
+  - assert_screen:
+      target: B
+      desc: >
+        a voice-chat bar showing 2 participants connected (mute and leave
+        buttons visible)
+  - assert_screen:
+      target: A
+      desc: the voice-chat bar now shows 2 participants
+  # -- A speaks, B receives (audible on the system output) -----------------------
+  - verify_audio_out:
+      speak: "Testing group voice chat, one two three, can you hear me on the other side?"
+      seconds: 5
+      min_peak: 0.02
+  # -- teardown -------------------------------------------------------------------
+  - click: {target: A, find: "the small X button at the right end of the voice bar (leave voice)"}
+  - click: {target: B, find: "the small X button at the right end of the voice bar (leave voice)"}
+  - wait: 1
+  - assert_screen:
+      target: B
+      desc: the 'Join Voice' button is back (no longer in a voice chat)
