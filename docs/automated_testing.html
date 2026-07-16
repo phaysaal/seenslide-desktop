@@ -1,0 +1,397 @@
+<title>SeenSlide Automated Testing — Methodology & Results</title>
+<style>
+  :root{
+    --paper:#fafaf8; --card:#ffffff; --ink:#1d2226; --muted:#5b6670; --faint:#8a949d;
+    --accent:#0e8a6d; --accent-soft:#e2f2ec; --line:#e3e6e2; --code-bg:#eef1ee;
+    --bug:#b3352c; --bug-soft:#f9e9e7; --obs:#9a6b12; --obs-soft:#faf1de;
+    --pass:#0e8a6d; --head:#10141a;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#14171a; --card:#1b1f23; --ink:#e6e9e8; --muted:#9aa6a3; --faint:#6d7876;
+      --accent:#2fbd94; --accent-soft:#123528; --line:#2a2f31; --code-bg:#22272a;
+      --bug:#e07068; --bug-soft:#3a1f1d; --obs:#d9a94a; --obs-soft:#332a16;
+      --pass:#2fbd94; --head:#f2f5f4;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#14171a; --card:#1b1f23; --ink:#e6e9e8; --muted:#9aa6a3; --faint:#6d7876;
+    --accent:#2fbd94; --accent-soft:#123528; --line:#2a2f31; --code-bg:#22272a;
+    --bug:#e07068; --bug-soft:#3a1f1d; --obs:#d9a94a; --obs-soft:#332a16;
+    --pass:#2fbd94; --head:#f2f5f4;
+  }
+  :root[data-theme="light"]{
+    --paper:#fafaf8; --card:#ffffff; --ink:#1d2226; --muted:#5b6670; --faint:#8a949d;
+    --accent:#0e8a6d; --accent-soft:#e2f2ec; --line:#e3e6e2; --code-bg:#eef1ee;
+    --bug:#b3352c; --bug-soft:#f9e9e7; --obs:#9a6b12; --obs-soft:#faf1de;
+    --pass:#0e8a6d; --head:#10141a;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--paper); color:var(--ink);
+    font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+    margin:0; -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px; margin:0 auto; padding:0 24px 96px;
+    display:grid; grid-template-columns:230px minmax(0,1fr); gap:48px}
+  @media(max-width:900px){.wrap{grid-template-columns:minmax(0,1fr)} nav.toc{position:static; max-height:none; border:none; padding-left:0}}
+  header.hero{grid-column:1/-1; padding:64px 0 36px; border-bottom:1px solid var(--line)}
+  .eyebrow{font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); font-weight:700}
+  h1{font-size:clamp(28px,4vw,42px); line-height:1.15; margin:.35em 0 .3em; color:var(--head);
+     font-weight:750; letter-spacing:-.015em; text-wrap:balance}
+  .sub{color:var(--muted); max-width:70ch; margin:0}
+  .stats{display:flex; flex-wrap:wrap; gap:12px; margin-top:28px}
+  .stat{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 18px; min-width:118px}
+  .stat b{display:block; font-size:26px; color:var(--accent); font-variant-numeric:tabular-nums; letter-spacing:-.02em}
+  .stat span{font-size:12.5px; color:var(--muted)}
+  nav.toc{position:sticky; top:24px; align-self:start; max-height:calc(100vh - 48px); overflow:auto;
+    font-size:13.5px; padding:24px 0 24px 4px}
+  nav.toc .toc-h{font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--faint); margin:18px 0 6px; font-weight:700}
+  nav.toc a{display:block; color:var(--muted); text-decoration:none; padding:3px 0 3px 10px; border-left:2px solid var(--line)}
+  nav.toc a:hover{color:var(--accent); border-left-color:var(--accent)}
+  main{min-width:0; padding-top:24px}
+  main p, main li{max-width:72ch}
+  h2{font-size:24px; color:var(--head); margin:2.4em 0 .5em; padding-top:.6em; letter-spacing:-.01em}
+  h2 .part{display:block; font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); font-weight:700; margin-bottom:4px}
+  h3{font-size:18px; color:var(--head); margin:2em 0 .4em}
+  a{color:var(--accent)}
+  code, pre{font-family:ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace; font-size:.875em}
+  code{background:var(--code-bg); border-radius:4px; padding:.12em .35em}
+  pre{background:var(--code-bg); border:1px solid var(--line); border-radius:10px; padding:16px 18px;
+    overflow-x:auto; line-height:1.55}
+  pre code{background:none; padding:0}
+  .tablewrap{overflow-x:auto; border:1px solid var(--line); border-radius:10px; margin:1.2em 0; background:var(--card)}
+  table{border-collapse:collapse; width:100%; font-size:14.5px}
+  th{background:var(--accent-soft); color:var(--head); text-align:left; font-weight:650;
+     padding:10px 14px; border-bottom:1px solid var(--line); white-space:nowrap}
+  td{padding:10px 14px; border-bottom:1px solid var(--line); vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td:first-child{white-space:nowrap; font-weight:600; color:var(--head)}
+  .bugtable td:first-child{color:var(--bug); font-variant-numeric:tabular-nums}
+  .chip{display:inline-block; font-size:11.5px; font-weight:700; border-radius:999px; padding:2px 10px; letter-spacing:.03em}
+  .chip.bug{background:var(--bug-soft); color:var(--bug)}
+  .chip.obs{background:var(--obs-soft); color:var(--obs)}
+  .chip.pass{background:var(--accent-soft); color:var(--pass)}
+  .callout{border-left:3px solid var(--accent); background:var(--card); border-radius:0 10px 10px 0;
+    padding:14px 18px; margin:1.4em 0; color:var(--ink)}
+  .callout.warn{border-left-color:var(--obs)}
+  .callout b:first-child{color:var(--head)}
+  ul{padding-left:1.25em} li{margin:.35em 0}
+  li::marker{color:var(--accent)}
+  .arch{font-size:13px}
+  footer{grid-column:1/-1; margin-top:64px; padding-top:20px; border-top:1px solid var(--line);
+    color:var(--faint); font-size:13px}
+  @media (prefers-reduced-motion: no-preference){ html{scroll-behavior:smooth} }
+</style>
+
+<div class="wrap">
+<header class="hero">
+  <div class="eyebrow">SeenSlide · July 2026 · v1.0.35 – v1.0.40</div>
+  <h1>Automated Testing: Methodology &amp; Results</h1>
+  <p class="sub">How a 65-test unit suite, production-level HTTP/DB verification, and a novel
+  <strong>LLM-driven GUI test harness</strong> were built for the SeenSlide desktop app, cloud backend,
+  and web viewer — and what they found. Deterministic prewritten steps, vision-LLM perception,
+  hard non-visual oracles.</p>
+  <div class="stats">
+    <div class="stat"><b>10</b><span>production bugs found &amp; fixed</span></div>
+    <div class="stat"><b>65</b><span>unit tests gating releases</span></div>
+    <div class="stat"><b>18</b><span>GUI scenarios (desktop + web)</span></div>
+    <div class="stat"><b>3</b><span>surfaces: PyQt · 2 browsers · cloud</span></div>
+    <div class="stat"><b>0</b><span>state-damaging misclicks</span></div>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="toc-h">Part I — Non-GUI</div>
+  <a href="#i1">Methodology</a>
+  <a href="#i2">pytest inventory</a>
+  <a href="#i3">HTTP auth security</a>
+  <a href="#i4">DB credit atomicity</a>
+  <div class="toc-h">Part II — LLM-driven GUI</div>
+  <a href="#ii1">The idea</a>
+  <a href="#ii2">Architecture</a>
+  <a href="#ii3">Rules learned the hard way</a>
+  <a href="#ii4">Desktop scenarios P0–P5</a>
+  <a href="#ii5">Web scenarios W0–W6</a>
+  <a href="#ii6">Cost &amp; performance</a>
+  <a href="#ii7">How to run everything</a>
+  <div class="toc-h">Part III — Results</div>
+  <a href="#iii1">The ten bugs</a>
+  <a href="#iii2">Effectiveness</a>
+  <a href="#iii3">Known limits</a>
+</nav>
+
+<main>
+
+<h2 id="i1"><span class="part">Part I — Non-GUI automated tests</span>I.1 Methodology</h2>
+<div class="tablewrap"><table>
+<tr><th>Layer</th><th>Tool</th><th>Runs against</th><th>Gate</th></tr>
+<tr><td>Unit / integration</td><td>pytest (<code>tests/</code>, 65 tests)</td><td>in-process, temp dirs, mocks</td>
+<td>CI on every push/PR <b>and</b> required by all three release builds</td></tr>
+<tr><td>HTTP security</td><td><code>tests_gui_agent/w6_auth_security.py</code></td><td><b>production</b> seenslide.com</td>
+<td>manual; throwaway accounts, self-purging</td></tr>
+<tr><td>DB atomicity</td><td><code>testing_scripts/test_credit_transactions.py</code></td><td><b>production</b> PostgreSQL</td>
+<td>manual; throwaway rows, self-purging</td></tr>
+</table></div>
+<ul>
+<li><b>Test the real thing when the risk is integration.</b> Auth-token semantics and transaction
+atomicity are properties of the deployed system (FastAPI + asyncpg + Postgres together), so those
+tests run against production with disposable data — mocks would encode the same wrong assumptions
+as the code.</li>
+<li><b>Throwaway data must be self-evidently throwaway.</b> Test accounts use
+<code>@harness.invalid</code> (RFC 2606 reserved TLD — can never receive mail or collide with a person);
+test rows use <code>tx-test-&lt;uuid&gt;</code> ids. Purges are <b>name-gated inside the SQL itself</b>,
+never lists of ids collected elsewhere.</li>
+<li><b>Regression tests are written at fix time.</b> Every unit-testable bug fixed during this effort
+got a pytest module the same day.</li>
+</ul>
+
+<h3 id="i2">I.2 Test-case inventory (pytest, <code>tests/</code>)</h3>
+<div class="tablewrap"><table>
+<tr><th>File</th><th>What it verifies</th><th>How</th></tr>
+<tr><td>test_dedup_engine.py</td><td>Per-talk dedup scoping: <code>reset()</code> clears history and restarts numbering; <code>inject_capture()</code> publishes SLIDE_UNIQUE and seeds history (conference title-slide carry-over)</td><td>Real engine, synthetic PIL images</td></tr>
+<tr><td>test_perceptual_strategy.py</td><td>dhash + <b>tiled pixel-diff</b> (144px thumb, 8×8 grid, tol 4.0) catches a single changed line on an otherwise identical slide; near-identical frames still dedup</td><td>Rendered text images differing by one line</td></tr>
+<tr><td>test_blank_frame.py</td><td>Blank-frame guard drops featureless frames (blackout key, unmapped surface) but never a letterboxed slide</td><td>Grayscale std-dev threshold, synthetic frames</td></tr>
+<tr><td>test_outbox_drain.py</td><td>Upload outbox: failures enqueue; drain retries oldest-first; 404 drops the row; success removes it; attempt/age caps</td><td>Mocked cloud, real SQLite outbox</td></tr>
+<tr><td>test_sqlite_provider.py</td><td>WAL, busy_timeout, serialized <code>_write()</code> with rollback (multi-statement deletes atomic), 6-thread concurrency, quick_check corruption detection, backup/restore</td><td>Real SQLite files, deliberate corruption</td></tr>
+<tr><td>test_title_matcher.py</td><td>Conference OCR matching: title coverage ≥ 0.75 + presenter found (0.90 title-only); multi-line titles; presenter in a multi-author list; agenda slides do NOT match</td><td>Real OCR (RapidOCR) on fixture slides</td></tr>
+<tr><td>test_schedule_import.py</td><td>CSV/TSV/semicolon talk-schedule parsing, blank/malformed lines</td><td>Pure function, text fixtures</td></tr>
+<tr><td>test_config_defaults.py</td><td><b>Drift guard</b>: <code>load_defaults()</code> must match <code>config.yaml</code> (a silent divergence once sent all data to /tmp)</td><td>Field-by-field comparison</td></tr>
+<tr><td>test_api_url.py</td><td><code>identity.py</code> rejects non-https api_url (localhost exempt for dev/relay)</td><td>Direct calls</td></tr>
+<tr><td>test_voice_markers.py</td><td><b>Regression, bug #2</b>: local-only voice recordings get slide markers; flush queue empty without an uploader</td><td>Orchestrator, mocked recorder, real event bus</td></tr>
+<tr><td>test_session_persistence.py</td><td><b>Regression, bug #6</b>: <code>update_session()</code> persists the row (cloud_session_id!); a failed persist doesn't abort talk start</td><td>Mocked storage manager</td></tr>
+<tr><td>test_tmp_storage_migration.py</td><td><b>Regression, bug #1</b>: one-time /tmp rescue migrates to the default path, rewrites DB path prefixes, <b>never</b> fires for custom base paths, never overwrites existing data</td><td>Isolated fake HOME + fake legacy dir</td></tr>
+</table></div>
+<p>Run: <code>venv/bin/python3 -m pytest tests/ -q</code> → 65 passed.</p>
+
+<h3 id="i3">I.3 HTTP-level auth security</h3>
+<p>The web viewer authenticates by <b>magic link</b> — the email is only an identifier, no
+verification mail matters, the token <em>is</em> the credential. The security properties live at the
+HTTP layer, so they are tested there: the freshly-created token is read from the
+<code>magic_links</code> table (exactly what an inbox would have received) to complete login without
+any mailbox.</p>
+<p>Checks (production, two <code>@harness.invalid</code> accounts, auto-purged): login issues a working
+session · <b>the token is single-use</b> (replay rejected) · the accounts are distinct
+<code>user_id</code>s · <b>logout invalidates the session</b> (401 afterwards).</p>
+<div class="callout">The "wrong-PIN lockout" (<code>MAX_FAILED_ATTEMPTS=10</code>, 15-min lock) is a
+desktop/phone identity feature — the web path has no PIN, so it is not a web test.</div>
+
+<h3 id="i4">I.4 DB-level credit atomicity</h3>
+<p>Exercises the real <code>CreditManager</code> through <code>DatabaseManager.transaction()</code>
+against the production database with a throwaway user: grant (+50, one logged transaction), deduct
+(−20, second transaction), insufficient-funds refusal (balance untouched), and the decisive
+<b>rollback test</b> — inside a transaction the uncommitted balance is visible (+500); a forced error
+rolls it back exactly to the pre-transaction value.</p>
+
+<h2 id="ii1"><span class="part">Part II — LLM-driven GUI testing</span>II.1 The idea</h2>
+<p>Conventional GUI automation binds tests to selectors and accessibility ids — brittle, and
+impossible for surfaces you don't control (native file dialogs, browser chrome, two different
+browsers at once). This harness splits the problem:</p>
+<ul>
+<li><b>Control flow is deterministic</b>: scenarios are prewritten YAML step lists. No agent
+improvisation — a run either follows the script or fails.</li>
+<li><b>Perception is an LLM</b>: a vision model receives a screenshot and a natural-language
+description ("the red 'End Presentation' button") and returns coordinates (<code>locate</code>),
+a boolean judgment (<code>judge</code>), or a value read off the pixels (<code>read</code> — e.g. the
+8-character join code shown in a dialog).</li>
+<li><b>Truth is never only visual</b>: every scenario ends in hard oracles — SQLite queries, public
+HTTP endpoints, perceptual image hashing against the source PDF, audio waveform peak analysis — so a
+plausible-looking screen can't fake a pass.</li>
+</ul>
+
+<h3 id="ii2">II.2 Architecture (<code>tests_gui_agent/</code>)</h3>
+<pre class="arch"><code>scenario.yaml ──▶ runner.py ──▶ locator.py ──▶ claude -p (opus-4.8, vision)
+                     │               └─ coords cache (--replay = 0 AI calls)
+                     ├─▶ actions.py     xdotool click/type/key/drag · mss screenshots
+                     │                  browser ACTORS (window-cropped shots, offset clicks)
+                     │                  sandboxed App lifecycle
+                     ├─▶ presenter.py   fitz PDF → fullscreen Qt window ("the human presenting")
+                     ├─▶ audio.py       piper-TTS + pw-loopback virtual microphone
+                     ├─▶ relay.py       local HTTP relay → cloud (kill = network outage)
+                     └─▶ report_html.py film-strip HTML report (bbox + crosshair per step)</code></pre>
+<ul>
+<li><b>Locator.</b> Model <code>claude-opus-4-8</code> (localizing labeled buttons doesn't need the top
+tier; ~2× faster). Backend: the <code>claude -p</code> CLI headlessly, or the Anthropic SDK when
+<code>ANTHROPIC_API_KEY</code> is set. ~5–15 s per call. Coordinates cached by (mode, screen size,
+description); <code>--replay</code> reruns with zero locate calls. <code>read</code> results are never
+cached — values change per run.</li>
+<li><b>Input.</b> xdotool synthesizes OS-level events — indistinguishable from a human, so the app's
+input-monitor capture trigger fires naturally. Primary monitor via xrandr; offset-corrected clicks;
+verified on 1- and 2-monitor setups.</li>
+<li><b>Sandboxing.</b> Fresh temp <code>$HOME</code>; <code>PYTHON_KEYRING_BACKEND=null</code> (the real
+Secret Service once popped the developer's password-manager dialog mid-run); a <b>random pre-seeded
+device id</b> for cloud runs — the machine-id fallback would silently resurrect the developer's real
+anonymous account; <code>SEENSLIDE_TEST_ON_TOP=1</code> (Mutter ignores external raise requests). The
+sandbox config is the real project config with storage redirected — a minimal config once hid bug #1.</li>
+<li><b>Presenter.</b> Renders PDF pages fullscreen on a chosen monitor with a schedule
+(hold-first / interval / start-page for Next-Talk segments). Must bind the Qt window to the target
+QScreen and use <code>showFullScreen()</code> — Mutter mis-places frameless setGeometry windows on
+multi-monitor.</li>
+<li><b>Synthetic voice.</b> piper-TTS speaks one line per PDF page, silence-padded to the exact
+schedule. A <b>pw-loopback</b> pair (sink → device-class source "SS-Test-Mic") becomes the system
+default microphone and is always restored. Only working recipe on PipeWire:
+<code>pw-cli create-node</code> silently creates nothing, and wireplumber refuses stream-class nodes
+as default. Audio <em>output</em> is verified by recording the default sink's monitor
+(<code>stream.capture.sink=true</code>) and asserting waveform peaks — including a
+<code>max_peak</code> mode that proves <em>silence</em>.</li>
+<li><b>Network fault injection.</b> The sandbox app reaches the cloud through a local HTTP relay;
+killing it is a clean outage (instant connection-refused). Pitfall: the relay must strip
+<code>Content-Encoding</code> (requests pre-decodes upstream bodies).</li>
+<li><b>Two-browser actors.</b> <code>actors: {A: edge, B: firefox}</code> binds names to real browser
+windows by title + browser marker (largest match wins, self-verified by an AI judge). Targeted steps
+crop the screenshot to that window's rect (clamped — Mutter parks windows a few px offscreen) and
+offset clicks to the window origin: two viewers of the same page can't be confused, and nothing
+outside the window is ever clicked (the developer's terminal shared a monitor with actor B
+throughout).</li>
+<li><b>Step DSL.</b> <code>launch · kill · wait · click (retries/optional) · type ($FIXTURES/$VAR) ·
+key · assert_screen · read_text → $VAR · draw · actors · present_pdf (narrate/start_page) ·
+wait_presenter · virtual_mic · play_audio · relay · show_cloud_code → $CLOUD_URL</code></li>
+<li><b>Oracles.</b> <code>verify_db</code> (counts, per-talk 1..N) · <code>verify_slides_match_pdf</code>
+(best-match dhash vs source pages + presentation-order check) · <code>verify_cloud</code> (public
+endpoint: what the audience sees; slides + viewers) · <code>verify_talks</code> (conference split;
+first <em>visible</em> slide of each talk equals its title page) · <code>verify_voice</code> (app log +
+WAV peak) · <code>verify_hidden</code> (gate armed; cloud == kept exactly) · <code>verify_outbox</code>
+· <code>verify_audio_out</code> (sink peak / silence) · <code>verify_log</code> (regex proof).</li>
+<li><b>Artifacts per run:</b> numbered screenshots, film-strip HTML report, sandbox app log, sandbox
+DB (saved via the sqlite3 <b>backup API</b> — a plain copy of a WAL-mode DB is empty), presenter and
+relay logs, narration + recorded WAVs, report.json.</li>
+</ul>
+
+<h3 id="ii3">II.3 Methodology rules learned the hard way</h3>
+<ul>
+<li><b>State-tolerant steps.</b> Runs fail mid-way; the next run inherits the leftovers. Steps that
+open/join/play must be <code>optional:</code> or leave-then-redo — a voice call surviving from a
+previous run holds a <b>dead mic node</b> and transmits silence.</li>
+<li><b>Don't interact during continuous playback.</b> Locator think-time (5–15 s) is real time: a
+marker-walk during playback drifted past markers nondeterministically. Pause first, then walk.</li>
+<li><b>Distinguish product bugs from oracle bugs.</b> Several "failures" were wrong assertions
+(a deck whose page 4 <em>is</em> a title slide; a voice bar that has no speaking indicator).
+Discipline: read the artifacts before touching product code.</li>
+<li><b>Locator flakiness exists.</b> ~1 refusal to find a plainly visible element per hundreds of
+calls; a plain re-run passed. Policy: re-run once before treating a locate-miss as a regression.</li>
+<li><b>Cleanup discipline.</b> Purge only data whose harness origin is provable <em>in the delete
+statement itself</em> — never ids collected from logs. This rule exists because a session collected
+from a log line was wrongly deleted and had to be reconstructed from surviving volume files. Also:
+the server caches sessions in memory — DB-level deletes keep serving until a redeploy.</li>
+<li><b>The presenter covers a monitor.</b> The web actor sharing it joins live talks <em>early</em>
+and is verified after the deck ends; the unobstructed actor does the mid-talk checks.</li>
+<li><b>Autoplay policies are features.</b> Live audio and replay need a user gesture; scenarios click
+"Listen Live"/play rather than reporting silence as a bug.</li>
+</ul>
+
+<h3 id="ii4">II.4 Desktop scenarios (P0–P5)</h3>
+<div class="tablewrap"><table>
+<tr><th>Scenario</th><th>What it proves</th><th>Key oracles / evidence</th></tr>
+<tr><td>smoke (P0)</td><td>Sandboxed launch; all main views reachable by AI-located navigation; verified on 1- and 2-monitor setups</td><td>assert_screen chain</td></tr>
+<tr><td>direct_talk (P1)</td><td>Full talk: form → countdown → real PDF fullscreen → capture → dedup → store → End</td><td>verify_db; slides↔PDF best-match, 8/8 pages in order at dhash 0–6</td></tr>
+<tr><td>direct_talk_cloud (P1)</td><td>Collection created via real UI under a <b>throwaway anonymous identity</b>; slides visible on the public endpoint</td><td>+ verify_cloud</td></tr>
+<tr><td>direct_talk_voice (P2)</td><td>Synthetic narration through the virtual mic; app records it with slide markers</td><td>verify_voice: 85.9 s, 13 markers, peak 1.0</td></tr>
+<tr><td>direct_talk_voice_cloud (P2-live)</td><td>A complete "real talk" watchable <b>live</b> from the web (slides + 1 s audio chunks); viewer URL logged mid-run</td><td>live-viewed by a human during the run</td></tr>
+<tr><td>conference (P3)</td><td>CSV import through the <b>native GTK file dialog</b> (Ctrl+L); OCR <b>auto-advance</b> splits a synthetic 3-talk deck with zero manual clicks; gate hides post-deck app frames</td><td>verify_talks: each talk's first slide == its title page at dhash 0; cloud == kept exactly</td></tr>
+<tr><td>conference_manual (P4b)</td><td>Manual "Next Talk" between presenter segments; talks split at the clicks; between-talk frames gated</td><td>verify_talks on first <em>visible</em> slides</td></tr>
+<tr><td>unhide (P4a)</td><td>Gate recovery path: blurred hidden slide → "Is it a slide? Unhide" → flag cleared <b>and</b> after-the-fact cloud upload</td><td>verify_log + verify_hidden cloud_exact (two-sided)</td></tr>
+<tr><td>offline_outbox (P5)</td><td>Network dies mid-talk → pages queue in the outbox → recovery → 30 s worker backfills → deck complete online</td><td>verify_outbox rows → 0; cloud == kept</td></tr>
+</table></div>
+<p>Fixture: <code>make_conference_deck.py</code> generates the 3-talk deck (multi-line titles,
+presenter inside multi-author lists) + CSV; every title page offline-validated to match only its own
+schedule row (score 1.00, no cross-matches).</p>
+
+<h3 id="ii5">II.5 Web scenarios (W0–W6)</h3>
+<p>Setup: two real browsers, two different logged-in accounts, same talk — Edge (A) on monitor 1,
+Firefox (B) on monitor 2 — prepared once; the harness binds them as actors.</p>
+<div class="tablewrap"><table>
+<tr><th>Wave</th><th>What it proves</th><th>Key evidence</th></tr>
+<tr><td>W0 smoke</td><td>Actor model; two distinct logins; independent navigation both ways</td><td>per-actor asserts</td></tr>
+<tr><td>W1 live</td><td>Desktop presents live → <b>late joiner lands on the current slide</b>; auto-advance with LIVE badge; live audio after the "Listen Live" gesture; viewer_count ≥ 2; end-of-talk → recorded state; the early joiner (hidden under the presenter all talk) surfaces on the complete filmstrip</td><td>audio-out peak 0.84; presence-counted viewers</td></tr>
+<tr><td>W3 collaboration</td><td>Group create in A → <b>AI reads the generated 8-char join code off A's screen</b> → typed into B → join → chat both ways</td><td>DB: group (2 members) + both message rows</td></tr>
+<tr><td>W3 whispers</td><td>Private sub-chat, member picker, both directions</td><td>DB: whisper, 2 members, 2 messages</td></tr>
+<tr><td>W3 annotations</td><td>A draws ink; the stroke renders live in B</td><td>cross-browser assert</td></tr>
+<tr><td>W3 voice</td><td>WebRTC mesh: both join ("Voice · 2 in call"); TTS into the mic is <b>audible on the system output</b> — it can only have crossed the mesh</td><td>peak 1.0 vs 0.000 when broken</td></tr>
+<tr><td>W2 replay</td><td>Self-contained (records its own throwaway narrated talk): playback audible; <b>pause proven silent</b>; marker walk while paused moves exactly +2/−1 slides; A unaffected</td><td>audio-out min/max peak</td></tr>
+<tr><td>W4 AI</td><td>Gemini <b>region explain</b> + follow-up answered; B's AI tab stays empty (isolation); Translate dropdown renders <b>real French in-place</b> while B keeps English</td><td>cross-browser asserts</td></tr>
+<tr><td>W6</td><td>Cookie persistence on real accounts (lite) + full auth security on throwaway accounts (Part I.3)</td><td>HTTP + DB</td></tr>
+</table></div>
+<div class="callout warn"><b>W5 (quizzes/streaks/homework) is N/A on the web</b> — that UI exists only
+in the Android apps.</div>
+
+<h3 id="ii6">II.6 Cost &amp; performance profile</h3>
+<ul>
+<li>7–25 AI calls per scenario; ~5–15 s per call; scenarios run 1–5 minutes wall-clock.</li>
+<li><code>--replay</code> reruns from the coordinate cache with zero locate calls.</li>
+<li>The locator runs on a Claude subscription via <code>claude -p</code>; an
+<code>ANTHROPIC_API_KEY</code> switches it to the metered API with no other change.</li>
+</ul>
+
+<h3 id="ii7">II.7 How to run everything</h3>
+<pre><code># unit/integration suite (also runs in CI)
+venv/bin/python3 -m pytest tests/ -q
+
+# desktop GUI scenarios (screen hands-off while they run)
+venv/bin/python3 -m tests_gui_agent.runner tests_gui_agent/scenarios/&lt;name&gt;.yaml
+#   --replay  → reuse cached coordinates
+# artifacts: tests_gui_agent/runs/&lt;timestamp&gt;/report.html
+
+# web scenarios: open the two browsers on the same talk (two logins) first,
+# then run web_w0_smoke.yaml … web_w4_ai.yaml as above
+
+# auth security (throwaway accounts, self-purging)
+SS_DBURL=&lt;railway DATABASE_PUBLIC_URL&gt; \
+  venv/bin/python3 tests_gui_agent/w6_auth_security.py
+
+# credit atomicity (SeenSlide repo; its venv has asyncpg, not psycopg2)
+cd ../SeenSlide && SS_DBURL=&lt;url&gt; \
+  venv/bin/python3 testing_scripts/test_credit_transactions.py</code></pre>
+
+<h2 id="iii1"><span class="part">Part III — Results</span>III.1 Bugs found, fixed, and shipped</h2>
+<p>Every bug was discovered by the automated testing above, fixed, regression-covered where
+unit-testable, and deployed (desktop v1.0.39/v1.0.40; backend continuously).</p>
+<div class="tablewrap"><table class="bugtable">
+<tr><th>#</th><th>Found by</th><th>Bug</th><th>Impact</th><th>Fix</th></tr>
+<tr><td>1</td><td>P1</td><td><code>storage:</code> config section ignored; <code>config.yaml</code> said <code>base_dir</code> (a key nothing read) → all slide data in <b>volatile /tmp</b></td><td>Every real install lost local slides on reboot</td><td>Section merged; <code>base_path</code> + persistent default; one-time /tmp rescue with DB path rewrite (v1.0.39); 3 regression tests</td></tr>
+<tr><td>2</td><td>P2 verify_voice</td><td>Slide-marker subscription existed only in the <em>cloud</em> branch of voice recording</td><td>Local-only recordings could never be synced to slides</td><td>Subscribe unconditionally; 2 regression tests</td></tr>
+<tr><td>3</td><td>P3</td><td>Conference schedule inputs: hardcoded white background + dark theme's white text</td><td>Schedule text invisible in dark theme</td><td>Theme token</td></tr>
+<tr><td>4</td><td>P3 + user report</td><td>Slide gate armed at countdown <b>end</b> (deck already fullscreen → learns garbage); own-window frames exempted — exactly the post-deck junk; gate off by default</td><td>App screenshots uploaded to the audience deck</td><td>Base at countdown <b>start</b>; own-window frames judged by the pixel taskbar gate; gate default ON</td></tr>
+<tr><td>5</td><td>P3 verify_cloud</td><td><code>total_slides</code> incremented on upload, <b>never decremented on any delete</b></td><td>Public viewer over-reported counts</td><td>Cache-aware decrement on all delete paths + recount backfill migration; harness enforces cloud == kept exactly</td></tr>
+<tr><td>6</td><td>P4a</td><td><code>update_session()</code> never persisted the row; <code>cloud_session_id</code> stayed NULL in SQLite</td><td>Sessions view showed "No talks found" for collection talks</td><td>Persist in update_session (v1.0.40); 2 regression tests</td></tr>
+<tr><td>7</td><td>W1</td><td><code>update_viewer_count</code> had <b>zero callers</b> (viewer live-follows by REST polling; no websocket to count)</td><td>Viewer counts always 0</td><td>Presence from distinct slides-poll clients in a 60 s window</td></tr>
+<tr><td>8</td><td>W6</td><td>Credits/referral/access-key/donation managers each instantiated <b>their own never-connected DB pool</b></td><td><code>/api/credits/balance</code> → 500 for <b>every logged-in user</b></td><td>Shared lazy proxy resolving the initialized singleton at call time</td></tr>
+<tr><td>9</td><td>exposed by #8</td><td><code>db.transaction()</code> called at five sites but <b>the method didn't exist</b> — and inner queries used separate pooled connections anyway</td><td>Credit grant/spend, referral, access-key spend, account merge: erroring and non-atomic</td><td>Real transaction(): one contextvar-bound connection; nested calls join it; commit/rollback. Verified on prod incl. rollback</td></tr>
+<tr><td>10</td><td>exposed by #9</td><td>Welcome bonus granted twice (direct seed + add_credits) once add_credits worked</td><td>New accounts got 40 credits instead of 20</td><td>Seed 0; add_credits is the single source. Verified live: 20, one tx row</td></tr>
+</table></div>
+<p><span class="chip obs">Observations filed</span>&nbsp; Replay slide-sync on <em>legacy</em> talks whose
+slide numbers don't start at 1 · a voice-chat participant whose mic device dies transmits silence
+with no UI indication.</p>
+
+<h3 id="iii2">III.2 What the effectiveness demonstrates</h3>
+<ul>
+<li><b>The bugs were integration bugs.</b> Not one of the ten was findable by the unit suite alone:
+config plumbing (#1), event-wiring branches (#2), theme × widget interaction (#3), compositor timing
+(#4), cross-repo counter bookkeeping (#5), memory-vs-DB divergence (#6), and dead wiring that
+type-checks fine (#7–#9). The harness found them because it exercises the <em>same seams a user
+does</em> — and its hard oracles caught what looked fine on screen.</li>
+<li><b>Bug cascades are real.</b> #8 → #9 → #10 is a chain where each fix exposed the next; only
+end-to-end verification after each fix caught the follow-ons.</li>
+<li><b>Vision-LLM perception is production-grade for this use.</b> Across ~30 scenario runs: zero
+misclicks that damaged state; failures were overwhelmingly <em>correct</em> rejections. One flake
+pattern is handled by a re-run policy.</li>
+<li><b>One step vocabulary spans surfaces nothing else covers uniformly</b>: a PyQt app, a native GTK
+file dialog, browser permission prompts, two different browsers side-by-side, WebRTC audio, and a
+live production backend.</li>
+</ul>
+
+<h3 id="iii3">III.3 Known limits</h3>
+<ul>
+<li>Linux/X11 only today (xdotool + mss). Windows/macOS and the Wayland capture path remain
+untested by the harness.</li>
+<li>The harness shares the screen: runs need the monitor hands-off; a human moving windows mid-run
+is the main environmental hazard.</li>
+<li>Locator latency makes real-time interaction tests nondeterministic — design scenarios to pause
+first.</li>
+<li>Judgments are natural language: an imprecise assert can pass for the wrong reason. The
+mitigation is the hard-oracle layer every scenario ends with.</li>
+</ul>
+
+</main>
+<footer>
+SeenSlide automated testing · July 2026 · canonical source: <code>AUTOMATED_TESTING.md</code> in the
+seenslide-desktop repository · harness: <code>tests_gui_agent/</code>
+</footer>
+</div>
