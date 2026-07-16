@@ -67,7 +67,13 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done
 
 ## 🟡 Polish / product decisions
 
-- [ ] **Cloud credit spend path is broken (backend).** `CreditManager.add_credits`/`deduct_credits` (and donation_manager) call `db.transaction()`, but `DatabaseManager` implements no such method (only `acquire()`), and the `db.execute()` calls inside the block don't use the transaction's connection anyway — so credit grant/spend is non-atomic and errors. Pre-existing; surfaced while fixing the credits DB-pool bug (W6 harness). Needs a real `transaction()` context (acquire → conn.transaction → run queries on that conn) + a spend-flow test.
+- [x] **Cloud credit spend path (backend).** Implemented
+      `DatabaseManager.transaction()` (contextvar-bound connection; every
+      execute/fetch in the block, incl. nested manager calls, runs on it;
+      commit/rollback; nested blocks join the outer). Fixed a double-count
+      the repair exposed (welcome bonus granted by both a direct seed and
+      add_credits). Verified against prod: grant/deduct/insufficient/
+      rollback + welcome bonus == 20 with one tx row.
 
 - [ ] **Replay slide-sync on legacy talks.** Talks recorded before per-talk
       slide numbering (slide_number not starting at 1, e.g. a talk with
