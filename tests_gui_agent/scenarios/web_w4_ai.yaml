@@ -1,0 +1,69 @@
+# W4: AI features in the viewer (Gemini region explain + follow-up chat,
+# in-place slide translation) and per-user isolation: A's AI conversation
+# must not appear in B. Precondition: both browsers on a talk with slides
+# (web_w2_replay.yaml leaves them on the throwaway 'W2 Replay Talk').
+name: web-w4-ai
+steps:
+  - actors: {A: edge, B: firefox}
+  # both on slide 1
+  - click: {target: A, find: "slide thumbnail number 1 in the filmstrip at the bottom"}
+  - click: {target: B, find: "slide thumbnail number 1 in the filmstrip at the bottom"}
+  - wait: 1
+  # -- A: AI explain region ------------------------------------------------------
+  - click: {target: A, find: "the 'AI Explain Region' sparkle/AI icon button in the right-side vertical toolbar"}
+  - wait: 1
+  - draw: {target: A, find: "the main slide display area"}
+  - wait: 3
+  - assert_screen:
+      target: A
+      desc: >
+        the AI Assistant panel is analyzing or has answered: either a
+        'let me think' loading state or an AI explanation text about the
+        selected slide region
+  - wait: 15
+  - assert_screen:
+      target: A
+      retries: 3
+      desc: >
+        the AI Assistant panel shows a finished TEXT ANSWER about the slide
+        content (multiple sentences), with a follow-up question input below
+  # -- A: follow-up question -------------------------------------------------------
+  - click: {target: A, find: "the 'Ask a follow-up question...' input at the bottom of the AI panel"}
+  - type: {target: A, text: "Summarize that in exactly five words."}
+  - key: {target: A, key: Return}
+  - wait: 12
+  - assert_screen:
+      target: A
+      retries: 3
+      desc: >
+        the AI panel shows a NEW short answer to the follow-up question
+        (after the first explanation)
+  # -- isolation: B has no AI conversation ------------------------------------------
+  - click: {target: B, find: "the 'AI Assistant' tab in the left panel"}
+  - wait: 2
+  - assert_screen:
+      target: B
+      desc: >
+        the AI Assistant tab shows its EMPTY state (persona selector /
+        'select a region' hint) — none of the other user's questions or
+        answers are visible
+  # -- A: in-place slide translation (the Translate dropdown drives it) ----------
+  - click: {target: A, find: "the 'Translate: off' dropdown selector at the top of the slide area"}
+  - wait: 1
+  - click: {target: A, find: "the 'Fran\u00e7ais' option in the open translate dropdown"}
+  - wait: 15
+  - assert_screen:
+      target: A
+      retries: 3
+      desc: >
+        the slide shows FRENCH text overlaying/replacing the original slide
+        text (in-place translation active, dropdown shows Fran\u00e7ais)
+  # -- B still sees the original slide -------------------------------------------------
+  - assert_screen:
+      target: B
+      desc: >
+        the slide area still shows the ORIGINAL untranslated slide content
+  # restore A to untranslated
+  - click: {target: A, find: "the translate language dropdown at the top of the slide area"}
+  - wait: 1
+  - click: {target: A, find: "the 'Translate: off' option in the open dropdown"}
