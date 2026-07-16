@@ -67,6 +67,12 @@ Legend: `[ ]` open · `[~]` in progress · `[x]` done
 
 ## 🟡 Polish / product decisions
 
+- [ ] **Replay slide-sync on legacy talks.** Talks recorded before per-talk
+      slide numbering (slide_number not starting at 1, e.g. a talk with
+      slides 4..38) — the recording's marker slide numbers don't map onto
+      the viewer filmstrip highlight during replay. Found by harness W2 on
+      LMN-4092; fresh talks are unaffected.
+
 - [x] **Conference transitions leave already-uploaded tail slides in the
       cloud.** Root cause was server-side: the deletes worked, but
       `cloud_sessions.total_slides` was never decremented on any delete
