@@ -1,0 +1,62 @@
+{
+  "instrument": "vision locator \u2014 claude-opus-4-8 via claude -p CLI",
+  "surface_families": [
+    "PyQt5 desktop app (light/dark)",
+    "GTK file dialog",
+    "Microsoft Edge viewer",
+    "Firefox viewer (dark)"
+  ],
+  "campaign": {
+    "runs": 58,
+    "runs_passed": 23,
+    "total_model_calls_reported": 604,
+    "latency_samples": 229
+  },
+  "select_locate": {
+    "n_calls_on_present": 343,
+    "misses_on_present": 3,
+    "recall_per_call_hat": 0.9913,
+    "recall_per_call_wilson95_low": 0.9746,
+    "terminal_false_misses": 1,
+    "note": "misses recover under the harness retry policy (retries=2 + one scenario re-run)"
+  },
+  "judge_assert": {
+    "n_true": 158,
+    "n_false": 19,
+    "beta_hat": 1.0,
+    "beta_wilson95_low": 0.9763,
+    "alpha_observed": 0.0,
+    "alpha_upper95_rule_of_three": 0.1579,
+    "false_rejects_observed": 0,
+    "false_accepts_observed": 0,
+    "blind_relabel_sample": {
+      "n": 6,
+      "confirmed_correct": 6,
+      "false_accepts_found": 0,
+      "method": "cross-check: independent vision re-read of 6 uniformly-sampled accepted asserts (opus-driven author review); all descriptions matched the pixels."
+    }
+  },
+  "gen_read": {
+    "n_calls": 3,
+    "errors_observed": 0,
+    "error_upper95_rule_of_three": 1.0
+  },
+  "cost": {
+    "latency_s_p50": 8.9,
+    "latency_s_p90": 14.3,
+    "latency_s_max": 33.1
+  },
+  "correlation_note": "single-model, single-prompt configuration: immediate same-input retries are highly correlated (observed: 3 consecutive misses on one visible element); a later fresh run succeeded. rho is not separately measured; treat immediate retries as one effective sample.",
+  "ground_truth_method": "T1 outcome-grounding against terminal hard oracles + T2 per-event adjudication of every campaign failure; zero-event rates reported as one-sided 95% bounds (rule of three).",
+  "headline": {
+    "beta_true_accept": ">= 0.976 (Wilson95 low; point 1.00 over 158)",
+    "alpha_false_accept": "<= 0.16 (rule-of-three over 19 true-negative trials; 0 observed, incl. 6/6 blind relabel)",
+    "recall_per_locate_call": ">= 0.975 (Wilson95 low; point 0.991 over 343)",
+    "recall_after_retry_policy": "1.000 observed (0 unrecovered locate failures across 58 runs under retries=2 + re-run-once)",
+    "cost_calls_per_scenario": 10.4,
+    "latency_s": [
+      8.9,
+      14.3
+    ]
+  }
+}
