@@ -1,0 +1,22 @@
+# W6-lite: auth persistence — the safe subset runnable on REAL accounts.
+# (Sign-out round-trips and wrong-PIN lockout need throwaway accounts:
+# locking or logging out the user's real login is not acceptable.)
+# Reload both browsers: the login cookie must survive and the viewer must
+# come back signed in on the same talk.
+name: web-w6-auth-lite
+steps:
+  - actors: {A: edge, B: firefox}
+  - key: {target: A, key: F5}
+  - key: {target: B, key: F5}
+  - wait: 10
+  - assert_screen:
+      target: A
+      desc: >
+        the SeenSlide viewer reloaded and is STILL SIGNED IN as 'Mahmudul'
+        (account name in the top-right), showing the same talk
+  - assert_screen:
+      target: B
+      desc: >
+        the SeenSlide viewer reloaded and is STILL SIGNED IN as
+        'Faisal Al Ameen' (account name in the top-right), showing the
+        same talk
