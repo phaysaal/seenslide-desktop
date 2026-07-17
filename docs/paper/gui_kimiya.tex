@@ -73,6 +73,7 @@
 \newcommand{\bolt}{\maltese}
 \newcommand{\ir}[3]{\dfrac{\;#2\;}{\;#3\;}\ \textsc{(#1)}}
 \newcommand{\worldstore}{\mathcal{W}}
+\newcommand{\ext}[1]{\textcolor{extcolor}{#1}}
 
 \AtEndPreamble{%
   \theoremstyle{acmdefinition}%
@@ -712,6 +713,7 @@ locator behaves (its reliability differs across the PyQt, GTK-dialog, and
 browser surface families of Table~\ref{tab:sheet}).
 
 \subsection{Gap 2: retry must reason about world frames}
+\label{sec:worldretry}
 
 Kimiya's \textsc{Retry} reruns the body \emph{from the loop's entry
 state}---snapshot semantics---which is sound because the store is
@@ -770,6 +772,7 @@ judgment takes---is the timing analogue of the recall asymmetry: some
 failures are silent unless the construct forbids them.
 
 \subsection{What survives unchanged}
+\label{sec:survives}
 
 The verification layer is untouched by all three gaps. Purposes, the
 check/judge grade split, budgets, abstention to $\bolt$, and audit
@@ -780,6 +783,67 @@ extension is entirely in \emph{how state is touched}, not in \emph{how
 reliability is proved}---which is why the harness could obey the
 verification discipline (and reap its safety) while improvising the
 interaction discipline (and paying for it in engineering).
+
+\subsection{The extended calculus, assembled}
+\label{sec:assembled}
+
+Figure~\ref{fig:extgrammar} assembles the full language: core Kimiya
+verbatim, plus the four world-effecting productions this paper proposes,
+set in \textcolor{extcolor}{magenta} as everywhere in this paper. Three
+disciplines are built into the grammar rather than left to convention.
+First, \emph{the world is only ever touched through $\actc$ and read
+through $\observe$}: no other production mentions $\worldstore$, so the
+program-owned store and the external world cannot be silently conflated,
+and $\select$ now ranges over an \emph{observation} (a value in the
+store), never over the world directly---which is why its recall datasheet
+is conditioned on the observation family (\S\ref{sec:datasheet}).
+Second, every extended production carries its own contract: $\actc$ a
+\emph{delivery} datasheet (probability the effect lands, and its cost)
+that asserts nothing about the resulting state; $\observe$ a fidelity
+and cost; $\settle$ a real-time deadline $\delta$ that is a first-class
+cost alongside the call budget; and world-frame $\retry$ the invariant
+and compensation obligations of \S\ref{sec:worldretry}. Third, a
+\emph{freshness obligation} ties them together: the observation an
+$\actc$ consumes (through the $\select$ that produced its target point)
+must postdate the last effect on the same surface $\iota$---acting on a
+stale screenshot is a type error, not a runtime surprise. This is the
+grammatical form of the harness's practice of re-capturing the window
+immediately before every click, and the timing analogue of Kimiya's ban
+on silent semantic equality.
+
+\begin{figure}[t]
+\small
+\begin{align*}
+&\textit{surfaces} & \iota \Coloneqq{}& \mathsf{desktop} \mid A \mid B \mid \cdots
+   && \text{declared regions of the world } \worldstore\\[2pt]
+&\textit{effects} & \ext{a} \Coloneqq{}& \ext{\mathsf{click}(pt) \mid \mathsf{type}(s) \mid \mathsf{key}(k) \mid \mathsf{audio}(w) \mid \mathsf{net}(\mathit{up} \mid \mathit{down})}
+   && \text{instance set, extensible}\\[2pt]
+&\textit{commands} & C \Coloneqq{}& \Skip \;\mid\; x := e \;\mid\; x := \gen\langle S\rangle(p) \;\mid\; x := \select\langle\rho_r\rangle(q, x') \\
+& & \mid{}& C_1 ; C_2 \;\mid\; \mathbf{if}\ J\ \mathbf{then}\ C_1\ \mathbf{else}\ C_2
+      \;\mid\; \retry\ C\ \mathbf{until}\ J\ \mathbf{budget}\ \budget \\
+& & \mid{}& \commitc(e) \;\mid\; \abstain \\
+& & \mid{}& \ext{\actc^{\iota}\ a}
+      && \ext{\text{delivery datasheet } (d_a, c_a)}\\
+& & \mid{}& \ext{x := \observe^{\iota}\langle S\rangle}
+      && \ext{\text{observation of } \worldstore \text{ at } \iota}\\
+& & \mid{}& \ext{\settle^{\iota}\ \mathbf{until}\ J\ \mathbf{within}\ \delta}
+      && \ext{\text{timed observe-and-judge}}\\
+& & \mid{}& \ext{\retry\ C\ \mathbf{until}\ J\ \mathbf{budget}\ \budget\
+      \{\mathbf{inv}\ \phi_{\mathrm{inv}};\ \mathbf{compensate}\ C_r\}}
+      && \ext{\text{world-frame retry (\S\ref{sec:worldretry})}}\\[2pt]
+&\textit{guards} & J \Coloneqq{}& \checkk\ \varphi \;\mid\; \judge\langle k,\tau\rangle\ \psi \\
+&\textit{predicates} & \psi \Coloneqq{}& u \semeqk{\ctx} v \;\mid\; u \entailsk{\ctx} v \;\mid\; u \perp_{\ctx} v \;\mid\; \phi_{\ctx}(u)
+\end{align*}
+\caption{The world-effecting extension, assembled. Black productions are
+core Kimiya, unchanged; \textcolor{extcolor}{magenta} productions are
+this paper's extension. $\worldstore$ is the external world, touchable
+only through $\actc$ and readable only through $\observe$; $\iota$
+indexes declared surfaces (the harness's browser actors and desktop).
+Judged predicates $\psi$ now take \emph{observations} as arguments---
+latent world-truth enters the logic only as an instrument reading of an
+$\observe$, at datasheet rates.}
+\label{fig:extgrammar}
+\end{figure}
 
 % ==================================================================
 \section{A Playbook for an Autonomous Testing Agent}
