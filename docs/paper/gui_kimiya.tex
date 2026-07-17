@@ -287,7 +287,11 @@ datasheet quantities; the two we use directly are:
 \{Q(i)\}_{\ge\rho_r\conf}
 }
 \]
-Two structural facts matter below. First, a judged guard transfers
+(For readability we omit Kimiya's cost terms from both conclusions, and
+write $(\alpha,\beta)$ for what the full rules consume as conservative
+\emph{effective} ends $(\alpha_{\mathrm{eff}},\beta_{\mathrm{eff}})$ of a
+deployed panel configuration; our judges are single-sample, where the two
+coincide.) Two structural facts matter below. First, a judged guard transfers
 reliability across an \emph{imperfect observation of a latent
 truth}---the branch genuinely executes under $\psi$ or $\neg\psi$, but all
 a run obtains is the judge's record. Second, a claim proved through
@@ -477,8 +481,11 @@ where an undetected $\alpha$-error could still hide a product bug.
 
 We transcribe the two-user collaboration scenario (create a group in A,
 carry the join code to B, verify chat both ways) into Kimiya surface
-syntax, purposes made explicit. \texttt{world} is the interactive store of
-\S\ref{sec:extend}; read $\actc$ as ``perform this input effect.''
+syntax, purposes made explicit. $\actc$ and $\settle$
+are the world-effecting constructs proposed in \S\ref{sec:extend} (read
+$\actc$ as ``perform this input effect''); everything else is core
+Kimiya, with the purpose of each $\select$ noted in a comment exactly as
+the Kimiya overview does.
 
 \begin{lstlisting}
 context k_ui:                      -- locating a described control
@@ -492,38 +499,44 @@ context k_state:                   -- judging an application state
   allow_loss = [cursor, clock, theme, unrelated_windows]
 
 -- A creates the group; the join code is generated (untrusted) and read.
-act<A> click( select<0.98>("the + button by the groups heading", A.screen) under k_ui )
-act<A> click( select<0.98>("the Create Group button", A.screen) under k_ui )
+act<A> click( select<0.97>("the + button by the groups heading", A.screen) )   -- under k_ui
+act<A> click( select<0.97>("the Create Group button", A.screen) )               -- under k_ui
 act<A> type ( "W3 Harness Group" )
-act<A> click( select<0.98>("the Create submit button", A.screen) under k_ui )
-settle<A> until judge<1,1/1> ("a success view with an 8-char join code"
-                              on A.screen) under k_state  budget 3
+act<A> click( select<0.97>("the Create submit button", A.screen) )              -- under k_ui
+settle<A> until judge<1,1/1> shows(A.screen,
+              "a success view with an 8-char join code") under k_state
+          within 12s
 
 code := gen<JoinCode>( read("the 8-character join code", A.screen) )   -- untrusted
 
 -- B joins with the carried code.
-act<B> click( select<0.98>("the + button by the groups heading", B.screen) under k_ui )
-act<B> click( select<0.98>("the Join Group button", B.screen) under k_ui )
-act<B> click( select<0.98>("the Join Code input", B.screen) under k_ui )
+act<B> click( select<0.97>("the + button by the groups heading", B.screen) )   -- under k_ui
+act<B> click( select<0.97>("the Join Group button", B.screen) )                 -- under k_ui
+act<B> click( select<0.97>("the Join Code input", B.screen) )                   -- under k_ui
 act<B> type ( code );  act<B> key ( Return )
-settle<B> until judge<1,1/1> ("the group 'W3 Harness Group' is selected"
-                              on B.screen) under k_state  budget 3
+settle<B> until judge<1,1/1> shows(B.screen,
+              "the group 'W3 Harness Group' is selected") under k_state
+          within 12s
 
 -- chat A -> B, then B -> A, each verified on the receiving screen ...
 -- (omitted; identical shape)
 
--- THE CERTIFICATE: what a PASS actually asserts.
-commit
-  check( db.group_members("W3 Harness Group") = 2 )          -- kernel, certainty 1
-  and check( db.messages(group) = [m_ab, m_ba] )             -- kernel, certainty 1
-  and judge<1,1/1>("B's chat shows m_ab") under k_state      -- judged, >= beta
+-- THE VERDICT: kernel gates, then a judged gate, then commit.
+if check( db.group_members("W3 Harness Group") = 2           -- kernel: certainty 1
+        /\ db.messages(group) = [m_ab, m_ba] )               -- kernel: certainty 1
+then if judge<1,1/1> shows(B.screen, "the chat pane displays m_ab")
+        under k_state                                        -- judged: >= beta
+     then commit(trace) else abstain
+else abstain
 \end{lstlisting}
 
-Read the \texttt{commit}: it makes explicit what the informal PASS left
-tacit. The membership count and the message rows are $\checkk$: an audit
-of this test may trust them absolutely. The claim ``B's chat pane
-displays the message'' is a $\judge$ at the locator's operating point; the
-certificate carries it at $\beta$, not $1$. A reviewer of the test---or an
+Read the final block: it makes explicit what the informal PASS left
+tacit. A run commits only through two gates. The kernel gate ($\checkk$
+on the membership count and message rows) contributes no instrument
+error: \emph{any} committing run satisfies those conjuncts with
+certainty. The judged gate (``the chat pane displays $m_{ab}$'') is an
+instrument reading at the locator's operating point; the certificate
+carries that conjunct at the datasheet rate, not at $1$. A reviewer of the test---or an
 LLM agent asked whether the collaboration feature is verified---learns
 from the certificate exactly which guarantees are ironclad and which are
 probabilistic, and at what rate.
@@ -710,7 +723,12 @@ C\ \text{is } \worldstore\text{-idempotent up to } \phi_{\mathrm{inv}} \\
 {\{P\wedge\phi_{\mathrm{inv}}\}\ \retry\ C\ \mathbf{until}\ J\
 \mathbf{budget}\ \budget\ \{Q\}_{\ge(1-(1-g\beta_{\mathrm{eff}})^\budget)\pi_{\mathrm{acc}}}}
 \]
-The new premises are the price of an unresettable store. Either the body
+Here $g$ is the body's datasheet task-family quality (per-round
+probability of producing a $Q$-satisfying outcome) and
+$\pi_{\mathrm{acc}}=g\beta_{\mathrm{eff}}/(g\beta_{\mathrm{eff}}+(1-g)\alpha_{\mathrm{eff}})$
+the acceptance precision, both exactly as in Kimiya's \textsc{Retry}
+rule~\citep{kimiya}; only the premises are new. They are the price of an
+unresettable store. Either the body
 is \emph{idempotent up to a declared world-invariant} $\phi_{\mathrm{inv}}$
 (re-running a failed click leaves $\worldstore$ within $\phi_{\mathrm{inv}}$
 of where it began---the property the harness's \texttt{optional:} steps in
