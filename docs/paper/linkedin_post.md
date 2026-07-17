@@ -33,8 +33,8 @@ If you want the details — the architecture, the measured accuracy of the
 vision layer, the full bug stories — knock me. Happy to share the paper
 and talk shop.
 
-Built on SeenSlide (my side project), with Claude as coding assistant
-and vision layer.
+Built on SeenSlide (my live presentation + study app), with Claude as
+coding assistant and vision layer.
 
 #SoftwareTesting #LLM #QA #TestAutomation #AIEngineering
 
