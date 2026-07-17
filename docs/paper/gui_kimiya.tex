@@ -12,14 +12,19 @@
 % ------------------------------------------------------------------
 % Kimiya code style (shared with the Kimiya paper)
 % ------------------------------------------------------------------
-\definecolor{kwcolor}{RGB}{30,60,130}
+\definecolor{kwcolor}{RGB}{30,60,130}     % core Kimiya keywords: blue
+\definecolor{extcolor}{RGB}{140,30,90}    % OUR extension keywords: magenta
 \definecolor{cmtcolor}{RGB}{110,110,110}
 \definecolor{typecolor}{RGB}{120,60,20}
 \lstdefinelanguage{Kimiya}{
+  % class 1: the ORIGINAL Kimiya keyword set, verbatim from the Kimiya paper
   morekeywords={retry,until,budget,panel,paraphrase_prompts,under,gen,judge,
     select,check,commit,abstain,if,then,else,case,repeat,forall,variant,
-    context,domain,preserve,allow_loss,decreases,not,otherwise,when,
-    act,observe,settle,within,compensate,world,on_fail,reset,idempotent},
+    context,domain,preserve,allow_loss,decreases,not,otherwise,when},
+  % class 2: the world-effecting EXTENSION this paper proposes (S6) --
+  % typeset distinctly so a reader can see at a glance which language a
+  % construct belongs to
+  morekeywords=[2]{act,observe,settle,within,compensate},
   morecomment=[l]{--},
   morecomment=[l]{\#},
   morestring=[b]",
@@ -29,6 +34,7 @@
   language=Kimiya,
   basicstyle=\small\ttfamily,
   keywordstyle=\color{kwcolor}\bfseries,
+  keywordstyle=[2]\color{extcolor}\bfseries,
   commentstyle=\color{cmtcolor}\itshape,
   stringstyle=\color{typecolor},
   columns=fullflexible, keepspaces=true, showstringspaces=false,
@@ -482,10 +488,13 @@ where an undetected $\alpha$-error could still hide a product bug.
 We transcribe the two-user collaboration scenario (create a group in A,
 carry the join code to B, verify chat both ways) into Kimiya surface
 syntax, purposes made explicit. $\actc$ and $\settle$
-are the world-effecting constructs proposed in \S\ref{sec:extend} (read
-$\actc$ as ``perform this input effect''); everything else is core
-Kimiya, with the purpose of each $\select$ noted in a comment exactly as
-the Kimiya overview does.
+are the world-effecting constructs \emph{this paper proposes} in
+\S\ref{sec:extend} (read $\actc$ as ``perform this input effect'');
+they are typeset in \textcolor{extcolor}{\bfseries magenta} to
+distinguish them from \textcolor{kwcolor}{\bfseries core Kimiya}
+keywords, which appear in blue. Everything else is core Kimiya, with the
+purpose of each $\select$ noted in a comment exactly as the Kimiya
+overview does.
 
 \begin{lstlisting}
 context k_ui:                      -- locating a described control
