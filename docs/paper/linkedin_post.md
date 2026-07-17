@@ -40,6 +40,24 @@ and vision layer.
 
 ---
 
+## Optional "ghost" opener/closer
+
+> A more personal framing — use as the opening hook OR the closing line.
+> Turns the one real caveat (the harness owns the screen while it runs)
+> into color instead of an apology.
+
+**As an opener:**
+The strangest part wasn't the bugs. It was watching a ghost do my job.
+While I worked on something else, an AI drove my app end-to-end — clicking,
+typing, presenting, listening — entirely on its own. The only rule: hands
+off. It owns the screen while it runs, so I just... watched it work.
+
+**As a closer:**
+Honestly, the most memorable part was the feeling: a ghost quietly
+doing my testing in the background while I did other things. (The one
+catch — it owns the mouse and screen while running, so you really do have
+to let it work.) Slightly eerie. Mostly wonderful.
+
 ## Posting notes
 
 - Attach 1–2 images: a film-strip report step (red bounding box + click
