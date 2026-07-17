@@ -50,8 +50,8 @@
   project's 65-test unit suite could have caught — including silent data
   loss to volatile storage, a dead database pool 500-ing an API for every
   authenticated user, and a three-bug cascade in which each fix exposed
-  the next. Across roughly thirty runs the vision layer caused zero
-  state-damaging misclicks. We describe the architecture, the
+  the next. Across a 58-run campaign the vision layer caused zero
+  state-damaging misclicks, and its measured operating point is reported. We describe the architecture, the
   methodology rules learned from failures, the full bug inventory, and
   the limits of the approach.
 ]
@@ -358,16 +358,64 @@ repair exposed the next — only end-to-end re-verification after each fix
 *oracles beat eyes*: bugs 2, 5, and 7 produced screens that looked
 perfectly normal.
 
-== Reliability and cost
+== A measured operating point for the vision layer <opoint>
 
-Across roughly thirty scenario runs: *zero* state-damaging misclicks
-attributable to the vision layer. Failed runs were overwhelmingly
-correct rejections — a real product bug, real state drift from an
-earlier failed run, or a wrong assertion. We observed one vision-flake
-pattern (a refusal to locate a plainly visible element, three retries in
-a row) roughly once per several hundred calls; a plain re-run passed,
-and re-run-once became policy before treating a locate-miss as a
-regression.
+An instrument you have not calibrated is an instrument you are trusting
+on faith. After the campaign we measured the vision layer's operating
+point from the harness's own retained artifacts — 58 recorded runs with
+structured step reports (604 model calls), plus the consoles of 55 runs
+carrying per-call latency and attempt-level retry lines. Ground truth
+comes from two tiers, reported separately: _outcome-grounding_ (a step's
+truth inferred from the run's terminal hard oracles, which are
+independent of the vision layer) and _per-event adjudication_ (every
+non-passing perception event in the campaign was root-caused when it
+occurred — product bug, oracle bug, state drift, or model flake — and
+that record is reused). Where zero errors were observed we report the
+one-sided 95% upper bound (rule of three, $3\/n$), never zero.
+
+#figure(
+  table(
+    columns: (auto, auto, auto, 1fr),
+    align: (left, left, left, left),
+    stroke: 0.4pt + rgb("#cccccc"),
+    inset: 6pt,
+    [*Primitive*], [*Quantity*], [*Value*], [*Basis*],
+    [judge (assert)], [true-accept rate], [≥ 0.976], [158/158 accepted on true states; Wilson-95 lower bound],
+    [judge (assert)], [false-accept rate], [≤ 0.16], [0 observed over 19 true-negative trials (incl. a 6/6 blind re-read of sampled accepts); rule of three],
+    [locate], [per-call find rate], [≥ 0.975], [340/343 on present elements; Wilson-95 lower bound],
+    [locate], [after retry policy], [≈ 1.000], [0 unrecovered locate failures across 58 runs],
+    [read], [value-error rate], [(n = 3, too thin)], [0 errors; all values validated downstream],
+    [cost], [latency p50 / p90], [8.9 s / 14.3 s], [229 samples],
+    [cost], [calls per scenario], [10.4], [604 / 58],
+  ),
+  caption: [Measured operating point of the vision layer across the
+  campaign's four surface families (PyQt light/dark, GTK dialog, Edge,
+  Firefox). Bounds are conservative: Wilson-95 lower for accept rates,
+  rule-of-three upper for unobserved error.]
+) <optable>
+
+Three honest observations. First, *the false-accept bound is the weak
+number*: no false accept was ever observed, but the campaign presented
+only 19 genuine true-negative trials, so the bound cannot tighten past
+0.16 — and this is exactly the quantity the check-last design makes the
+verdict robust to (a screen-judgment false accept lets the script
+proceed, whereupon the terminal non-visual oracles catch the lie).
+Second, *retries of the same model on the same input barely help*: we
+observed three consecutive misses on one plainly visible element,
+followed by success on a later fresh run — same-input retries are highly
+correlated, so the harness treats an immediate retry burst as one
+effective sample and relies on a full re-run for a genuinely fresh draw.
+Third, *the find rate, not precision, is what matters*: a missed locate
+is loud (the step retries or the scenario visibly aborts), while a click
+on the wrong element is caught downstream when the next assertion or
+oracle fails — which is why the miss rate is the number worth measuring.
+
+== Reliability and cost in practice
+
+Across the campaign: *zero* state-damaging misclicks attributable to the
+vision layer, consistent with the operating point above. Failed runs
+were overwhelmingly correct rejections — a real product bug, real state
+drift from an earlier failed run, or a wrong assertion.
 
 Scenarios issue 7–25 model calls (5–15 s each on the CLI backend) and
 run one to five minutes wall-clock. The coordinate cache replays
