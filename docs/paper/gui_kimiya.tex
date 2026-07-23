@@ -116,7 +116,16 @@ test. The correspondence is not perfect: GUI testing stresses exactly the
 extension Kimiya defers, computation that \emph{mutates an external
 world under adversarial timing}, and we propose the constructs a
 world-effecting Kimiya needs ($\actc$/$\observe$/$\settle$, world-frame
-retry, timed cost) together with the proof obligations they carry.
+retry, timed cost) together with the proof obligations they carry. We
+then \emph{implement} the extension in \texttt{kimiya-lang}, a
+zero-dependency interpreter and compiler for Kimiya surface syntax: the
+transcribed scenario checks, runs, and compiles; the measured datasheet
+installs as a first-class instrument grade, moving the computed
+certificate of the same program from $\conf=0.047$ (prior-grade, with
+overclaim warnings) to $\conf=0.86$ (measured); and the proof
+obligations become check-time rejections---an unguarded irreversible
+click, a vision retrieval with no named instrument, a sightless judge on
+a screenshot panel are type errors, not runtime surprises.
 Finally, we recast the artifact as an executable guideline: a playbook by
 which an autonomous language-model agent can test arbitrary GUI software
 under the same discipline. The larger aim is a route to \emph{formal
@@ -210,6 +219,14 @@ defers: computation over an external, mutating, adversarially timed
 world. We propose the constructs a world-effecting Kimiya needs---
 $\actc$/$\observe$/$\settle$, a world-frame retry rule, and timed
 cost---and state the proof obligations each introduces.
+\item \textbf{An implementation (\S\ref{sec:impl}).} The extension is
+realized in \texttt{kimiya-lang}: screen acts with verified delivery,
+observations that carry their capture origin, the locator as a
+$\select$ instrument whose datasheet is \emph{installed} rather than
+assumed, agent-indexed actors, and the disciplines of
+\S\ref{sec:extend} as static rejection rules. The scenario of
+\S\ref{sec:transcribe} executes end-to-end and its certificate is
+computed, not derived by hand.
 \item \textbf{An executable playbook (\S\ref{sec:playbook}).} We recast
 the artifact as a guideline an autonomous language-model agent can follow
 to test arbitrary GUI software under this discipline, so the method
@@ -225,10 +242,13 @@ declarations and datasheets.
 We are explicit about status: the guarantees are conditional on the
 oracle model (judges being calibratable instruments), the datasheet is
 measured on one system's interface families, and the extension of
-\S\ref{sec:extend} is a design, not yet a mechanized metatheory. What is
+\S\ref{sec:extend} now carries a reference implementation
+(\S\ref{sec:impl}) whose disciplines are enforced at check time, but
+its metatheory is not yet mechanized. What is
 solid is the empirical core---the harness, the ten bugs, the measured
 operating point---and the demonstration that a real interactive test
-\emph{is} a Kimiya program.
+\emph{is} a Kimiya program, twice over: once found in the harness, and
+once written down and executed.
 
 % ==================================================================
 \section{Kimiya in Brief}
@@ -540,6 +560,13 @@ then if judge<1,1/1> shows(B.screen, "the chat pane displays m_ab")
 else abstain
 \end{lstlisting}
 
+This listing is no longer only notation. \S\ref{sec:impl} reports an
+implementation in which a line-for-line rendering of it---actor
+declarations, indexed acts and observations, the vision $\select$, the
+$\mathsf{shows}$ judgments, both gates---parses, checks, runs, and
+compiles, committing at $\conf=0.86$ under the measured datasheet of
+\S\ref{sec:datasheet}.
+
 Read the final block: it makes explicit what the informal PASS left
 tacit. A run commits only through two gates. The kernel gate ($\checkk$
 on the membership count and message rows) contributes no instrument
@@ -684,8 +711,9 @@ verification layer but strains at the interaction layer, because GUI
 testing is Kimiya's deferred extension in its most demanding form:
 computation that \emph{mutates an external world under adversarial
 timing}. We identify three gaps and propose the constructs and proof
-obligations a world-effecting Kimiya needs. We present this as design,
-with the metatheory sketched, not mechanized.
+obligations a world-effecting Kimiya needs. We present the design here with its
+metatheory sketched, not mechanized; \S\ref{sec:impl} reports the
+implementation and what building it fed back into the design.
 
 \subsection{Gap 1: the store is an external, mutating world}
 
@@ -846,6 +874,161 @@ $\observe$, at datasheet rates.}
 \end{figure}
 
 % ==================================================================
+\section{The Extension, Implemented}
+\label{sec:impl}
+% ==================================================================
+
+Between drafting and revision, \S\ref{sec:extend} stopped being only a
+design. We implemented the world-effecting extension in
+\texttt{kimiya-lang}, a stdlib-only interpreter \emph{and} compiler for
+Kimiya surface syntax,\footnote{\url{https://github.com/phaysaal/kimiya-lang}.
+The interpreter and the compiled runtime are separate code paths kept
+honest by a smoke suite that runs both and requires identical
+commitments; the suite also holds one deliberately ill-formed program
+per discipline rule and asserts each is rejected \emph{with the right
+diagnosis}.} and the transcription of \S\ref{sec:transcribe} now
+executes end-to-end. This section reports what the implementation
+confirms, what it computes that the paper previously derived by hand,
+and---most usefully---what building it forced the design to say more
+precisely. The metatheory remains unmechanized: what follows is
+executable discipline, not proof.
+
+\subsection{Coverage, and the one construct still missing}
+
+Everything in Figure~\ref{fig:extgrammar} is implemented. Surfaces are
+declared as \texttt{display} objects (a monitor region, another X
+server, or another machine over ssh); $\actc^{\iota}$ is spelled
+\texttt{act<A> screen.click(x,\,y)} with click, type, key, drag, and
+scroll effects delivered by OS-level input synthesis;
+$\observe^{\iota}$ is \texttt{observe screen<A>()}, returning an
+observation that carries its capture origin, dimensions, and content
+hash; $\select$ over such an observation invokes the vision locator
+(boxes in image pixels, mapped through the capture origin to absolute
+coordinates); screen-state judgments use a \texttt{shows} relation whose
+evidence is the observation itself; $\settle$, world-frame $\retry$ with
+\texttt{inv}/\texttt{compensate}, and the freshness ledger are as
+specified. The locator instrument runs Claude Opus~4.8, by default
+through the same headless-CLI path the harness of \S\ref{sec:harness}
+used---which is what makes installing Table~\ref{tab:sheet} legitimate:
+the datasheet is a measurement of \emph{this} instrument, not an
+assertion about a similar one. One construct from the transcription is
+not yet implemented: the grounded screen-read
+($\gen\langle\text{JoinCode}\rangle$ over an observation); the
+executable rendering reads the join code through a kernel oracle
+instead.
+
+The proof obligations of \S\ref{sec:extend} land as \emph{check-time
+rejection rules}, in the family of Kimiya's ban on silent semantic
+equality: an unguarded irreversible act, an irreversible act inside a
+retry body, a world-touching retry with neither invariant nor
+compensation, a $\select$ over an observation with no named instrument
+or no declared purpose, a judge panel containing a model that cannot see
+the screenshot it would vote on, and an actor index naming no declared
+display are all rejected before any model runs, each with a one-line
+diagnosis.
+
+\subsection{The certificate is computed, not derived}
+
+\S\ref{sec:numeric} derived a certificate arithmetic by hand; the
+implementation computes it. The same program run against prior-grade
+instrument sheets commits at $\conf = 0.047$ and prints one overclaim
+warning per locate---the declared recall $0.97$ exceeds the prior-grade
+$\beta \ge 0.60$, and $\conf$ takes the measured end, never the
+programmer's claim. Installing the datasheet of \S\ref{sec:datasheet}
+(a one-line import that \emph{refuses} a sheet with no provenance
+string) moves the same program to:
+
+\begin{lstlisting}
+-- certificate ------------------------------------------------
+  status : COMMITTED
+  value  : "W3 collaboration verified"
+  theta  : 0.8599   (locate:k_ui 0.9746 (*$\times$*)4, shows:k_state 0.9763 (*$\times$*)2)
+  instrument locate:k_ui : (*$\alpha \le$*) 0.16  (*$\beta \ge$*) 0.97
+      [measured: seenslide harness, 58 runs / 343 locate calls]
+  screen : 8 act(s), 4 locate(s)
+  actor  : A (*$\to$*) :0 (local)     actor : B (*$\to$*) :0 (local)
+\end{lstlisting}
+
+Both runs pass; they are not equally strong evidence, and the
+certificate is the artifact that says so. The stratification that
+\S\ref{sec:false-cert} proposed as the paper's practical upgrade to the
+harness is here the default output format.
+
+\subsection{What implementation fed back into the design}
+\label{sec:feedback}
+
+Four points where executing the design sharpened it.
+
+\paragraph{Delivery contracts need verification, not just a rate.}
+\S\ref{sec:extend} gave $\actc$ a delivery datasheet---a probability
+that the effect lands. The first live test on a multi-monitor
+workstation showed why that is not enough: an L-shaped layout leaves
+uncovered regions in the X screen's bounding box, and the display server
+\emph{silently clamps} a pointer sent there to the nearest valid
+pixel---the click lands at a coordinate the program never named while
+the trace faithfully records the one it asked for. No delivery
+\emph{rate} captures this failure, because the effect is delivered,
+somewhere. The implementation therefore reads the pointer back after
+every move and refuses divergence; the design lesson is that an $\actc$
+contract should be stated as \emph{verified delivery}---effect confirmed
+at the named coordinate---rather than delivery probability alone.
+
+\paragraph{Irreversibility is a property of the control, not the action
+type.} The grammar assigns effect classes per action, but whether a
+click can be undone depends on whether the pixel under it reads
+``Cancel'' or ``Delete forever''---which no static class of
+$\mathsf{click}$ can know. The implementation splits the effect:
+\texttt{click} is recoverable, \texttt{confirm} is the same input event
+declared irreversible, and the program states which one it is
+performing. The verified-gate obligation then attaches to
+\texttt{confirm}. This converts an unknowable property of the world into
+a reviewable claim in the source---the same move Kimiya makes with
+declared purposes.
+
+\paragraph{Cached perception has two epistemic grades.} The harness
+cached locator coordinates and replayed them for zero-cost reruns
+(\S\ref{sec:harness}); the implementation had to decide what that
+\emph{means}. It distinguishes an \emph{exact} hit---the current
+observation's hash equals the cached one, so the cached boxes are a
+reading of this very image, re-entering $\conf$ at the datasheet
+rate---from a \emph{replay}---pixels have changed and the program
+asserts layout stability, an assumption the certificate counts and
+discloses. Replay is sound for exactly the reason
+\S\ref{sec:false-cert} identifies: the locate gates progress, never the
+verdict, so a stale coordinate produces a wrong click, the world
+diverges, and the never-cached kernel and judge gates refuse to commit.
+The harness's cache was correct; the implementation says why, and prices
+it.
+
+\paragraph{Observations are their own disclosure class.} A screenshot
+shipped to a remote model is not a prompt the program composed---it is
+whatever happened to be on the user's display. The implementation
+announces, before any model runs, both the input effects it will
+synthesize and the fact that captured screens will leave the machine,
+alongside the standard egress banner. A related consequence of Kimiya's
+cross-provenance rule surfaced untouched: two Opus voters on a
+\texttt{shows} panel are one model family---one pair of eyes certifying
+its own reading---so the panel runs but is flagged uncertified, forcing
+a second vision family into any certifying screen judgment.
+
+\subsection{Actors, and what independence means}
+
+The agent-indexed surfaces $\iota$ of Figure~\ref{fig:extgrammar} are
+implemented as declared displays with per-seat coordinate spaces and
+per-seat freshness worlds: a box found in $B$'s capture can only produce
+a click delivered to $B$'s seat, and acting on $A$ never stales $B$'s
+observations. Implementation forced one honest distinction the grammar
+glosses: two actors that resolve to the same X server share one pointer
+and one keyboard focus, so their indices label \emph{intent}, not
+independence---the two-monitor staging of the original harness is in
+this class. Actors on distinct servers are genuinely independent, which
+we verified live: with a nested X server as seat $B$, clicking and
+typing on $B$ left seat $A$'s pointer untouched, and each seat's
+captures carried its own dimensions, origin, and hash. The certificate
+prints where every actor resolved, so a reviewer can tell which class a
+run was in.
+
+% ==================================================================
 \section{A Playbook for an Autonomous Testing Agent}
 \label{sec:playbook}
 % ==================================================================
@@ -1000,8 +1183,14 @@ regime (short, grounded, discriminative visual judgments) and no further.
 The datasheet is measured on one product's interface families and one
 model; the $\alpha$ bound is loose for want of true-negative trials
 (\S\ref{sec:datasheet}), and correlation is treated conservatively rather
-than measured. The world-effecting extension (\S\ref{sec:extend}) is a
-design with sketched obligations, not a mechanized metatheory. The harness
+than measured. The world-effecting extension (\S\ref{sec:extend}) now has a working
+implementation (\S\ref{sec:impl}) whose disciplines are enforced as
+check-time rejections, but its metatheory remains sketched, not
+mechanized, and the implementation's own guarantees are tested, not
+proved. Its remote (ssh) seats are exercised only to the point of
+command construction and failure handling, not against a second
+machine; and the grounded screen-read of the transcription is the one
+construct still unimplemented. The harness
 is Linux/X11-specific in its input and capture layers, requires exclusive
 use of the screen, and cannot test sub-second interactive behavior because
 perception latency is seconds. Finally, our evidence is one system and one
@@ -1027,7 +1216,11 @@ presence is precisely why judge error almost never became a false pass. We
 measured the locator's operating point from the run artifacts, derived a
 numeric certificate for a passing test, and identified the one place the
 correspondence strains---the external, timed world---proposing the
-constructs a world-effecting Kimiya needs. The method generalizes to a
+constructs a world-effecting Kimiya needs, and then implementing them:
+the transcribed scenario now checks, runs, and compiles, its
+certificate computed at the measured operating point, its proof
+obligations enforced as type errors, and its perception cache priced by
+epistemic grade. The method generalizes to a
 playbook any language-model agent can follow. We read all of this as a
 first, concrete step toward verifying the interactive, networked,
 cloud-backed systems that have no verification story today: use exactly
