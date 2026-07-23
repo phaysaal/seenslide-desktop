@@ -898,8 +898,9 @@ executable discipline, not proof.
 Everything in Figure~\ref{fig:extgrammar} is implemented. Surfaces are
 declared as \texttt{display} objects (a monitor region, another X
 server, or another machine over ssh); $\actc^{\iota}$ is spelled
-\texttt{act<A> screen.click(x,\,y)} with click, type, key, drag, and
-scroll effects delivered by OS-level input synthesis;
+\texttt{act<A> screen.click(x,\,y)} with click, confirm, type, paste
+(clipboard-backed, for text that per-keystroke synthesis mangles), key,
+drag, and scroll effects delivered by OS-level input synthesis;
 $\observe^{\iota}$ is \texttt{observe screen<A>()}, returning an
 observation that carries its capture origin, dimensions, and content
 hash; $\select$ over such an observation invokes the vision locator
