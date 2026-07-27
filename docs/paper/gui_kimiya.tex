@@ -1196,10 +1196,15 @@ check-time rejections, but its metatheory remains sketched, not
 mechanized, and the implementation's own guarantees are tested, not
 proved. Its remote (ssh) seats are exercised only to the point of
 command construction and failure handling, not against a second
-machine; and the grounded screen-read, though implemented, has been
-exercised against the mock oracle and local models only --- no measured
-datasheet exists yet for read accuracy, so a certificate carries it at
-prior grade. The harness
+machine; and the grounded screen-read now has a measured operating point
+from a rendered-ground-truth campaign (60/60 exact reads,
+$\beta \ge 0.94$ Wilson95; $0/20$ invented codes on code-free screens
+including word bait, $\alpha \le 0.16$; Opus~4.8 via the same
+headless-CLI path as the locator), but reads remain untrusted
+$\gen$ by design --- the gates after a read carry the warrant, and
+whether a read should enter $\conf$ directly at its measured rate,
+as a locate does, is an open design question the implementation
+deliberately leaves undecided. The harness
 is Linux/X11-specific in its input and capture layers, requires exclusive
 use of the screen, and cannot test sub-second interactive behavior because
 perception latency is seconds. Finally, our evidence is one system and one
