@@ -1200,11 +1200,13 @@ machine; and the grounded screen-read now has a measured operating point
 from a rendered-ground-truth campaign (60/60 exact reads,
 $\beta \ge 0.94$ Wilson95; $0/20$ invented codes on code-free screens
 including word bait, $\alpha \le 0.16$; Opus~4.8 via the same
-headless-CLI path as the locator), but reads remain untrusted
-$\gen$ by design --- the gates after a read carry the warrant, and
-whether a read should enter $\conf$ directly at its measured rate,
-as a locate does, is an open design question the implementation
-deliberately leaves undecided. The harness
+headless-CLI path as the locator), and as of v1.6 a read \emph{is priced}: a $\gen$ that consumes
+images contributes one $\conf$ factor at its datasheet's conservative
+end under a declared purpose (\texttt{under}), resolving the
+locate/read asymmetry conservatively --- where a downstream kernel gate
+independently re-verifies a read, $\conf$ double-counts slightly
+rather than ever overstating. Text-only $\gen$ remains factor-free:
+the model proposes, the gates warrant. The harness
 is Linux/X11-specific in its input and capture layers, requires exclusive
 use of the screen, and cannot test sub-second interactive behavior because
 perception latency is seconds. Finally, our evidence is one system and one
