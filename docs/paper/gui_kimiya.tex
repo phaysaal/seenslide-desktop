@@ -912,11 +912,17 @@ specified. The locator instrument runs Claude Opus~4.8, by default
 through the same headless-CLI path the harness of \S\ref{sec:harness}
 used---which is what makes installing Table~\ref{tab:sheet} legitimate:
 the datasheet is a measurement of \emph{this} instrument, not an
-assertion about a similar one. One construct from the transcription is
-not yet implemented: the grounded screen-read
-($\gen\langle\text{JoinCode}\rangle$ over an observation); the
-executable rendering reads the join code through a kernel oracle
-instead.
+assertion about a similar one. The last construct of the transcription
+to land was the grounded screen-read
+($\gen\langle\text{JoinCode}\rangle$ over an observation): since
+v1.5, screenshots feed $\gen$ directly ---
+\texttt{gen<Reading>("Read the join code shown",
+images=[observe screen<A>()])} --- as a typed, vision-gated generation
+whose freshness is re-verified against the observation's content hash
+before every call, and whose remote routing is disclosed on the
+certificate as image egress carrying \emph{which seat's} pixels left
+the machine. With that, every construct in the transcription of
+\S\ref{sec:transcribe} executes.
 
 The proof obligations of \S\ref{sec:extend} land as \emph{check-time
 rejection rules}, in the family of Kimiya's ban on silent semantic
@@ -1190,8 +1196,10 @@ check-time rejections, but its metatheory remains sketched, not
 mechanized, and the implementation's own guarantees are tested, not
 proved. Its remote (ssh) seats are exercised only to the point of
 command construction and failure handling, not against a second
-machine; and the grounded screen-read of the transcription is the one
-construct still unimplemented. The harness
+machine; and the grounded screen-read, though implemented, has been
+exercised against the mock oracle and local models only --- no measured
+datasheet exists yet for read accuracy, so a certificate carries it at
+prior grade. The harness
 is Linux/X11-specific in its input and capture layers, requires exclusive
 use of the screen, and cannot test sub-second interactive behavior because
 perception latency is seconds. Finally, our evidence is one system and one
