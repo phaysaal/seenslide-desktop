@@ -132,3 +132,53 @@ class CloudSessionsClient:
         except Exception as e:
             logger.error(f"Failed to create cloud session: {e}")
             return None
+
+    def update_session_access(
+        self,
+        session_id: str,
+        access_type: str,
+        password: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Set who may view a session (owner only).
+
+        access_type: "public" | "password_protected" | "private".
+        A password is required for password_protected (min 6 chars, checked
+        server-side too).
+
+        Returns {"ok": True, "access_type": ...} on success, or
+        {"ok": False, "error": "<human readable>"} on failure. Never raises.
+        """
+        if access_type not in ("public", "password_protected", "private"):
+            return {"ok": False, "error": f"Unknown access type: {access_type}"}
+        if access_type == "password_protected" and not (password or "").strip():
+            return {"ok": False, "error": "A password is required."}
+        if not self.is_configured():
+            return {"ok": False, "error": "Not signed in to the cloud."}
+
+        url = f"{self.api_url}/api/cloud/session/{session_id}/access"
+        body: Dict[str, Any] = {"access_type": access_type}
+        if access_type == "password_protected":
+            body["password"] = password
+        try:
+            resp = requests.put(url, headers=self._headers(), json=body, timeout=self.timeout)
+            if resp.status_code == 200:
+                logger.info(f"Session {session_id} access -> {access_type}")
+                return {"ok": True, "access_type": access_type}
+            detail = ""
+            try:
+                detail = resp.json().get("detail", "")
+            except Exception:
+                detail = resp.text[:200]
+            if resp.status_code == 403:
+                msg = "Only the session owner can change viewer access."
+            elif resp.status_code == 404:
+                msg = "Session not found in the cloud."
+            elif resp.status_code == 400:
+                msg = str(detail) or "The server rejected the request."
+            else:
+                msg = f"Cloud returned {resp.status_code}: {detail}"
+            logger.warning(f"update_session_access failed ({resp.status_code}): {detail}")
+            return {"ok": False, "error": msg}
+        except requests.RequestException as e:
+            logger.error(f"update_session_access network error: {e}")
+            return {"ok": False, "error": "Network error — check your connection."}

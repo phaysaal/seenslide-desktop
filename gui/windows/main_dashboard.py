@@ -30,6 +30,7 @@ from gui.utils import styles
 from gui.utils.icons import icon_pixmap
 from gui.widgets.countdown_widget import CountdownWidget
 from gui.widgets.new_session_dialog import NewSessionDialog
+from gui.widgets.session_access_dialog import SessionAccessDialog, access_badge
 from gui.widgets.sign_in_dialog import SignInDialog
 from gui.widgets.edit_account_dialog import EditAccountDialog
 from gui.widgets.nudge_dialog import NudgeDialog
@@ -595,6 +596,7 @@ class CloudSessionsWorker(QThread):
 
     finished_list = pyqtSignal(list)
     finished_create = pyqtSignal(dict)
+    finished_access = pyqtSignal(dict)
     failed = pyqtSignal(str)
 
     def __init__(self, client: CloudSessionsClient, op: str, **kwargs):
@@ -613,6 +615,13 @@ class CloudSessionsWorker(QThread):
                     self.failed.emit("Failed to create session — check your network and token.")
                 else:
                     self.finished_create.emit(result)
+            elif self.op == "access":
+                result = self.client.update_session_access(**self.kwargs)
+                if result.get("ok"):
+                    result["session_id"] = self.kwargs.get("session_id")
+                    self.finished_access.emit(result)
+                else:
+                    self.failed.emit(result.get("error") or "Failed to update viewer access.")
         except Exception as e:
             logger.error(f"CloudSessionsWorker {self.op} failed: {e}", exc_info=True)
             self.failed.emit(str(e))
@@ -2638,6 +2647,25 @@ class MainDashboard(QWidget):
             }}
         """)
         self.sd_delete_btn.clicked.connect(self._delete_selected_session)
+
+        # Viewer access (public / password / private) — cloud sessions only
+        self.sd_access_btn = QPushButton("Viewer Access")
+        self.sd_access_btn.setCursor(Qt.PointingHandCursor)
+        self.sd_access_btn.setFixedHeight(32)
+        self.sd_access_btn.setToolTip("Choose who can open this session's viewer link")
+        self.sd_access_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; color: {BLUE};
+                border: 1px solid {BLUE}; border-radius: 6px;
+                padding: 0 16px; font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background: {BLUE}; color: white;
+            }}
+        """)
+        self.sd_access_btn.clicked.connect(self._open_access_dialog)
+        sd_header.addWidget(self.sd_access_btn)
+        sd_header.addSpacing(8)
         sd_header.addWidget(self.sd_delete_btn)
 
         detail_layout.addLayout(sd_header)
@@ -3276,7 +3304,9 @@ class MainDashboard(QWidget):
             name = session_data.name or "Unnamed"
             cloud_id = session_data.cloud_collection_id
             self.sd_title.setText(name)
-            self.sd_subtitle.setText(f"Session: {cloud_id}")
+            badge = access_badge(self._access_type_for(cloud_id))
+            self.sd_subtitle.setText(f"Session: {cloud_id}" + (f" · {badge}" if badge else ""))
+            self.sd_access_btn.setVisible(True)
             # Load talks from local DB by matching cloud_session_id
             self._load_talks_for_cloud_id(cloud_id)
         else:
@@ -3287,9 +3317,74 @@ class MainDashboard(QWidget):
             self.sd_subtitle.setText(
                 f"Session: {sid} · {session_data.total_slides} slides · {session_data.status}"
             )
+            # Local-only sessions have no cloud access setting to edit
+            self.sd_access_btn.setVisible(bool(session_data.cloud_session_id))
             self._load_talks_for_session(session_data.session_id)
 
         self.sessions_detail_stack.setCurrentIndex(1)
+
+    # ── Viewer access ──────────────────────────────────────────────
+
+    def _access_type_for(self, cloud_id: Optional[str]) -> str:
+        """Access type from the last cloud sync ('public' when unknown)."""
+        for cs in self._cloud_sessions_cache or []:
+            if cs.get("session_id") == cloud_id:
+                return cs.get("access_type") or "public"
+        return "public"
+
+    def _open_access_dialog(self):
+        """Let the owner choose public / password / private for the selected session."""
+        sel = self._selected_session
+        if not sel:
+            return
+        if isinstance(sel, Collection):
+            name, cloud_id = (sel.name or "Unnamed"), sel.cloud_collection_id
+        else:
+            name, cloud_id = (sel.name or "Unnamed Session"), sel.cloud_session_id
+        if not cloud_id:
+            return
+        if not self.cloud_sessions_client.is_configured():
+            QMessageBox.warning(self, "Not signed in",
+                                "Sign in to the cloud to change who can view this session.")
+            return
+
+        dialog = SessionAccessDialog(name, cloud_id, self._access_type_for(cloud_id), self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        self.sd_access_btn.setEnabled(False)
+        self.session_status_label.setText("Updating viewer access…")
+        self.session_status_label.setVisible(True)
+        worker = CloudSessionsWorker(
+            self.cloud_sessions_client, op="access",
+            session_id=cloud_id, access_type=dialog.access_type, password=dialog.password,
+        )
+        worker.finished_access.connect(self._on_access_updated)
+        worker.failed.connect(self._on_access_failed)
+        worker.finished.connect(worker.deleteLater)
+        self._access_worker = worker
+        worker.start()
+
+    def _on_access_updated(self, result: dict):
+        self.sd_access_btn.setEnabled(True)
+        cloud_id, access_type = result.get("session_id"), result.get("access_type", "public")
+        # Keep the cached cloud row in step so the badge is right before the next sync
+        for cs in self._cloud_sessions_cache or []:
+            if cs.get("session_id") == cloud_id:
+                cs["access_type"] = access_type
+                cs["is_private"] = access_type != "public"
+        label = {"public": "Public", "password_protected": "Password protected",
+                 "private": "Private"}.get(access_type, access_type)
+        self.session_status_label.setText(f"Viewer access set to {label}.")
+        QTimer.singleShot(3000, lambda: self.session_status_label.setVisible(False))
+        if self._selected_session is not None:
+            self._on_session_selected(self._selected_session)
+        logger.info(f"Viewer access for {cloud_id} -> {access_type}")
+
+    def _on_access_failed(self, reason: str):
+        self.sd_access_btn.setEnabled(True)
+        self.session_status_label.setVisible(False)
+        QMessageBox.warning(self, "Viewer access not changed", reason)
 
     def _delete_selected_session(self):
         """Delete the currently selected session."""

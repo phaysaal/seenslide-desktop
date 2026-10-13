@@ -3,7 +3,7 @@
 import logging
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QCheckBox, QMessageBox, QGroupBox
+    QPushButton, QCheckBox, QMessageBox, QGroupBox, QWidget
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont

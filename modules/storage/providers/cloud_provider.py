@@ -582,7 +582,9 @@ class CloudStorageProvider(IStorageProvider):
 
         try:
             url = f"{self.api_url}/api/cloud/session/{session_id}"
-            response = requests.get(url, timeout=5)
+            # Owner bearer: protected sessions answer 403 to anonymous reads.
+            headers = {"Authorization": f"Bearer {self.session_token}"} if self.session_token else {}
+            response = requests.get(url, headers=headers, timeout=5)
             if response.status_code == 200:
                 logger.info(f"✅ Session {session_id} exists in cloud")
                 return True
@@ -672,6 +674,7 @@ class CloudStorageProvider(IStorageProvider):
         try:
             url = f"{self.api_url}/api/cloud/session/{collection_id}/alias"
             headers = {
+                "Authorization": f"Bearer {self.session_token}",
                 "Content-Type": "application/json"
             }
             data = {
@@ -717,7 +720,9 @@ class CloudStorageProvider(IStorageProvider):
 
         try:
             url = f"{self.api_url}/api/cloud/session/{collection_id}/password"
+            # Owner-only on the server since the access-control update.
             headers = {
+                "Authorization": f"Bearer {self.session_token}",
                 "Content-Type": "application/json"
             }
             data = {
@@ -742,6 +747,39 @@ class CloudStorageProvider(IStorageProvider):
                     pass
             return False
 
+    def update_collection_access(
+        self,
+        collection_id: str,
+        access_type: str,
+        password: Optional[str] = None,
+    ) -> bool:
+        """Set viewer access for a collection (owner only).
+
+        access_type: "public" | "password_protected" | "private".
+        This is the VIEWER password (what students type in the web/Android
+        viewer), distinct from the collection admin credential handled by
+        update_collection_password.
+        """
+        if not self.enabled:
+            logger.warning("Cloud disabled, cannot update viewer access")
+            return False
+        try:
+            url = f"{self.api_url}/api/cloud/session/{collection_id}/access"
+            headers = {
+                "Authorization": f"Bearer {self.session_token}",
+                "Content-Type": "application/json",
+            }
+            data: Dict[str, Any] = {"access_type": access_type}
+            if access_type == "password_protected":
+                data["password"] = password or ""
+            response = requests.put(url, headers=headers, json=data, timeout=10)
+            response.raise_for_status()
+            logger.info(f"✅ Viewer access for {collection_id} set to {access_type}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update viewer access: {e}", exc_info=True)
+            return False
+
     def get_collection_info(
         self,
         collection_id_or_alias: str
@@ -761,6 +799,7 @@ class CloudStorageProvider(IStorageProvider):
         try:
             url = f"{self.api_url}/api/cloud/session/{collection_id_or_alias}"
             headers = {
+                "Authorization": f"Bearer {self.session_token}",
                 "Content-Type": "application/json"
             }
 
