@@ -5113,17 +5113,33 @@ class MainDashboard(QWidget):
         isn't garbage-collected the moment this method returns.
         """
         from gui.windows.slide_deck_window import SlideDeckWindow
+        # The deck joins the dashboard's current session by default (the same
+        # one a live talk would go into); the window offers "new session" too.
+        cur = self.collection_registry.get_current_collection()
+        cur_id = cur.cloud_collection_id if cur else None
+        cur_name = cur.name if cur else None
         win = getattr(self, "_deck_window", None)
         if win is None or not win.isVisible():
             # Fresh window on first open or after the last one was closed, so
             # each upload starts clean; reuse it if it's already on screen.
-            win = SlideDeckWindow()
+            win = SlideDeckWindow(target_session_id=cur_id, target_session_name=cur_name)
+            win.uploaded.connect(self._on_deck_uploaded)
             self._deck_window = win
+        else:
+            win.set_target_session(cur_id, cur_name)
         win.show()
         win.raise_()
         win.activateWindow()
         if path:
             win.load_file(path)
+
+    def _on_deck_uploaded(self, cloud_id: str):
+        """A deck talk landed in `cloud_id`: refresh the Sessions list so the
+        new talk and slide count show up without a manual sync."""
+        try:
+            self._refresh_sessions_list()
+        except Exception as e:
+            logger.warning(f"Sessions refresh after deck upload failed: {e}")
 
     def _on_sensitivity_changed(self, value):
         # Persist so the choice survives launches. The value is read at

@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGroupBox,
     QFileDialog, QRadioButton, QButtonGroup, QCheckBox, QComboBox,
     QLineEdit, QProgressBar, QMessageBox, QApplication, QShortcut, QSizePolicy,
+    QFormLayout,
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QThread, QTimer
 from PyQt5.QtGui import QFont, QPixmap, QImage, QKeySequence
@@ -53,6 +54,27 @@ class ConvertWorker(QThread):
 # Background worker for bulk upload
 # ---------------------------------------------------------------------------
 
+def _resolve_target_session(cloud: CloudStorageProvider, target_session_id: Optional[str],
+                            talk_name: str, presenter: str) -> str:
+    """Point the provider at the session the talk should land in.
+
+    With a target the deck joins that existing session (the one the
+    dashboard has marked current, so the talk shows up next to the
+    presenter's live talks). Without one a fresh session is created and
+    named after the talk — that is what the window used to do silently,
+    which left every PDF upload in its own orphan session.
+    """
+    if target_session_id:
+        cloud.cloud_session_id = target_session_id
+        cloud.current_talk_id = None
+        return target_session_id
+    return cloud.start_session(
+        session_id="",
+        session_name=talk_name,
+        presenter_name=presenter or "Unknown",
+    ) or ""
+
+
 class UploadWorker(QThread):
     """Uploads all slide images to the cloud."""
 
@@ -61,21 +83,21 @@ class UploadWorker(QThread):
     failed = pyqtSignal(str)
 
     def __init__(self, cloud: CloudStorageProvider, images: List[Image.Image],
-                 talk_name: str, presenter: str, parent=None):
+                 talk_name: str, presenter: str, parent=None,
+                 target_session_id: Optional[str] = None):
         super().__init__(parent)
         self.cloud = cloud
         self.images = images
         self.talk_name = talk_name
         self.presenter = presenter
+        # Existing cloud session to add the talk to. None = create a new
+        # session named after the talk (the old behaviour).
+        self.target_session_id = target_session_id
 
     def run(self):
         try:
-            # Create session
-            session_id = self.cloud.start_session(
-                session_id="",
-                session_name=self.talk_name,
-                presenter_name=self.presenter or "Unknown",
-            )
+            session_id = _resolve_target_session(
+                self.cloud, self.target_session_id, self.talk_name, self.presenter)
             if not session_id:
                 self.failed.emit("Failed to create cloud session")
                 return
@@ -122,14 +144,21 @@ class SlideDeckWindow(QWidget):
     """Window for uploading PDF/PPTX as slides."""
 
     close_requested = pyqtSignal()
+    # Emitted with the cloud session id once a talk has been added to it, so
+    # the dashboard can refresh its Sessions list.
+    uploaded = pyqtSignal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, target_session_id: Optional[str] = None,
+                 target_session_name: Optional[str] = None):
         super().__init__(parent)
         self._images: List[Image.Image] = []
         self._file_path: Optional[str] = None
         self._cloud: Optional[CloudStorageProvider] = None
         self._current_slide: int = 0
         self._session_id: Optional[str] = None
+        # The dashboard's current session (None when nothing is selected).
+        self._target_session_id: Optional[str] = target_session_id or None
+        self._target_session_name: str = target_session_name or ""
         self._is_presenting: bool = False
         self._slides_uploaded: int = 0
 
@@ -163,12 +192,15 @@ class SlideDeckWindow(QWidget):
     def _setup_ui(self):
         from gui.utils.styles import (
             set_window_bg, make_card, btn_primary, btn_danger, btn_ghost,
-            input_style, section_title_style, hint_style,
+            input_style, section_title_style, hint_style, choice_style,
             FONT_TITLE, FONT_SECTION, TEXT, TEXT_MUTED, PRIMARY, INPUT_BORDER,
         )
 
         self.setWindowTitle("Upload Slides — SeenSlide")
-        self.setMinimumSize(560, 560)
+        # Width is pinned; the minimum height comes from the layout so the
+        # window can never be shrunk into overlapping fields.
+        self.setMinimumWidth(600)
+        self.resize(640, 820)
         set_window_bg(self)
 
         main = QVBoxLayout(self)
@@ -188,6 +220,8 @@ class SlideDeckWindow(QWidget):
 
         main.addSpacing(8)
 
+        radio_style = choice_style()
+
         # --- File picker ---
         file_card = make_card(self)
         fl = QVBoxLayout(file_card)
@@ -205,13 +239,38 @@ class SlideDeckWindow(QWidget):
         pick_btn.clicked.connect(self._pick_file)
         file_row.addWidget(pick_btn)
         fl.addLayout(file_row)
+
+        # Slide count (filled after conversion; hidden until then)
+        self._slide_count_label = QLabel("")
+        self._slide_count_label.setStyleSheet(
+            "color: #16a34a; font-size: 12px; font-weight: bold; background: transparent;")
+        self._slide_count_label.setVisible(False)
+        fl.addWidget(self._slide_count_label)
         main.addWidget(file_card)
 
-        # --- Slide count info ---
-        self._slide_count_label = QLabel("")
-        self._slide_count_label.setFont(QFont("Arial", 11))
-        self._slide_count_label.setStyleSheet("color: #16a34a; font-weight: bold;")
-        main.addWidget(self._slide_count_label)
+        # --- Destination session ---
+        dest_card = make_card(self)
+        dl = QVBoxLayout(dest_card)
+        dl.setContentsMargins(18, 14, 18, 14)
+        dl.setSpacing(6)
+        dt = QLabel("Upload To")
+        dt.setStyleSheet(section_title_style())
+        dl.addWidget(dt)
+        self._dest_group = QButtonGroup(self)
+        self._radio_current = QRadioButton()
+        self._radio_current.setStyleSheet(radio_style)
+        self._radio_new = QRadioButton("A new session (named after the talk title)")
+        self._radio_new.setStyleSheet(radio_style)
+        self._dest_group.addButton(self._radio_current, 0)
+        self._dest_group.addButton(self._radio_new, 1)
+        dl.addWidget(self._radio_current)
+        dl.addWidget(self._radio_new)
+        self._dest_hint = QLabel("")
+        self._dest_hint.setWordWrap(True)
+        self._dest_hint.setStyleSheet(hint_style() + " background: transparent;")
+        dl.addWidget(self._dest_hint)
+        main.addWidget(dest_card)
+        self._apply_target_session()
 
         # --- Mode selection ---
         mode_card = make_card(self)
@@ -221,7 +280,6 @@ class SlideDeckWindow(QWidget):
         mt.setStyleSheet(section_title_style())
         ml.addWidget(mt)
         self._mode_group = QButtonGroup(self)
-        radio_style = f"QRadioButton {{ color: {TEXT}; font-size: 13px; background: transparent; }}"
         self._radio_all = QRadioButton("Upload all slides at once")
         self._radio_all.setStyleSheet(radio_style)
         self._radio_sync = QRadioButton("Sync with my live talk (advance slides manually)")
@@ -241,28 +299,31 @@ class SlideDeckWindow(QWidget):
         it.setStyleSheet(section_title_style())
         il.addWidget(it)
         self.setStyleSheet(input_style())  # Apply to all inputs in this window
-        row1 = QHBoxLayout()
+        form = QFormLayout()
+        form.setContentsMargins(0, 4, 0, 0)
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(8)
+        form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        label_style = f"color: {TEXT}; font-size: 13px; background: transparent;"
         lbl1 = QLabel("Title:")
-        lbl1.setStyleSheet(f"color: {TEXT}; background: transparent;")
-        row1.addWidget(lbl1)
+        lbl1.setStyleSheet(label_style)
         self._title_input = QLineEdit()
         self._title_input.setPlaceholderText("e.g., Lecture 5: Data Structures")
-        self._title_input.setFixedHeight(36)
-        row1.addWidget(self._title_input)
-        il.addLayout(row1)
-        row2 = QHBoxLayout()
+        self._title_input.setMinimumHeight(38)
+        form.addRow(lbl1, self._title_input)
         lbl2 = QLabel("Presenter:")
-        lbl2.setStyleSheet(f"color: {TEXT}; background: transparent;")
-        row2.addWidget(lbl2)
+        lbl2.setStyleSheet(label_style)
         self._presenter_input = QLineEdit()
         self._presenter_input.setPlaceholderText("e.g., Dr. Smith")
-        self._presenter_input.setFixedHeight(36)
-        row2.addWidget(self._presenter_input)
-        il.addLayout(row2)
+        self._presenter_input.setMinimumHeight(38)
+        form.addRow(lbl2, self._presenter_input)
+        il.addLayout(form)
         main.addWidget(info_card)
 
         # --- Voice recording ---
         self._voice_check = QCheckBox("Record audio (microphone)")
+        self._voice_check.setStyleSheet(radio_style)
         self._mic_combo = QComboBox()
         self._mic_combo.addItem("Default microphone", None)
         self._populate_mics()
@@ -373,6 +434,38 @@ class SlideDeckWindow(QWidget):
         QShortcut(QKeySequence(Qt.Key_Space), self, self._next_slide)
 
     # ------------------------------------------------------------------
+    # Destination session
+    # ------------------------------------------------------------------
+
+    def set_target_session(self, session_id: Optional[str], session_name: Optional[str] = None):
+        """Point the window at the dashboard's current session (None = none)."""
+        self._target_session_id = session_id or None
+        self._target_session_name = session_name or ""
+        self._apply_target_session()
+
+    def _apply_target_session(self):
+        has_target = bool(self._target_session_id)
+        self._radio_current.setVisible(has_target)
+        self._radio_new.setVisible(has_target)
+        if has_target:
+            name = self._target_session_name or "Current session"
+            self._radio_current.setText(f"Current session: {name}  ({self._target_session_id})")
+            self._radio_current.setChecked(True)
+            self._dest_hint.setText(
+                "The talk is added to the selected session, next to your live talks.")
+        else:
+            self._radio_new.setChecked(True)
+            self._dest_hint.setText(
+                "No session is selected, so a new session named after the talk title "
+                "will be created. Pick one on the Sessions tab to upload into it.")
+
+    def selected_target_session_id(self) -> Optional[str]:
+        """Session to add the talk to, or None to create a new one."""
+        if self._target_session_id and self._radio_current.isChecked():
+            return self._target_session_id
+        return None
+
+    # ------------------------------------------------------------------
     # File picking & conversion
     # ------------------------------------------------------------------
 
@@ -404,6 +497,7 @@ class SlideDeckWindow(QWidget):
         self._file_label.setText(Path(path).name)
         self._start_btn.setEnabled(False)
         self._slide_count_label.setText("")
+        self._slide_count_label.setVisible(False)
         self._status_label.setText("Converting file...")
 
         # Auto-fill title from filename
@@ -421,6 +515,7 @@ class SlideDeckWindow(QWidget):
         self._images = images
         n = len(images)
         self._slide_count_label.setText(f"Found {n} slide{'s' if n != 1 else ''}")
+        self._slide_count_label.setVisible(True)
         self._status_label.setText("")
         self._start_btn.setEnabled(n > 0)
         logger.info(f"Converted {n} slides from {self._file_path}")
@@ -428,6 +523,7 @@ class SlideDeckWindow(QWidget):
     def _on_convert_failed(self, error: str):
         self._images = []
         self._slide_count_label.setText("")
+        self._slide_count_label.setVisible(False)
         self._status_label.setText(f"Conversion failed: {error}")
         QMessageBox.critical(self, "Conversion Failed", error)
 
@@ -469,7 +565,8 @@ class SlideDeckWindow(QWidget):
         self._status_label.setText("Uploading slides...")
 
         self._upload_worker = UploadWorker(
-            self._cloud, self._images, title, presenter
+            self._cloud, self._images, title, presenter,
+            target_session_id=self.selected_target_session_id(),
         )
         self._upload_worker.progress.connect(self._on_upload_progress)
         self._upload_worker.finished.connect(self._on_upload_done)
@@ -483,16 +580,20 @@ class SlideDeckWindow(QWidget):
     def _on_upload_done(self, viewer_url: str):
         self._progress.setVisible(False)
         self._session_id = self._cloud.cloud_session_id
+        where = (f"session “{self._target_session_name}”"
+                 if self.selected_target_session_id() else "a new session")
         self._status_label.setText(
-            f"All {len(self._images)} slides uploaded!\n"
+            f"All {len(self._images)} slides uploaded to {where}.\n"
             f"Viewer URL: {viewer_url}"
         )
         QMessageBox.information(
             self, "Upload Complete",
-            f"All {len(self._images)} slides uploaded.\n\n"
+            f"All {len(self._images)} slides uploaded to {where}.\n\n"
             f"Viewers can access at:\n{viewer_url}"
         )
         self._start_btn.setEnabled(True)
+        if self._session_id:
+            self.uploaded.emit(self._session_id)
 
     def _on_upload_failed(self, error: str):
         self._progress.setVisible(False)
@@ -508,12 +609,9 @@ class SlideDeckWindow(QWidget):
         title = self._title_input.text().strip()
         presenter = self._presenter_input.text().strip()
 
-        # Create cloud session + talk
-        session_id = self._cloud.start_session(
-            session_id="",
-            session_name=title,
-            presenter_name=presenter or "Unknown",
-        )
+        # Join the chosen session (or create a new one), then open the talk
+        session_id = _resolve_target_session(
+            self._cloud, self.selected_target_session_id(), title, presenter)
         if not session_id:
             QMessageBox.critical(self, "Error", "Failed to create cloud session.")
             return
@@ -544,6 +642,7 @@ class SlideDeckWindow(QWidget):
         self._show_slide(0)
         self._upload_current_slide()
 
+        self.uploaded.emit(session_id)
         logger.info(f"Sync mode started: {session_id} ({len(self._images)} slides)")
 
     def _show_slide(self, index: int):
@@ -585,7 +684,7 @@ class SlideDeckWindow(QWidget):
         from core.models.slide import ProcessedSlide
         slide = ProcessedSlide(
             slide_id=f"slide-{idx+1}",
-            session_id=self.cloud_session_id or "",
+            session_id=self._session_id or "",
             talk_id=self._cloud.current_talk_id or "",
             sequence_number=idx + 1,
         )

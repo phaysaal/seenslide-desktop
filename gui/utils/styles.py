@@ -235,8 +235,34 @@ def chip_style(kind: str = "ok") -> str:
             f" padding: 3px 9px; font-size: 11px; font-weight: 600; }}")
 
 
+def choice_style() -> str:
+    """QRadioButton / QCheckBox with an explicitly drawn indicator.
+
+    Once a stylesheet touches these widgets Qt stops drawing the native
+    indicator, so the box / circle must be described here or it vanishes
+    (unchecked radios became invisible, the checkbox lost its box).
+    """
+    return f"""
+        QRadioButton, QCheckBox {{
+            color: {TEXT}; font-size: 13px; background: transparent; spacing: 8px;
+        }}
+        /* width/height exclude the border: every state below totals 18px */
+        QRadioButton::indicator, QCheckBox::indicator {{
+            width: 15px; height: 15px;
+            border: 1.5px solid {INPUT_BORDER}; background: {CARD_BG};
+        }}
+        QRadioButton::indicator {{ border-radius: 9px; }}
+        QCheckBox::indicator {{ border-radius: 4px; }}
+        QRadioButton::indicator:hover, QCheckBox::indicator:hover {{ border-color: {PRIMARY}; }}
+        QRadioButton::indicator:checked {{
+            width: 8px; height: 8px; border: 5px solid {PRIMARY}; background: {CARD_BG};
+        }}
+        QCheckBox::indicator:checked {{ border-color: {PRIMARY}; background: {PRIMARY}; }}
+    """
+
+
 def section_title_style() -> str:
-    return f"color: {TEXT}; font-size: 12px; font-weight: bold;"
+    return f"color: {TEXT}; font-size: 12px; font-weight: bold; background: transparent;"
 
 
 def hint_style() -> str:
